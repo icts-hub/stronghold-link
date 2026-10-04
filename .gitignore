@@ -1,0 +1,35 @@
+# 依赖与构建产物
+node_modules/
+release/
+dist/
+out/
+build/*.exe
+
+# 测试与运行产物
+test-out/
+*.log
+smoke-*.json
+*-result.json
+packaged-userdata/
+
+# Steamworks SDK：Valve 授权不允许随软件分发，必须由使用者自行放入
+steamworks_sdk/**/*.dll
+steamworks_sdk/**/*.lib
+steamworks_sdk/**/*.so
+steamworks_sdk/**/*.dylib
+steamworks_sdk/redistributable_bin/
+steamwork_sdk/
+steam_appid.txt
+
+# 打包分发包
+*.zip
+*.7z
+*.rar
+
+# 系统与编辑器
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp

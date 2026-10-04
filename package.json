@@ -1,0 +1,92 @@
+{
+  "name": "stronghold-link",
+  "version": "0.9.0",
+  "description": "Stronghold Link — 通用内网穿透工具（本地 TCP/UDP 中继 + Steam P2P 隧道 + 端到端加密）",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "smoke:restricted": "electron . --smoke --no-sandbox",
+    "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
+    "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
+    "build": "electron-builder --win nsis",
+    "build:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "39.8.10",
+    "electron-builder": "^26.0.0"
+  },
+  "optionalDependencies": {
+    "steamworks-ffi-node": "^0.11.3"
+  },
+  "build": {
+    "appId": "com.strongholdlink.tunnel",
+    "productName": "Stronghold Link",
+    "copyright": "Stronghold Link",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "../release"
+    },
+    "files": [
+      "electron/**/*",
+      "network/**/*",
+      "src/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/*.md",
+      "!**/test/**"
+    ],
+    "asar": true,
+    "extraFiles": [
+      {
+        "from": "dist-extras",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Stronghold-Link-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Stronghold Link",
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "icts-hub",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/icts-hub/stronghold-link.git"
+  },
+  "homepage": "https://github.com/icts-hub/stronghold-link#readme",
+  "bugs": {
+    "url": "https://github.com/icts-hub/stronghold-link/issues"
+  },
+  "keywords": [
+    "nat-traversal",
+    "port-forwarding",
+    "steam",
+    "steamworks",
+    "p2p",
+    "tcp-relay",
+    "udp-relay",
+    "electron",
+    "tunnel"
+  ]
+}

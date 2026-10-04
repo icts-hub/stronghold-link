@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 测试（${{ matrix.os }} / Node ${{ matrix.node }}）
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        node: ['20.x', '22.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # steamworks-ffi-node 是可选依赖：装不上也不影响除 Steam 之外的测试
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+        continue-on-error: true
+
+      - name: 确认 Electron 已安装
+        run: node -e "console.log('electron', require('electron/package.json').version)"
+        continue-on-error: true
+
+      # 受限环境（沙箱/无管道）下用单进程模式，避免 node:test 子进程隔离失败
+      - name: 运行测试
+        run: npm run test:single
+        env:
+          SHL_KEEP_SANDBOX: '1'
+
+      - name: 上报测试失败日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.os }}-${{ matrix.node }}
+          path: |
+            test-out/
+            *.log
+          if-no-files-found: ignore

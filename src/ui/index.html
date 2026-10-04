@@ -1,0 +1,477 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Stronghold Link — 通用内网穿透</title>
+<style>
+:root{--bg:#101217;--panel:#181b22;--panel2:#20242d;--line:#343945;--muted:#9299a7;--text:#f0f2f6;--blue:#4d83ff;--blue2:#7ba1ff;--warn:#d7ad58;--red:#e17878}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,"Microsoft YaHei",Arial,sans-serif;min-height:100vh}button,input,select{font:inherit}button{cursor:pointer}
+.shell{min-height:100vh;display:grid;grid-template-columns:72px 1fr}.rail{background:#15171d;border-right:1px solid var(--line);display:flex;align-items:center;flex-direction:column;padding:20px 0;gap:26px}.logo{width:38px;height:38px}.logo svg{width:100%}.nav{display:flex;flex-direction:column;gap:9px}.nav button{width:42px;height:42px;background:transparent;border:1px solid transparent;color:#858b98;display:grid;place-items:center}.nav button.active,.nav button:hover{background:#252a34;border-color:#3b414d;color:white}.nav svg{width:18px;height:18px}.railfoot{margin-top:auto;writing-mode:vertical-rl;color:#737987;font-size:9px;letter-spacing:2px}
+main{min-width:0;display:flex;flex-direction:column}.top{height:58px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 30px}.brand{font-size:11px;font-weight:800;letter-spacing:2px}.topright{display:flex;gap:18px;align-items:center;color:var(--muted);font-size:9px;letter-spacing:1.2px}.statusdot{width:7px;height:7px;border-radius:50%;background:var(--warn);display:inline-block;margin-right:7px}
+.wrap{width:min(1260px,100%);margin:auto;padding:30px 34px 24px;flex:1}.pagehead{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:24px}.eyebrow{font-size:9px;color:var(--muted);letter-spacing:2px;display:flex;align-items:center;gap:9px}.eyebrow:before{content:"";width:17px;height:1px;background:var(--blue)}h1{font-size:clamp(32px,4vw,48px);letter-spacing:-2px;margin:12px 0 5px;line-height:1;font-weight:750}.sub{font-size:11px;color:var(--muted);line-height:1.7}.btn{border:1px solid #414754;background:#222630;color:#e9ebef;padding:10px 14px;font-size:10px;letter-spacing:.5px}.btn:hover{border-color:#78849a;background:#292e39}.btn.primary{background:var(--blue);border-color:var(--blue);color:white}.btn.primary:hover{background:#3e73ed}.btn.ghost{background:transparent}.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:15px}.search{position:relative;flex:1;max-width:360px}.search input{width:100%;background:#171a20;border:1px solid var(--line);padding:10px 12px 10px 34px;color:var(--text);outline:none;font-size:11px}.search:before{content:"⌕";position:absolute;left:12px;top:6px;color:#8b92a0;font-size:18px}.search input:focus,.field input:focus,.field select:focus{border-color:var(--blue)}
+.count{font-size:9px;color:#838a98;letter-spacing:1px;margin-left:auto}.library{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.game{min-height:178px;background:var(--panel);border:1px solid var(--line);padding:16px;display:flex;flex-direction:column;position:relative;overflow:hidden;transition:.18s}.game:hover{border-color:#697386;background:#1c2028}.game.selected{border-color:#4d83ff88}.game.selected:after{content:"";position:absolute;right:-31px;top:-31px;width:65px;height:65px;border:1px solid #4d83ff66;transform:rotate(45deg)}.gamehead{display:flex;justify-content:space-between;align-items:flex-start}.glyph{width:38px;height:38px;border:1px solid #4b5260;display:grid;place-items:center;color:var(--blue);font-size:15px;font-weight:700;background:#20242c}.gamecode{font-size:8px;color:#777f8e;letter-spacing:1.3px}.game h2{font-size:16px;margin:15px 0 5px;font-weight:650}.game p{font-size:10px;color:#9299a7;margin:0}.tags{display:flex;gap:6px;margin-top:10px}.tag{font-size:8px;color:#b9c0cd;border:1px solid #3b414d;padding:4px 6px;letter-spacing:.7px}.gamefoot{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:15px}.port{font-size:9px;color:#a8afbb}.gameactions{display:flex;gap:6px}.mini{border:0;background:transparent;color:#8e96a5;padding:3px 5px;font-size:10px}.mini:hover{color:white}.empty{grid-column:1/-1;border:1px dashed #3a404b;padding:45px 20px;text-align:center;color:var(--muted);font-size:11px;line-height:2}
+.section{margin-top:25px;border-top:1px solid var(--line);padding-top:15px}.sectiontitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.sectiontitle strong{font-size:9px;letter-spacing:1.5px;font-weight:600}.sectiontitle span{font-size:9px;color:#7e8593}.quick{display:grid;grid-template-columns:1fr 1fr;gap:12px}.quickcard{border:1px solid var(--line);background:#171a20;padding:15px;display:flex;align-items:center;gap:14px}.quickicon{width:35px;height:35px;display:grid;place-items:center;border:1px solid #3d4553;color:var(--blue);font-size:17px}.quickcard strong{font-size:12px;display:block;margin-bottom:4px}.quickcard small{font-size:9px;color:var(--muted)}.quickcard button{margin-left:auto}
+footer{height:38px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 30px;color:#737987;font-size:8px;letter-spacing:1.2px;flex-shrink:0}
+.view{display:none}.view.active{display:block}
+.detailgrid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr);gap:14px}.panel{background:var(--panel);border:1px solid var(--line);padding:18px}.panel h3{font-size:12px;margin:0 0 15px;letter-spacing:.6px}.kv{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #2c3039;font-size:10px}.kv:last-child{border:0}.kv span:first-child{color:var(--muted)}.kv span:last-child{color:#dfe2e8;text-align:right}.notice{border-left:2px solid var(--warn);padding:9px 12px;background:#d7ad580b;color:#aeb4bf;font-size:10px;line-height:1.7;margin-top:14px}
+.overlay{position:fixed;inset:0;background:#07080bd9;display:none;align-items:center;justify-content:center;padding:18px;z-index:10}.overlay.open{display:flex}.dialog{width:min(520px,100%);max-height:90vh;overflow:auto;background:#191c23;border:1px solid #454b57;padding:23px;box-shadow:0 25px 80px #0009;position:relative}.dialog:before{content:"";position:absolute;left:23px;top:-1px;width:50px;height:2px;background:var(--blue)}.dialoghead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}.dialoghead small{font-size:8px;color:var(--muted);letter-spacing:1.6px}.dialoghead h2{font-size:22px;margin:7px 0 0}.close{border:0;background:none;color:#a1a7b1;font-size:22px}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.field{display:flex;flex-direction:column;gap:7px;margin:10px 0}.field.full{grid-column:1/-1}.field label{font-size:9px;color:#aab0bb;letter-spacing:.7px}.field input,.field select{width:100%;background:#111318;border:1px solid #3b414c;padding:11px;color:var(--text);font-size:11px;outline:none;border-radius:0}.field select{appearance:auto}.field textarea{width:100%;background:#111318;border:1px solid #3b414c;padding:11px;color:var(--text);font-size:11px;outline:none;resize:vertical}.checkline{display:flex;align-items:center;gap:8px;color:#aeb4bf;font-size:10px;margin-top:8px}.dialoghint{font-size:9px;color:#828997;line-height:1.7;margin:12px 0}.dialogactions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.toast{position:fixed;bottom:52px;left:50%;transform:translate(-50%,10px);opacity:0;transition:.2s;background:#252a33;border:1px solid #4b5260;padding:10px 15px;font-size:10px;z-index:20;pointer-events:none}.toast.show{opacity:1;transform:translate(-50%,0)}
+@media(max-width:900px){.library{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{padding:24px 22px}.top{padding:0 20px}.detailgrid{grid-template-columns:1fr}}
+@media(max-width:600px){.shell{grid-template-columns:54px 1fr}.library,.quick{grid-template-columns:1fr}.pagehead{align-items:flex-start;flex-direction:column}.toolbar{flex-wrap:wrap}.search{max-width:none;width:100%;flex-basis:100%}.topright .build{display:none}.formgrid{grid-template-columns:1fr}.field.full{grid-column:auto}footer{padding:0 15px}footer span:last-child{display:none}}
+.fieldgroup{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;grid-column:1/-1}
+.fieldgroup[hidden]{display:none}
+.inputrow{display:flex;gap:8px;align-items:stretch}
+.inputrow input{flex:1}
+.pill{display:inline-block;padding:3px 8px;border:1px solid #3b414d;color:#9299a7;font-size:9px;letter-spacing:1.2px}
+.pill.state-running{border-color:#4d83ff;color:#b3c8ff;background:#4d83ff1a}
+.pill.state-starting,.pill.state-stopping{border-color:#d7ad58;color:#e3c481;background:#d7ad581a}
+.pill.state-error{border-color:#e17878;color:#f0a3a3;background:#e178781a}
+.invitebox{border:1px solid #3b414d;background:#111318;padding:12px;margin-top:14px}
+.invitebox textarea{width:100%;background:transparent;border:0;color:#cfd6e4;font-size:10px;font-family:ui-monospace,Consolas,monospace;resize:vertical;outline:none;line-height:1.7}
+.logs{height:180px;overflow:auto;border:1px solid #2c3039;background:#111318;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:9.5px;line-height:1.75}
+.logs div{white-space:pre-wrap;word-break:break-word}
+.logs .t{color:#6f7684;margin-right:6px}
+.logwarn{color:#e3c481}.logerror{color:#f0a3a3}.logok{color:#a9c2ff}
+.warnbox{border-left:2px solid var(--warn);background:#d7ad580b;padding:9px 12px;font-size:10px;line-height:1.8;margin-top:12px;color:#c3c9d4}
+.errbox{border-left:2px solid var(--red);background:#e1787810;padding:9px 12px;font-size:10px;line-height:1.8;margin-top:12px;color:#f0b3b3}
+.mono{font-family:ui-monospace,Consolas,monospace}
+.hintline{font-size:9px;color:#828997;line-height:1.7;margin:10px 0 0}
+@media(max-width:600px){.fieldgroup{grid-template-columns:1fr}.fieldgroup .field{grid-column:auto}}
+.chanlist{border:1px solid #2c3039;background:#111318}
+.chanrow{display:grid;grid-template-columns:52px 1fr 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid #23272f;font-size:9.5px}
+.chanrow:last-child{border-bottom:0}
+.chanrow .proto{font-weight:700;letter-spacing:1px;color:#b3c8ff}
+.chanrow .proto.udp{color:#8fb6ff}
+.chanempty{padding:12px 10px;color:#7e8593;font-size:9.5px}
+.chanstat{color:#9299a7;font-family:ui-monospace,Consolas,monospace;text-align:right}
+@media(max-width:600px){.chanrow{grid-template-columns:44px 1fr;row-gap:4px}.chanstat{text-align:left}}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="rail">
+<div class="logo"><svg viewBox="0 0 40 40"><polygon points="20,2 37,11.5 37,28.5 20,38 3,28.5 3,11.5" fill="none" stroke="#e7e9ee" stroke-width="1.5"/><polygon points="20,8 31,14 31,26 20,32 9,26 9,14" fill="#4d83ff"/><path d="M20 8V32M9 14L31 26M31 14L9 26" stroke="#17191f" stroke-width="1.2"/></svg></div>
+<nav class="nav">
+<button class="active" data-view="library" title="服务库" aria-label="服务库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M8 4v16M3 9h5M3 15h5M13 9h4M13 13h6"/></svg></button>
+<button data-view="session" title="连接" aria-label="连接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 7.3 10.8 16M15.8 7.3 13.2 16M8.5 6h7"/></svg></button>
+<button data-view="settings" title="设置" aria-label="设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19 13.5 20 15l-1.5 2.6-1.5-.6a8 8 0 0 1-1.7 1L15 20h-3l-.3-2a8 8 0 0 1-1.7-1l-1.5.6L7 15l1-1.5a8 8 0 0 1 0-2L7 10l1.5-2.6 1.5.6a8 8 0 0 1 1.7-1L12 5h3l.3 2a8 8 0 0 1 1.7 1l1.5-.6L20 10l-1 1.5a8 8 0 0 1 0 2Z"/></svg></button>
+</nav><div class="railfoot">LINK / SYSTEM</div>
+</aside>
+<main>
+<header class="top"><div class="brand">STRONGHOLD <span style="color:#7e8490;font-weight:400">/</span> LINK</div><div class="topright"><span class="build">UNIVERSAL TUNNEL BRIDGE / <span id="appVersion">0.9.0</span></span><span><i class="statusdot" id="statusDot"></i><span id="globalStatus">READY / LOCAL</span></span></div></header>
+<div class="wrap">
+<section class="view active" id="libraryView">
+<div class="pagehead"><div><div class="eyebrow">01 — SERVICE PROFILES</div><h1>SERVICE <span style="color:var(--blue)">LIBRARY.</span></h1><div class="sub">管理「本地服务 + 端口」配置：任何需要跨网络访问的 TCP/UDP 服务（Web、远程桌面、游戏服务、自建程序）都可以在这里定义。</div></div><button class="btn primary" id="addGame">＋ 添加端口配置</button></div>
+<div class="toolbar"><div class="search"><input id="search" placeholder="搜索名称或协议…" aria-label="搜索配置"></div><span class="count" id="profileCount">04 PROFILES</span></div>
+<div class="library" id="gameList"></div>
+<div class="section"><div class="sectiontitle"><strong>QUICK ACTIONS / 快捷操作</strong><span>SELECT A PROFILE TO CONTINUE</span></div><div class="quick"><div class="quickcard"><div class="quickicon">↗</div><div><strong>创建隧道会话</strong><small>作为房主开放本地服务端口</small></div><button class="btn" id="hostAction">开始配置</button></div><div class="quickcard"><div class="quickicon">⌁</div><div><strong>加入好友会话</strong><small>填写好友提供的连接信息</small></div><button class="btn" id="joinAction">加入房间</button></div></div></div>
+</section>
+<section class="view" id="sessionView">
+<div class="pagehead"><div><div class="eyebrow">02 — CONNECTION WORKSPACE</div><h1>SESSION<span style="color:var(--blue)">.</span></h1><div class="sub">房主开放端口，加入者把游戏客户端接到房主。界面上的状态直接来自真实中继进程：没有连接就是没有连接。</div></div><button class="btn" id="backLibrary">← 返回游戏库</button></div>
+<div class="detailgrid"><div class="panel"><h3>SESSION SETUP / 会话设置</h3><div class="formgrid">
+<div class="field full"><label for="sessionProfile">当前端口配置</label><select id="sessionProfile"></select></div>
+<div class="field full"><label for="sessionRecipe">连接方式（不同服务不一样）</label><select id="sessionRecipe"></select></div>
+<div class="field full"><div id="recipeSummary" class="hintline"></div></div>
+<div class="field full"><label for="sessionRole">连接角色</label><select id="sessionRole"><option value="host">房主 / HOST（开放中继端口）</option><option value="joiner">加入者 / JOINER（连接房主）</option></select></div>
+<div class="fieldgroup" id="hostFields">
+<div class="field"><label for="hostBindHost">监听地址</label><select id="hostBindHost"><option value="0.0.0.0">0.0.0.0 / 所有网卡</option><option value="127.0.0.1">127.0.0.1 / 仅本机</option></select></div>
+<div class="field"><label for="hostTargetHost">本地服务地址</label><input id="hostTargetHost" value="127.0.0.1"></div>
+<div class="field full"><label for="hostToken">会话口令（两端必须一致）</label><div class="inputrow"><input id="hostToken" placeholder="留空表示不使用口令"><button class="btn" id="genToken" type="button">随机生成</button></div></div>
+<div class="field full"><label for="hostRules">端口规则（每行一条：协议,本地服务端口,对好友开放的端口）</label><textarea id="hostRules" rows="3" placeholder="TCP,2300,2301&#10;UDP,2300,2301"></textarea><div class="inputrow" style="margin-top:8px"><button class="btn ghost" id="fillHostRules" type="button">用所选配置填充</button><button class="btn ghost" id="checkHostPorts" type="button">检测这些端口</button></div></div>
+</div>
+<div class="fieldgroup" id="joinFields" hidden>
+<div class="field"><label for="joinHost">房主地址</label><input id="joinHost" placeholder="192.168.1.5"></div>
+<div class="field"><label for="joinToken">会话口令</label><input id="joinToken" placeholder="与房主一致"></div>
+<div class="field full"><label for="invitePaste">粘贴邀请码（会自动填好地址、口令与端口规则）</label><div class="inputrow"><input id="invitePaste" placeholder="SHL1-…"><button class="btn" id="applyInvite" type="button">解析</button></div></div>
+<div class="field full"><label for="joinRules">端口规则（每行一条：协议,本机入口端口,房主端口）</label><textarea id="joinRules" rows="3" placeholder="TCP,2300,2301&#10;UDP,2300,2301"></textarea><div class="inputrow" style="margin-top:8px"><button class="btn ghost" id="fillJoinRules" type="button">用所选配置填充</button><button class="btn ghost" id="checkJoinPorts" type="button">检测这些端口</button></div></div>
+</div>
+<div class="fieldgroup" id="steamHostFields" hidden>
+<div class="field"><label for="steamGameHost">本地服务地址</label><input id="steamGameHost" value="127.0.0.1"></div>
+<div class="field"><label for="steamGamePort">本地服务端口</label><input id="steamGamePort" type="number" min="1" max="65535" placeholder="2300"></div>
+<div class="field"><label for="steamAppIdHost">Steam AppID（测试可用 480）</label><input id="steamAppIdHost" type="number" min="1" placeholder="480"></div>
+<div class="field"><label>本机 SteamID</label><input id="steamOwnId" readonly placeholder="启动会话后显示"></div>
+</div>
+<div class="fieldgroup" id="steamJoinFields" hidden>
+<div class="field"><label for="steamHostId">房主 SteamID</label><input id="steamHostId" placeholder="7656119xxxxxxxxxx"></div>
+<div class="field"><label for="steamLocalPort">本机入口端口（客户端连它）</label><input id="steamLocalPort" type="number" min="1" max="65535" placeholder="2300"></div>
+<div class="field"><label for="steamAppIdJoin">Steam AppID（与房主一致）</label><input id="steamAppIdJoin" type="number" min="1" placeholder="480"></div>
+</div>
+<div class="fieldgroup" id="noneFields" hidden>
+<div class="field"><label for="noneGamePort">服务端口（局域网直连用）</label><input id="noneGamePort" type="number" min="1" max="65535" placeholder="3000"></div>
+<div class="field"><label>说明</label><input value="不建立任何隧道，只整理地址" readonly></div>
+</div>
+<div class="field full" id="steamDiagRow" hidden><div class="inputrow"><button class="btn ghost" id="steamDiagnoseBtn" type="button">Steam 环境自检</button><span class="hintline" style="margin:0;align-self:center">缺少 SDK 时这里会列出具体缺什么</span></div><div id="steamReport" class="warnbox" hidden></div></div>
+<div class="field full"><div class="inputrow"><button class="btn ghost" id="refreshHints" type="button">刷新连接说明</button><span class="hintline" style="margin:0;align-self:center">「复制邀请信息」里也会带上这些说明</span></div><div id="hintBox" class="warnbox" hidden></div></div>
+</div>
+<div class="dialogactions" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn primary" id="startSession">启动桥接 ↗</button><button class="btn" id="stopSession" disabled>停止桥接</button><button class="btn ghost" id="checkPort">检测端口</button><button class="btn ghost" id="copyInvite">复制邀请信息</button></div>
+<p class="hintline" id="sessionHint">房主：把「中继端口」开放给好友，本地服务保持运行。加入者：让客户端连接本机入口端口即可。</p>
+</div>
+<div class="panel"><h3>CONNECTION STATUS / 状态</h3>
+<div class="kv"><span>State</span><span id="sessionState" class="pill state-idle">IDLE</span></div>
+<div class="kv"><span>Security</span><span id="sessionSecurity" class="mono">—</span></div>
+<div class="kv"><span>Role</span><span id="sessionRoleText">—</span></div>
+<div class="kv"><span>Live connections</span><span id="sessionConnections">0</span></div>
+<div class="kv"><span>Traffic ↑ 发给对端 / ↓ 来自对端</span><span id="sessionTraffic" class="mono">0 B / 0 B</span></div>
+<div class="kv"><span>Datagrams ↑ / ↓（UDP）</span><span id="sessionPackets" class="mono">0 / 0</span></div>
+<div class="kv"><span>Rejected / Failed</span><span id="sessionRejected">0 / 0</span></div>
+<div class="kv"><span>Started</span><span id="sessionStarted">—</span></div>
+<div class="sectiontitle" style="margin-top:14px"><strong>CHANNELS / 通道</strong><span id="channelCount">0</span></div>
+<div id="channelList" class="chanlist"><div class="chanempty">尚未启动。每条端口规则会生成一条通道。</div></div>
+<div class="kv" style="margin-top:10px"><span>Profile</span><span id="detailName">未选择</span></div>
+<div class="kv"><span>Transport</span><span id="detailTransport">—</span></div>
+<div class="kv"><span>Local endpoint</span><span id="detailEndpoint" class="mono">—</span></div>
+<div id="sessionError" class="errbox" hidden></div>
+<div id="sessionWarnings" class="warnbox" hidden></div>
+<div id="inviteBox" class="invitebox" hidden><div class="sectiontitle"><strong>INVITE / 邀请信息</strong><span>复制发给好友</span></div><textarea id="inviteText" rows="6" readonly></textarea></div>
+<div class="sectiontitle" style="margin-top:16px"><strong>LOG / 运行日志</strong><span id="logCount">0</span></div>
+<div class="logs" id="sessionLogs"></div>
+<div class="notice">中继只做字节原样转发，不解析应用协议。本地中继适用于局域网或已有 VPN；Steam 隧道可用于跨网络（需要 Steamworks SDK）。</div>
+</div></div>
+</section>
+<section class="view" id="settingsView">
+<div class="pagehead"><div><div class="eyebrow">03 — SYSTEM PREFERENCES</div><h1>SETTINGS<span style="color:var(--blue)">.</span></h1><div class="sub">应用信息与配置数据管理。</div></div></div>
+<div class="panel"><h3>APPLICATION</h3><div class="kv"><span>Version</span><span id="setVersion">—</span></div><div class="kv"><span>Configuration file</span><span id="setConfigPath" class="mono">—</span></div><div class="kv"><span>Runtime</span><span id="setRuntime" class="mono">—</span></div><div class="kv"><span>Network engine</span><span id="setNetwork">—</span></div><div class="dialogactions" style="justify-content:flex-start"><button class="btn" id="exportBtn">导出全部配置 JSON</button><button class="btn" id="importBtn">导入配置 JSON</button><button class="btn ghost" id="revealConfig">打开配置文件位置</button><input type="file" id="importFile" accept=".json,application/json" hidden></div><p class="dialoghint">配置保存在应用数据目录的 game-profiles.json；导入配置前建议先导出备份。会话口令只用于本次会话，不会写入配置文件。</p>
+<div class="sectiontitle" style="margin-top:18px"><strong>ADAPTERS / 适配器</strong><span>来自主进程的真实状态</span></div><div id="adapterList"></div></div>
+</section>
+</div>
+<footer><span><strong>STRONGHOLD LINK</strong> / UNIVERSAL GAME BRIDGE</span><span>PROFILE-DRIVEN TUNNEL SYSTEM</span></footer>
+</main>
+</div>
+<div class="overlay" id="editor" role="dialog" aria-modal="true" aria-labelledby="editorTitle"><div class="dialog"><div class="dialoghead"><div><small>PROFILE EDITOR / CONFIGURATION</small><h2 id="editorTitle">添加端口配置</h2></div><button class="close" data-close aria-label="关闭">×</button></div><div class="formgrid">
+<div class="field full"><label for="fName">名称 / 用途 *</label><input id="fName" maxlength="60" placeholder="例如：内网 Web / 远程桌面 / 游戏服务"></div>
+<div class="field"><label for="fTransport">传输协议 *</label><select id="fTransport"><option value="UDP">UDP</option><option value="TCP">TCP</option><option value="TCP + UDP">TCP + UDP</option><option value="CUSTOM">自定义 / 高级</option></select></div>
+<div class="field"><label for="fRecipe">连接方式（决定两端怎么连）</label><select id="fRecipe"></select></div>
+<div class="field full"><label for="fPort">端口规则（每行一条：协议,本地端口,远端端口）*</label><textarea id="fPort" rows="3" placeholder="UDP,2300,2300&#10;TCP,2301,2301"></textarea></div>
+<div class="field"><label for="fHost">本地地址</label><input id="fHost" value="127.0.0.1" placeholder="127.0.0.1"></div>
+<div class="field"><label for="fRemote">远端端口（可选）</label><input id="fRemote" type="number" min="1" max="65535" placeholder="默认与本地端口相同"></div>
+<div class="field full"><label for="fPath">启动程序路径（可选）</label><input id="fPath" placeholder="例如：C:\Games\Game\game.exe"></div>
+<div class="field full"><label for="fArgs">启动参数（可选）</label><input id="fArgs" placeholder="例如：-windowed"></div>
+</div><label class="checkline"><input type="checkbox" id="fFavorite"> 标记为常用</label><p class="dialoghint">端口与协议请以目标服务的实际要求为准；本工具只做透明转发，不解析应用协议。</p><div class="dialogactions"><button class="btn" data-close>取消</button><button class="btn primary" id="saveProfile">保存配置</button></div></div></div>
+<div class="overlay" id="joinDialog" role="dialog" aria-modal="true" aria-labelledby="joinTitle"><div class="dialog"><div class="dialoghead"><div><small>JOIN WORKFLOW / PEER INFO</small><h2 id="joinTitle">加入好友会话</h2></div><button class="close" data-close aria-label="关闭">×</button></div><div class="field"><label>选择游戏配置</label><select id="joinProfile"></select></div><div class="field"><label>好友提供的连接信息</label><input id="joinPeer" placeholder="好友 ID、邀请码或地址"></div><p class="dialoghint">后续网络引擎会根据配置选择对应的连接适配器。目前仅保存并展示操作流程。</p><div class="dialogactions"><button class="btn" data-close>取消</button><button class="btn primary" id="confirmJoin">继续 ↗</button></div></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const $=id=>document.getElementById(id);
+const defaults=[
+{id:'sample-web',name:'本地 Web / HTTP 服务（示例）',transport:'TCP',port:8080,remotePort:8081,host:'127.0.0.1',path:'',args:'',favorite:true,recipe:'local-web',description:'把本机 8080 的网页服务开放给好友：对好友开放 8081，加入者浏览器打开 http://127.0.0.1:8080 即可（页面与 WebSocket 都经隧道）。'},
+{id:'sample-rdp',name:'远程桌面 RDP（示例）',transport:'TCP',port:3389,remotePort:3390,host:'127.0.0.1',path:'',args:'',favorite:false,recipe:'local-ports',description:'把本机 3389 的远程桌面开放给好友（中继端口用 3390 避免与本机 RDP 冲突）。加入者用 mstsc 连接 127.0.0.1:3389。'},
+{id:'sample-tcp',name:'通用 TCP 服务（示例）',transport:'TCP',port:7777,remotePort:7778,host:'127.0.0.1',path:'',args:'',favorite:false,recipe:'local-ports',description:'任意 TCP 服务：本地 7777 透传到好友可访问的 7778；多端口可写多行规则。'},
+{id:'sample-udp',name:'通用 UDP 服务（示例）',transport:'UDP',port:27015,remotePort:27016,host:'127.0.0.1',path:'',args:'',favorite:false,recipe:'local-ports',description:'任意 UDP 服务：数据报转发（逐包加密 + 重放窗口），每条对端会话独立映射。'}
+];
+let profiles=defaults.map(x=>({...x,ports:[{protocol:x.transport==='TCP'?'TCP':'UDP',localPort:Number(x.port),remotePort:Number(x.remotePort)||Number(x.port)}]})),selectedId=null,editingId=null;
+function portRules(p){ // ports[] 是唯一数据源，port/remotePort 只用于兼容旧配置
+ if(!p)return [];
+ const list=(Array.isArray(p.ports)&&p.ports.length)?p.ports:[{protocol:(p.transport==='UDP'?'UDP':'TCP'),localPort:Number(p.port||0),remotePort:Number(p.remotePort||p.port||0)}];
+ return list.map(r=>{const protocol=String(r.protocol||'TCP').toUpperCase();return {protocol:protocol==='UDP'?'UDP':'TCP',localPort:Number(r.localPort),remotePort:Number(r.remotePort||r.localPort)}})
+  .filter(r=>Number.isInteger(r.localPort)&&r.localPort>=1&&r.localPort<=65535&&Number.isInteger(r.remotePort)&&r.remotePort>=1&&r.remotePort<=65535);
+}
+function portRule(p){return portRules(p)[0]||{protocol:'TCP',localPort:0,remotePort:0}}
+function rulesToText(rules){return (rules||[]).map(r=>`${r.protocol},${r.localPort},${r.remotePort}`).join('\n')}
+function parseRulesText(text){
+ const lines=String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+ if(!lines.length)throw new Error('请至少填写一条端口规则（协议,本地端口,远端端口）');
+ if(lines.length>16)throw new Error('一次最多 16 条端口规则');
+ return lines.map((line,index)=>{
+  const parts=line.split(',').map(s=>s.trim());
+  if(parts.length!==3)throw new Error(`第 ${index+1} 行格式应为：协议,本地端口,远端端口`);
+  const protocol=parts[0].toUpperCase();
+  if(protocol!=='TCP'&&protocol!=='UDP')throw new Error(`第 ${index+1} 行协议只能是 TCP 或 UDP`);
+  const localPort=Number(parts[1]),remotePort=Number(parts[2]);
+  if(!Number.isInteger(localPort)||localPort<1||localPort>65535)throw new Error(`第 ${index+1} 行的本地端口必须是 1–65535 的整数`);
+  if(!Number.isInteger(remotePort)||remotePort<1||remotePort>65535)throw new Error(`第 ${index+1} 行的远端端口必须是 1–65535 的整数`);
+  return {protocol,localPort,remotePort};
+ });
+}
+async function bootProfiles(){
+ try {
+   const saved = await window.strongholdLink?.profiles?.load();
+   if(Array.isArray(saved) && saved.length) profiles=saved;
+   selectedId=profiles[0]?.id||null; render();
+ } catch(e) { toast('读取配置失败：'+(e.message||e)); }
+ await bootAppInfo();
+ await bootSession();
+}
+function persist(){const task=window.strongholdLink?.profiles?.save(profiles);if(!task)return Promise.resolve();return task.then(clean=>{if(Array.isArray(clean)&&clean.length===profiles.length)profiles=clean;return clean}).catch(e=>{toast('保存失败：'+(e.message||e));});}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window.__tt);window.__tt=setTimeout(()=>t.classList.remove('show'),2500)}
+function protocol(p){return p.transport==='CUSTOM'?'CUSTOM':p.transport}
+function render(){
+ const q=$('search').value.trim().toLowerCase(),list=$('gameList');list.innerHTML='';
+ const shown=profiles.filter(p=>(p.name+' '+p.transport).toLowerCase().includes(q));
+ $('profileCount').textContent=String(profiles.length).padStart(2,'0')+' PROFILES';
+ if(!shown.length){list.innerHTML='<div class="empty">没有匹配的配置。<br>点击“添加端口配置”创建一份新的服务档案。</div>'}
+ shown.forEach(p=>{const card=document.createElement('article');card.className='game'+(p.id===selectedId?' selected':'');card.innerHTML=`<div class="gamehead"><div class="glyph">${esc(p.name.slice(0,1).toUpperCase())}</div><span class="gamecode">${p.favorite?'★ FAVORITE':'PROFILE / '+String(profiles.indexOf(p)+1).padStart(2,'0')}</span></div><h2>${esc(p.name)}</h2><p>${esc(p.description||'自定义游戏网络配置')}</p><div class="tags"><span class="tag">${esc(protocol(p))}</span><span class="tag">LOCAL PORT ${esc(portRule(p).localPort)}</span></div><div class="gamefoot"><span class="port">${esc(p.host||'127.0.0.1')} : ${esc(portRule(p).localPort)} → ${esc(portRule(p).remotePort)}</span><div class="gameactions"><button class="mini" data-act="edit" title="编辑">EDIT</button><button class="mini" data-act="delete" title="删除">DELETE</button><button class="mini" data-act="select" title="选择">OPEN ↗</button></div></div>`;
+ card.addEventListener('click',e=>{const act=e.target.closest('[data-act]')?.dataset.act;if(act==='edit'){e.stopPropagation();editProfile(p.id)}else if(act==='delete'){e.stopPropagation();deleteProfile(p.id)}else{selectedId=p.id;render()}});
+ list.appendChild(card)});
+ renderSelects();updateDetails();
+}
+function renderSelects(){['sessionProfile','joinProfile'].forEach(id=>{const el=$(id),old=el.value;el.innerHTML=profiles.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');if(profiles.some(p=>p.id===old))el.value=old;else if(profiles.some(p=>p.id===selectedId))el.value=selectedId})}
+function current(){return profiles.find(p=>p.id===selectedId)||profiles[0]}
+function updateDetails(){const p=profiles.find(x=>x.id===$('sessionProfile').value)||current();$('detailName').textContent=p?.name||'未选择';$('detailTransport').textContent=p?protocol(p):'—';const rule=p?portRule(p):null;$('detailEndpoint').textContent=rule?(p.host||'127.0.0.1')+':'+rule.localPort+' → '+rule.remotePort:'—'}
+function showView(name){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===name+'View'));document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name))}
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+$('backLibrary').onclick=()=>showView('library');$('search').addEventListener('input',render);
+function openEditor(id=null){editingId=id;const p=profiles.find(x=>x.id===id);$('editorTitle').textContent=p?'编辑端口配置':'添加端口配置';$('fName').value=p?.name||'';$('fTransport').value=p?.transport||'UDP';$('fPort').value=p?(p.ports||[{protocol:p.transport==='TCP'?'TCP':'UDP',localPort:p.port,remotePort:p.remotePort||p.port}]).map(r=>`${r.protocol},${r.localPort},${r.remotePort}`).join('\n'):'';$('fHost').value=p?.host||'127.0.0.1';$('fRemote').value=p?.remotePort||'';$('fPath').value=p?.path||'';$('fArgs').value=p?.args||'';$('fRecipe').innerHTML=recipes.map(r=>`<option value="${esc(r.id)}"${r.available?'':' disabled'}>${esc(r.name)}${r.available?'':'（不可用）'}</option>`).join('');
+ $('fRecipe').value=(p&&p.recipe&&recipes.some(r=>r.id===p.recipe))?p.recipe:(recipes[0]?recipes[0].id:'');
+ $('fFavorite').checked=!!p?.favorite;$('editor').classList.add('open');setTimeout(()=>$('fName').focus(),50)}
+function editProfile(id){openEditor(id)}
+function closeOverlays(){document.querySelectorAll('.overlay').forEach(x=>x.classList.remove('open'))}
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeOverlays);document.querySelectorAll('.overlay').forEach(x=>x.addEventListener('click',e=>{if(e.target===x)closeOverlays()}));document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlays()});
+$('addGame').onclick=()=>openEditor();$('saveProfile').onclick=async()=>{
+ const name=$('fName').value.trim(),rawRules=$('fPort').value.trim().split(/\r?\n/).filter(Boolean),remote=$('fRemote').value.trim();
+ const ports=[];
+ for(const line of rawRules){const parts=line.split(',').map(s=>s.trim());if(parts.length<2||parts.length>3){toast('端口规则格式：协议,本地端口,远端端口');return}const protocol=parts[0].toUpperCase(),localPort=Number(parts[1]),remotePort=Number(parts[2]||parts[1]);if(!['TCP','UDP'].includes(protocol)||![localPort,remotePort].every(n=>Number.isInteger(n)&&n>=1&&n<=65535)){toast('请检查协议与端口范围');return}ports.push({protocol,localPort,remotePort})}
+ if(!ports.length){toast('至少填写一条端口规则');return}
+ const port=ports[0].localPort;
+ if(!name){toast('请填写名称');$('fName').focus();return}if(remote&&(!Number.isInteger(Number(remote))||Number(remote)<1||Number(remote)>65535)){toast('远端端口需为 1–65535');return}
+ const item={id:editingId||('game-'+Date.now()),name,transport:$('fTransport').value,port,remotePort:remote,ports,host:$('fHost').value.trim()||'127.0.0.1',path:$('fPath').value.trim(),args:$('fArgs').value.trim(),favorite:$('fFavorite').checked,recipe:$('fRecipe').value||null,description:'自定义游戏网络配置'};
+ if(editingId)profiles=profiles.map(p=>p.id===editingId?item:p);else{profiles.push(item);selectedId=item.id}
+ await persist();closeOverlays();render();toast('配置已保存到应用数据目录');};
+function deleteProfile(id){const p=profiles.find(x=>x.id===id);if(!p)return;if(!confirm('确定删除配置“'+p.name+'”吗？'))return;profiles=profiles.filter(x=>x.id!==id);if(selectedId===id)selectedId=profiles[0]?.id||null;persist()?.then(()=>{render();toast('配置已删除')})}
+// ---------------- 应用信息 / 会话控制 ----------------
+let sessionSnapshot=null,sessionTimer=null,recipes=[],lastRecipeProfileId=null;
+function makeToken(){const bytes=new Uint8Array(9);crypto.getRandomValues(bytes);return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function fmtBytes(n){const v=Number(n)||0;if(v<=0)return '0 B';const units=['B','KiB','MiB','GiB'];let i=0,x=v;while(x>=1024&&i<units.length-1){x/=1024;i++}return (i===0?x.toFixed(0):x.toFixed(1))+' '+units[i]}
+function fmtTime(ts){if(!ts)return '—';return new Date(ts).toLocaleTimeString('zh-CN',{hour12:false})}
+async function bootAppInfo(){
+ try{
+  const info=await window.strongholdLink.app.info();
+  $('appVersion').textContent=info.version;
+  $('setVersion').textContent=info.version+' / Electron '+info.electron;
+  $('setConfigPath').textContent=info.configPath;
+  $('setRuntime').textContent='Node '+info.node+' / '+info.platform+' '+info.arch;
+  const adapters=await window.strongholdLink.adapters.list();
+  const tcp=adapters.find(a=>a.id==='tcp-relay')||{};
+  $('setNetwork').textContent=(tcp.status||'—')+' / TCP';
+  $('adapterList').innerHTML=adapters.map(a=>`<div class="kv"><span>${esc(a.name)} <span class="pill">${esc(a.status)}</span></span><span style="max-width:58%">${esc(a.description||'')}</span></div>`).join('');
+ }catch(e){toast('读取应用信息失败：'+(e.message||e))}
+ await loadRecipes();
+ applyRole();
+ applyProfileDefaults();
+ refreshHints();
+}
+async function refreshSession(){try{sessionSnapshot=await window.strongholdLink.session.status();renderSession()}catch(e){/* 主进程不可用时保持原状 */}}
+async function bootSession(){
+ if(!window.strongholdLink?.session)return;
+ await refreshSession();
+ window.strongholdLink.session.onEvent(async ev=>{
+  if(ev&&ev.type==='state'){sessionSnapshot=ev.snapshot;renderSession();}
+  else await refreshSession();
+ });
+ clearInterval(sessionTimer);
+ sessionTimer=setInterval(()=>{if(sessionSnapshot&&sessionSnapshot.state==='running')refreshSession()},1000);
+}
+function applyRole(){
+ const role=$('sessionRole').value;
+ const recipe=currentRecipe();
+ const adapter=recipe?recipe.adapter:'local';
+ const steam=adapter==='steam';
+ const none=adapter==='none';
+ $('hostFields').hidden=steam||none||role!=='host';
+ $('joinFields').hidden=steam||none||role!=='joiner';
+ $('steamHostFields').hidden=!steam||role!=='host';
+ $('steamJoinFields').hidden=!steam||role!=='joiner';
+ $('noneFields').hidden=!none;
+ $('steamDiagRow').hidden=!steam;
+ $('recipeSummary').textContent=recipe?recipe.summary:'';
+ $('sessionHint').textContent=none
+  ?'不做转发：本工具只整理房主地址与端口，请确保双方在同一局域网（或已有 VPN）。'
+  :(steam
+    ?(role==='host'
+      ?'Steam 房主：保持本地服务运行，启动后把「本机 SteamID」发给好友（不需要端口转发）。加密与身份认证由 Steam 传输层负责。'
+      :'Steam 加入者：填房主 SteamID，启动后让客户端连接本机入口端口。双方必须使用同一个 AppID。')
+    :(role==='host'
+      ?'房主：端口规则里「本地服务端口」是本机服务，第三列是对好友开放的端口。TCP 与 UDP 可以各写一行，一次全部启动。'
+      :'加入者：第一列是本机入口端口（客户端连它），第三列是房主端口。粘贴邀请码可自动填好全部规则。'));
+ void adapter;
+}
+function currentRecipe(){
+ const id=$('sessionRecipe').value;
+ return recipes.find(r=>r.id===id)||recipes[0]||null;
+}
+async function loadRecipes(){
+ try{
+  recipes=await window.strongholdLink.adapters.recipes();
+  const select=$('sessionRecipe');
+  const old=select.value;
+  select.innerHTML=recipes.map(r=>`<option value="${esc(r.id)}"${r.available?'':' disabled'}>${esc(r.name)}${r.available?'':'（不可用）'}</option>`).join('');
+  const preferred=recipes.find(r=>r.id===old&&r.available)||recipes.find(r=>r.id==='local-ports')||recipes[0];
+  if(preferred)select.value=preferred.id;
+ }catch(e){toast('读取连接方式失败：'+(e.message||e))}
+}
+async function refreshHints(){
+ const recipe=currentRecipe();if(!recipe)return;
+ const role=$('sessionRole').value;
+ const box=$('hintBox');
+ let rules=[];
+ if(recipe.adapter==='local'){try{rules=parseRulesText(role==='host'?$('hostRules').value:$('joinRules').value)}catch{rules=[]}}
+ const payload={recipe:recipe.id,rules,gamePort:Number($('steamGamePort').value||$('noneGamePort').value||0)||null,localPort:Number($('steamLocalPort').value||0)||null,targetHost:$('steamGameHost').value||$('hostTargetHost').value,game:current()?.name||''};
+ try{
+  const hints=await window.strongholdLink.adapters.recipeHints(payload);
+  const lines=[...hints.hostHint.map(h=>'房主：'+h),...(role==='joiner'?[]:hints.clientHint.map(h=>'加入者：'+h))];
+  if(!lines.length){box.hidden=true;box.innerHTML='';return}
+  box.hidden=false;box.innerHTML=lines.map(esc).join('<br>');
+ }catch(e){box.hidden=true}
+}
+async function runSteamDiagnose(){
+ const box=$('steamReport');
+ box.hidden=false;box.innerHTML='正在自检…';
+ try{
+  const report=await window.strongholdLink.steam.diagnose();
+  const lines=report.steps.map(s=>`${s.ok?'✅':'❌'} ${esc(s.title)}：${esc(s.detail)}`);
+  if(report.available)lines.unshift('✅ Steam 环境就绪，可以启动 Steam 会话。');
+  else lines.unshift(`❌ 还不能启动 Steam 会话，缺少：${esc(report.blockers.join('；'))}`);
+  lines.push('提示：本机若没有 Steamworks SDK 的 redistributable，请按 docs/PHASE4-STEAM.md 配置。');
+  box.innerHTML=lines.join('<br>');
+ }catch(e){box.innerHTML='自检失败：'+esc(e.message||String(e))}
+}
+function applyProfileDefaults(){
+ const p=current();if(!p)return;
+ const rules=portRules(p);
+ if(rules.length){
+  if(!$('hostRules').value)$('hostRules').value=rulesToText(rules);
+  if(!$('joinRules').value)$('joinRules').value=rulesToText(rules);
+  if(!$('noneGamePort').value)$('noneGamePort').value=rules[0].localPort||'';
+  if(!$('steamGamePort').value)$('steamGamePort').value=rules[0].localPort||'';
+ }
+ if(!$('hostToken').value)$('hostToken').value=makeToken();
+ // 配置里保存的连接方式：只在「换了配置」时套用，避免把用户手动选的连接方式又改回去（阶段 5）
+ const recipeId=(p&&p.recipe)||$('sessionRecipe').value||'local-ports';
+ const match=(recipes||[]).find(r=>r.id===recipeId&&r.available);
+ if(match&&lastRecipeProfileId!==p.id){
+  lastRecipeProfileId=p.id;
+  if($('sessionRecipe').value!==match.id){$('sessionRecipe').value=match.id;applyRole();}
+ }
+}
+function fillRules(role){const rules=portRules(current()||{});if(!rules.length){toast('所选配置里没有可用的端口规则');return}$(role==='host'?'hostRules':'joinRules').value=rulesToText(rules);toast('已用配置里的端口规则填充')}
+async function checkRules(role){
+ let rules;
+ try{rules=parseRulesText(role==='host'?$('hostRules').value:$('joinRules').value)}
+ catch(e){toast(e.message||String(e));return}
+ const bindHost=role==='host'?($('hostBindHost').value||'0.0.0.0'):'127.0.0.1';
+ const parts=[];
+ for(const rule of rules){
+  const port=role==='host'?rule.remotePort:rule.localPort;
+  try{
+   const result=await window.strongholdLink.session.checkPort({relayPort:port,bindHost,protocol:rule.protocol});
+   parts.push(`${rule.protocol} ${port}: ${result.free?'空闲':'被占用'}`);
+  }catch(e){parts.push(`${rule.protocol} ${port}: 检测失败`)}
+ }
+ toast(parts.join(' ｜ '));
+}
+function renderSession(){
+ const s=sessionSnapshot||{state:'idle'},state=s.state||'idle',cfg=s.config||{};
+ const pill=$('sessionState');pill.textContent=state.toUpperCase();pill.className='pill state-'+state;
+ const sec=s.security;
+ $('sessionSecurity').textContent=sec?(sec.mode==='psk-aead'?`已加密 · ${sec.cipher} + X25519`:'明文 · 未设置口令'):'—';
+ $('sessionRoleText').textContent=s.role?(s.role==='host'?'HOST / 房主':'JOINER / 加入者'):'—';
+ $('sessionConnections').textContent=String(s.connections||0);
+ $('sessionTraffic').textContent=fmtBytes(s.bytesToPeer)+' / '+fmtBytes(s.bytesFromPeer);
+ $('sessionPackets').textContent=(s.packetsToPeer||0)+' / '+(s.packetsFromPeer||0);
+ $('sessionRejected').textContent=(s.rejected||0)+' / '+(s.failed||0);
+ $('sessionStarted').textContent=fmtTime(s.startedAt);
+ const channels=s.channels||[];
+ $('channelCount').textContent=channels.length+' 条';
+ $('channelList').innerHTML=channels.length?channels.map(c=>{
+  const st=c.stats||{};
+  const steam=c.protocol==='STEAM';
+  const listen=steam?(c.listen.port?`${c.listen.host}:${c.listen.port}`:`Steam 监听 · ${c.steamId||'（ID 待显示）'}`):`${c.listen.host}:${c.listen.port}`;
+  const peer=steam?(c.steamId?`房主 ${c.steamId}`:`${c.peer.host}:${c.peer.port}`):`${c.peer.host}:${c.peer.port}`;
+  const detail=steam
+   ?`${st.connections||0} 对端 · 共 ${st.totalPeers||st.totalConnections||0} · ${fmtBytes(st.bytesToPeer)}/${fmtBytes(st.bytesFromPeer)}`
+   :(c.protocol==='UDP'
+    ?`${st.connections||0} 会话 · 包 ↑${st.packetsToPeer||0}/↓${st.packetsFromPeer||0} · ${fmtBytes(st.bytesToPeer)}/${fmtBytes(st.bytesFromPeer)}`
+    :`${st.connections||0} 连接 · 共 ${st.totalConnections||0} · ${st.encrypted?'已加密':'明文'} · ${fmtBytes(st.bytesToPeer)}/${fmtBytes(st.bytesFromPeer)}`);
+  return `<div class="chanrow"><span class="proto${steam?' udp':''}">${esc(c.protocol)}</span><span class="mono">${esc(listen)}</span><span class="mono">→ ${esc(peer)}</span><span class="chanstat">${esc(detail)}</span></div>`;
+ }).join(''):'<div class="chanempty">尚未启动。每条端口规则会生成一条通道。</div>';
+ const errBox=$('sessionError');
+ if(s.lastError){errBox.hidden=false;errBox.textContent='最近一次错误：'+s.lastError}else{errBox.hidden=true;errBox.textContent=''}
+ const warnBox=$('sessionWarnings'),warnings=s.warnings||[];
+ if(warnings.length){warnBox.hidden=false;warnBox.innerHTML=warnings.map(w=>'⚠ '+esc(w)).join('<br>')}else{warnBox.hidden=true;warnBox.innerHTML=''}
+ const inviteBox=$('inviteBox');
+ if(s.inviteText){inviteBox.hidden=false;$('inviteText').value=s.inviteText}else{inviteBox.hidden=true;$('inviteText').value=''}
+ const entries=s.logs||[];
+ $('logCount').textContent=entries.length+' 条';
+ $('sessionLogs').innerHTML=entries.map(l=>`<div class="${l.level==='warn'?'logwarn':l.level==='error'?'logerror':l.level==='ok'?'logok':''}"><span class="t">${fmtTime(l.ts)}</span>${esc(l.text)}</div>`).join('');
+ $('sessionLogs').scrollTop=$('sessionLogs').scrollHeight;
+ const busy=state==='starting'||state==='stopping';
+ $('startSession').disabled=state==='running'||busy;
+ $('stopSession').disabled=!s.role||state==='idle';
+ $('statusDot').style.background=state==='running'?'#4d83ff':state==='error'?'#e17878':'#d7ad58';
+ $('globalStatus').textContent=state==='running'?(s.role==='host'?'HOST / LISTENING':'JOINER / BRIDGING'):state==='error'?'SESSION ERROR':busy?state.toUpperCase():'READY / LOCAL';
+}
+$('hostAction').onclick=()=>{if(!profiles.length){toast('请先添加端口配置');return}showView('session');$('sessionRole').value='host';applyRole();applyProfileDefaults();renderSession()};
+$('joinAction').onclick=()=>{$('joinProfile').value=selectedId||profiles[0]?.id||'';$('joinDialog').classList.add('open')};
+$('sessionProfile').addEventListener('change',()=>{selectedId=$('sessionProfile').value;render();applyProfileDefaults();renderSession()});
+$('sessionRole').addEventListener('change',()=>{applyRole();applyProfileDefaults();renderSession()});
+$('sessionRecipe').addEventListener('change',()=>{applyRole();applyProfileDefaults();renderSession();refreshHints()});
+$('refreshHints').onclick=refreshHints;
+$('steamDiagnoseBtn').onclick=runSteamDiagnose;
+$('hostBindHost').addEventListener('change',()=>renderSession());
+$('genToken').onclick=()=>{$('hostToken').value=makeToken();toast('已生成会话口令，请让好友使用同一个')};
+$('applyInvite').onclick=async()=>{
+ const code=$('invitePaste').value.trim();if(!code){toast('请先粘贴邀请码');return}
+ try{
+  const info=await window.strongholdLink.session.parseInvite(code);
+  $('sessionRole').value='joiner';applyRole();
+  $('joinHost').value=info.host;$('joinToken').value=info.token||'';
+  if(info.rules&&info.rules.length)$('joinRules').value=rulesToText(info.rules);
+  if(info.game){const match=profiles.find(p=>p.name===info.game);if(match){$('sessionProfile').value=match.id;selectedId=match.id}}
+  if(!$('joinRules').value){const rules=portRules(current()||{});if(rules.length)$('joinRules').value=rulesToText(rules)}
+  render();renderSession();toast('已从邀请码填入房主信息与端口规则');
+ }catch(e){toast('邀请码解析失败：'+(e.message||e))}
+};
+$('fillHostRules').onclick=()=>fillRules('host');
+$('fillJoinRules').onclick=()=>fillRules('joiner');
+$('checkHostPorts').onclick=()=>checkRules('host');
+$('checkJoinPorts').onclick=()=>checkRules('joiner');
+$('startSession').onclick=async()=>{
+ const role=$('sessionRole').value;
+ const recipe=currentRecipe();
+ const adapter=recipe?recipe.adapter:'local';
+ let input;
+ if(adapter==='steam'){
+  const appId=Number(role==='host'?$('steamAppIdHost').value:$('steamAppIdJoin').value)||null;
+  input=role==='host'
+   ?{role,adapter:'steam',recipe:recipe.id,targetHost:$('steamGameHost').value.trim()||'127.0.0.1',gamePort:Number($('steamGamePort').value),appId,game:current()?.name||''}
+   :{role,adapter:'steam',recipe:recipe.id,hostSteamId:$('steamHostId').value.trim(),localPort:Number($('steamLocalPort').value),appId,game:current()?.name||''};
+  if(role==='host'&&!input.gamePort){toast('请填写本地服务端口');return}
+  if(role==='joiner'&&(!input.hostSteamId||!input.localPort)){toast('请填写房主 SteamID 和本机入口端口');return}
+ }else if(adapter==='none'){
+  input={role,adapter:'none',gamePort:Number($('noneGamePort').value),recipe:recipe.id,game:current()?.name||''};
+  if(!input.gamePort){toast('请填写服务端口');return}
+ }else{
+  let rules;
+  try{rules=parseRulesText(role==='host'?$('hostRules').value:$('joinRules').value)}
+  catch(e){toast(e.message||String(e));return}
+  input=role==='host'
+   ?{role,recipe:recipe.id,bindHost:$('hostBindHost').value||'0.0.0.0',targetHost:$('hostTargetHost').value.trim()||'127.0.0.1',authToken:$('hostToken').value.trim(),rules,game:current()?.name||''}
+   :{role,recipe:recipe.id,bindHost:'127.0.0.1',remoteHost:$('joinHost').value.trim(),authToken:$('joinToken').value.trim(),rules,game:current()?.name||''};
+  if(role==='joiner'&&!input.remoteHost){toast('请填写房主地址，或粘贴邀请码后点“解析”');return}
+ }
+ $('startSession').disabled=true;
+ try{
+  const snapshot=await window.strongholdLink.session.start(input);sessionSnapshot=snapshot;renderSession();
+  if(adapter==='steam'&&snapshot.invite&&snapshot.invite.steamId)$('steamOwnId').value=snapshot.invite.steamId;
+  toast(role==='host'?`会话已启动（${snapshot.channels.length} 条通道），可以把连接信息发给好友`:`桥接已启动（${snapshot.channels.length} 条通道），客户端请连接本机入口端口`);
+ }catch(e){toast('启动失败：'+(e.message||e));await refreshSession()}
+};
+$('stopSession').onclick=async()=>{
+ $('stopSession').disabled=true;
+ try{const snapshot=await window.strongholdLink.session.stop();sessionSnapshot=snapshot;renderSession();toast('桥接已停止，端口已释放')}
+ catch(e){toast('停止失败：'+(e.message||e));await refreshSession()}
+};
+$('checkPort').onclick=()=>checkRules($('sessionRole').value);
+$('copyInvite').onclick=async()=>{
+ const text=(sessionSnapshot&&sessionSnapshot.inviteText)||'';
+ if(!text){toast('只有房主会话运行中才有邀请信息');return}
+ try{await navigator.clipboard.writeText(text);toast('邀请信息已复制')}catch{$('inviteText').select&&$('inviteText').select();toast('自动复制失败，内容已选中，请手动复制')}
+};
+$('confirmJoin').onclick=()=>{const p=profiles.find(x=>x.id===$('joinProfile').value),peer=$('joinPeer').value.trim();if(!p){toast('请先添加端口配置');return}if(!peer){toast('请输入好友提供的连接信息');$('joinPeer').focus();return}closeOverlays();showView('session');$('sessionProfile').value=p.id;selectedId=p.id;$('sessionRole').value='joiner';applyRole();applyProfileDefaults();if(/^SHL1-/i.test(peer))$('invitePaste').value=peer;else $('joinHost').value=peer;render();renderSession();toast('已切到加入者模式，确认参数后点“启动桥接”')};
+$('revealConfig').onclick=()=>window.strongholdLink.app.revealConfig().catch(e=>toast(String(e.message||e)));
+$('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(profiles,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='stronghold-link-profiles.json';a.click();URL.revokeObjectURL(url);toast('配置导出已开始')};
+$('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());const valid=Array.isArray(data)&&data.every(p=>p&&p.name&&p.transport&&(Array.isArray(p.ports)?p.ports.length>0:Number.isInteger(Number(p.port))&&Number(p.port)>=1&&Number(p.port)<=65535));if(!valid)throw Error('format');profiles=data.map((p,i)=>({...p,id:String(p.id||'import-'+Date.now()+'-'+i)}));selectedId=profiles[0]?.id||null;await persist();render();toast('配置导入成功')}catch{toast('导入失败：JSON 格式或配置字段无效')}e.target.value=''};
+render();
+applyRole();
+bootProfiles();
+</script>
+</body></html>

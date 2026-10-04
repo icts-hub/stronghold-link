@@ -1,0 +1,124 @@
+# 用 Steam 联机：完整步骤（v0.9.0）
+
+Steam 通道的作用：**不用端口映射、不用公网 IP**，通过 Steam 的 P2P / 中继网络把本机服务开放给好友。
+原理：房主在本机服务端口与 Steam P2P 之间做桥接；加入者在本机入口端口与 Steam P2P 之间做桥接。
+Steam 传输层自带加密与 SteamID 身份认证，所以这条路径**不需要口令**。
+
+---
+
+## 一、前置条件（只做一次）
+
+| 条件 | 说明 |
+| --- | --- |
+| **两台电脑、两个不同的 Steam 账号** | 必须。实测：同一个账号自己连自己 **不是有效通路**——`sendReliable` 返回 `8`（失败）并断开连接（见第四节证据） |
+| 两边都**已登录 Steam 客户端** | Steam 必须在运行且已登录，P2P 才可用 |
+| **Steamworks SDK redistributable** | 包里 `steamworks_sdk\redistributable_bin\win64\steam_api64.dll`，已随本包放好（来源见同目录 `来源说明.txt`）。对外分发请换成从 [partner.steamgames.com](https://partner.steamgames.com/) 下载的官方 SDK |
+| **相同的 AppID** | 测试用 `480`（Valve 的公开测试 App）。正式发布用自己的 AppID |
+| 防火墙 | Steam 通道不需要放行端口；但**本机服务端口必须在本机可访问**（房主侧） |
+
+放好之后，在界面「会话 → Steam P2P 隧道」里点 **Steam 环境自检**，应当五项全绿：
+
+```
+[OK] npm 依赖 steamworks-ffi-node
+[OK] FFI 运行时 koffi
+[OK] Steamworks SDK redistributable   steamworks_sdk\redistributable_bin\win64\steam_api64.dll
+[OK] AppID                            480
+[OK] Steam 客户端                      d:/steam/steam.exe
+```
+
+---
+
+## 二、房主（开放服务的一方）
+
+1. 「服务库」选或建一个配置，端口填**你要共享的本机服务端口**（例如网页 8080、远程桌面 3389、游戏服务端口）。
+2. 「会话」→ 连接方式选 **Steam P2P 隧道**。
+3. 连接角色：**房主 / HOST**。
+4. 本地服务端口：填第 1 步的端口；AppID：`480`。
+5. 点「**启动桥接 ↗**」。
+6. 右侧通道列表出现 `STEAM` 通道，日志显示：
+   ```
+   Steam 房主会话已就绪：把 SteamID 7656119905xxxxxxxx 发给好友
+   ```
+7. 把那个 **17 位 SteamID（7656119 开头）** 发给好友（不要发错成别的数字）。
+8. 好友连上后：`Live connections` 变 1，通道出现「已接通本地服务端口」，Traffic 开始增长。
+
+> 房主的 SteamID 从 `steam.getStatus().steamId` 取，格式一定是 `7656119…`。
+> 之前版本显示的是 `4699065985603207176` 这种数字——那是 FFI 返回的原始 64 位（字节序错位），
+> 已修（见第四节）。
+
+---
+
+## 三、加入者（连过去的一方）
+
+1. 「会话」→ 连接方式 **Steam P2P 隧道** → 连接角色：**加入者 / JOINER**。
+2. **房主 SteamID**：粘贴房主发来的 17 位数字（格式不对会被拦下并提示）。
+3. **本机入口端口**：默认随机即可（例如 51234）；这是你本机客户端要连的端口。
+4. AppID：`480`（必须与房主一致）。
+5. 点「**启动桥接**」。
+6. 启动你的客户端，把「服务器地址」填 **`127.0.0.1:<本机入口端口>`**。
+   - 浏览器类服务：直接打开 `http://127.0.0.1:<本机入口端口>`
+   - 远程桌面：`mstsc /v:127.0.0.1:<本机入口端口>`
+   - 游戏：服务器地址填 `127.0.0.1`，端口填本机入口端口
+7. 状态应显示通道 `STEAM`、`已接通房主中继`。
+
+**连接是懒建立的**：加入者在没有本机客户端连入时不会创建 Steam 连接（这样不会白占资源）。
+所以你**先开客户端、再启动桥接**，或者启动桥接后再开客户端都行。
+
+---
+
+## 四、实测记录（本机，2026-10-04）
+
+用本机真实 Steam（账号已登录，AppID 480，DLL 取自本机 Steam 游戏）实测：
+
+| 项目 | 结果 | 证据 |
+| --- | --- | --- |
+| SDK 初始化 | ✅ | `init({appId:480})` → `true` |
+| 取得本机 SteamID | ✅ | `getStatus().steamId` = `76561198000000000` |
+| Steam Relay 网络 | ✅ | `availability: 100 (Current/Available)` |
+| 房主监听 socket | ✅ | `createListenSocketP2P` → `65536` |
+| P2P 连接状态机 | ✅ | `connectP2P` → `Connecting(1)` → `Connected(3)` |
+| 连接被接受 | ✅ | `acceptConnection(listen 侧连接)` → `1`（k_EResultOK） |
+| **两个不同账号之间传数据** | ❓ **未验证** | 本机只有一个 Steam 账号，无法构造第二个账号 |
+| 同账号自连传数据 | ❌ **无效** | `sendReliable` → `success=false, result=8`，随后连接断开；这不是我们的 bug，是 Steam 侧对自连的限制 |
+
+**在这台机器上跑过的两个探针脚本**（可直接复跑）：
+
+```powershell
+cd source
+node steam-appid-probe.cjs   # SDK 初始化 / SteamID / Relay 状态
+node steam-p2p-probe.cjs     # 真实 listen/connect/accept/send/receive（自连）
+node steam-diag-probe.cjs    # 细粒度：每次状态变化、句柄、sendReliable 结果
+```
+
+顺带修掉的两个真实问题：
+
+1. **SteamID 字节序**：`networkingSockets.getIdentity()` 返回 `4699065985603207176`（`0x41366f9e00000008`），
+   而正确的经典 SteamID64 是 `76561198000000000`（`0x0110000141366f9e`）。
+   现在优先用 `getStatus().steamId`，并对不符合 `7656119…` 的数字**按位重建**
+   （`universe=1<<56 | type=1<<52 | instance=1<<32 | raw>>32`）。没有这个修正，加入者填房主 ID 会直接失败。
+2. **房主误 accept 自己发起的出站连接**：同进程自连时，`info.listenSocket === 0` 的连接是我们自己发起的，
+   `acceptConnection` 会返回 `11`。现在遇到 `listenSocket === 0` 直接跳过，不再当作「被拒绝的连接」。
+
+---
+
+## 五、排错
+
+| 现象 | 原因 / 处理 |
+| --- | --- |
+| 自检里 SDK 一项是红的 | `steam_api64.dll` 不在 `steamworks_sdk\redistributable_bin\win64\` 下（注意是 exe 同级目录，不是 `resources`） |
+| 自检里 Steam 客户端是红的 | Steam 没装或没登录；工具会读注册表 `HKCU\Software\Valve\Steam` |
+| 加入者填 SteamID 被拦 | 必须是 `7656119` 开头的 17 位数字；房主那里的数字要原样复制 |
+| 两边都启动但一直没有流量 | 加入者侧要**先让本机客户端连上本机入口端口**（Steam 连接是那时才建立的）；另外两边 AppID 必须一致 |
+| 启动桥接直接报「Steam 环境未就绪」 | 自检面板里会逐条列出缺什么，按提示补 |
+| 启动后进程直接消失 | 见 [启动闪退排查.md](启动闪退排查.md)：沙箱（用启动器）与注入型软件（关游戏加加） |
+
+---
+
+## 六、和另外三种连接方式怎么选
+
+| 场景 | 用哪种 |
+| --- | --- |
+| 两人在同一个局域网 | 「不做中继（局域网直连）」最省事 |
+| 跨网络，但你有公网端口 / 已有 VPN | 「本地中继（TCP/UDP 端口规则）」，自带端到端加密 |
+| 跨网络，什么都没有 | **Steam P2P 隧道**（本文），或装 Tailscale/ZeroTier 之类组网 |
+| 浏览器应用（网页 + WebSocket 同端口） | 「本地中继 + 浏览器应用」 |
