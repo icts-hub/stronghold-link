@@ -6,6 +6,9 @@ name: Release
 # 用法（本地只需要推一个 tag）：
 #   git tag -a v0.9.0 -m "..." && git push origin v0.9.0
 # 或在网页上 Actions → Release → Run workflow 填标签手动触发。
+#
+# 注意：删掉再重推同名 tag 时，GitHub 会把原来的 Release 转成草稿；
+# 草稿既不在公开列表里、也查不到 tag，所以这里显式处理草稿状态。
 
 on:
   push:
@@ -57,36 +60,40 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $tag = '${{ github.event.inputs.tag }}'
           if (-not $tag) { $tag = '${{ github.ref_name }}' }
+          $title = "Stronghold Link $tag"
 
           $zip = Get-ChildItem -Path . -Recurse -File -Filter 'Stronghold-Link-*-portable-*.zip' |
                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $zip) {
-            Write-Host '::error title=找不到构建产物::仓库内没有 Stronghold-Link-*-portable-*.zip，检查 prepare-portable.cjs 的输出目录'
+            Write-Host '::error title=找不到构建产物::仓库内没有 Stronghold-Link-*-portable-*.zip'
             exit 1
           }
           Write-Host "标签: $tag"
           Write-Host "附件: $($zip.FullName)  ($([math]::Round($zip.Length/1MB,2)) MB)"
 
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Release $tag 不存在，开始创建..."
-            gh release create $tag --title "Stronghold Link $tag" --notes-file CHANGELOG.md --verify-tag
+          # 现有 Release（含草稿；草稿不在 /releases/tags 接口里）
+          $list = gh release list --limit 100 --json tagName,isDraft | ConvertFrom-Json
+          $list | ForEach-Object { Write-Host "  现有 Release: $($_.tagName) draft=$($_.isDraft)" }
+          $mine = $list | Where-Object { $_.tagName -eq $tag } | Select-Object -First 1
+
+          if ($mine) {
+            Write-Host "已存在 Release（draft=$($mine.isDraft)），更新说明并确保为已发布"
+            gh release edit $tag --title $title --notes-file CHANGELOG.md --draft=false
             if ($LASTEXITCODE -ne 0) {
-              Write-Host '::warning title=verify-tag 失败::改用不带 --verify-tag 的方式重试'
-              gh release create $tag --title "Stronghold Link $tag" --notes-file CHANGELOG.md
-            }
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host '::error title=Release 创建失败::检查 workflow 的 permissions: contents: write 与标签是否存在'
+              Write-Host '::error title=Release 更新失败::gh release edit 返回非零，检查权限'
               exit 1
             }
           } else {
-            Write-Host "Release $tag 已存在，刷新说明并补传附件"
-          }
-
-          # 无论是新建还是已存在，都用 CHANGELOG.md 同步一次 Release 说明
-          gh release edit $tag --notes-file CHANGELOG.md --title "Stronghold Link $tag"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host '::warning title=说明更新失败::gh release edit 返回非零，附件仍会继续上传'
+            Write-Host "没有 $tag 的 Release，创建并发布"
+            gh release create $tag --title $title --notes-file CHANGELOG.md --verify-tag
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host '::warning title=verify-tag 失败::改用不带 --verify-tag 的方式重试'
+              gh release create $tag --title $title --notes-file CHANGELOG.md
+            }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host '::error title=Release 创建失败::检查 permissions: contents: write 与标签是否存在'
+              exit 1
+            }
           }
 
           gh release upload $tag $zip.FullName --clobber
@@ -95,5 +102,13 @@ jobs:
             exit 1
           }
 
-          Write-Host '发布完成：'
-          gh release view $tag --json url,assets --jq '.url, (.assets[] | "  \(.name)  \(.size) bytes")'
+          $info = gh release view $tag --json url,isDraft,assets | ConvertFrom-Json
+          $assets = ($info.assets | ForEach-Object { "$($_.name) $([math]::Round($_.size/1MB,2))MB" }) -join ', '
+          Write-Host "草稿: $($info.isDraft)"
+          Write-Host "附件: $assets"
+          Write-Host "地址: $($info.url)"
+          Write-Host "::notice title=Release 状态::草稿=$($info.isDraft) | 附件=$assets | $($info.url)"
+          if ($info.isDraft) {
+            Write-Host '::error title=Release 仍是草稿::需要手动 Publish'
+            exit 1
+          }
