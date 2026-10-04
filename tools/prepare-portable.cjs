@@ -11,9 +11,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
-const releaseDir = path.join(root, '..', 'release');
-const appDir = path.join(releaseDir, 'win-unpacked');
-const outDir = path.join(releaseDir, 'github');
+// electron-builder 的产物在仓库外（../release/win-unpacked）；
+// zip 放到仓库内的 release/github，这样 CI 里 Get-ChildItem 才找得到。
+const argValue = (name, fallback) => {
+  const hit = process.argv.find((a) => a.startsWith('--' + name + '='));
+  return hit ? hit.slice(name.length + 3) : fallback;
+};
+const appDir = path.resolve(argValue('app-dir', path.join(root, '..', 'release', 'win-unpacked')));
+const outDir = path.resolve(argValue('out', path.join(root, 'release', 'github')));
 const pkg = require(path.join(root, 'package.json'));
 const skipBuild = process.argv.includes('--skip-build');
 

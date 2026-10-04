@@ -1,7 +1,11 @@
 name: Release
 
 # 打 tag（v*）或手动触发时，在云端构建便携版并发布到 Releases。
-# 这样本机网络不好、传不上去也不影响：构建与上传都在 GitHub 的机器上完成。
+# 这样本机网络不好、附件传不上去也不影响：构建与上传都在 GitHub 的机器上完成。
+#
+# 用法（本地只需要推一个 tag）：
+#   git tag -a v0.9.0 -m "..." && git push origin v0.9.0
+# 或在网页上 Actions → Release → Run workflow 填标签手动触发。
 
 on:
   push:
@@ -9,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的标签，例如 v0.9.0（不存在会自动创建）'
+        description: '要发布的标签，例如 v0.9.0'
         required: true
         default: 'v0.9.0'
 
@@ -39,20 +43,51 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: 检查产物
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path release -Recurse -File -Filter '*.zip' |
+            ForEach-Object { Write-Host "$($_.FullName)  $([math]::Round($_.Length/1MB,2)) MB" }
+
       - name: 发布 Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $ErrorActionPreference = 'Continue'
           $tag = '${{ github.event.inputs.tag }}'
           if (-not $tag) { $tag = '${{ github.ref_name }}' }
-          $zip = Get-ChildItem release/github/*.zip | Select-Object -First 1
-          $notes = 'CHANGELOG.md'
-          Write-Host "标签: $tag"
-          Write-Host "附件: $($zip.FullName) ($([math]::Round($zip.Length/1MB,2)) MB)"
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "Stronghold Link $tag" --notes-file $notes --target main
+
+          $zip = Get-ChildItem -Path . -Recurse -File -Filter 'Stronghold-Link-*-portable-*.zip' |
+                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) {
+            Write-Host '::error title=找不到构建产物::仓库内没有 Stronghold-Link-*-portable-*.zip，检查 prepare-portable.cjs 的输出目录'
+            exit 1
           }
+          Write-Host "标签: $tag"
+          Write-Host "附件: $($zip.FullName)  ($([math]::Round($zip.Length/1MB,2)) MB)"
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release $tag 不存在，开始创建..."
+            gh release create $tag --title "Stronghold Link $tag" --notes-file CHANGELOG.md --verify-tag
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host '::warning title=verify-tag 失败::改用不带 --verify-tag 的方式重试'
+              gh release create $tag --title "Stronghold Link $tag" --notes-file CHANGELOG.md
+            }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host '::error title=Release 创建失败::检查 workflow 的 permissions: contents: write 与标签是否存在'
+              exit 1
+            }
+          } else {
+            Write-Host "Release $tag 已存在，直接补传附件"
+          }
+
           gh release upload $tag $zip.FullName --clobber
-          gh release view $tag --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '::error title=附件上传失败::gh release upload 返回非零'
+            exit 1
+          }
+
+          Write-Host '发布完成：'
+          gh release view $tag --json url,assets --jq '.url, (.assets[] | "  \(.name)  \(.size) bytes")'
