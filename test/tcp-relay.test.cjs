@@ -5,6 +5,7 @@
 // 房主侧固定 bindHost=127.0.0.1，因为 Windows 允许 0.0.0.0 与 127.0.0.1 同时绑定同一端口。
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const net = require('node:net');
 
 const { createTcpHost, createTcpJoiner, describeError, validPort, normalizeToken } = require('../network/tcp-relay.cjs');
 const h = require('./helpers.cjs');
@@ -227,5 +228,46 @@ test('无口令时保持旧版裸转发行为（向后兼容）', async () => {
     await joiner.stop();
     await host.stop();
     await echo.close();
+  }
+});
+
+test('连接后立刻写入的首批数据不会丢（上游连接稍慢也必须转发）', async () => {
+  // 背景：明文路径曾在 upstream 连上之前挂「只统计不转发」的 'data' 监听器，
+  // socket 因此进入 flowing 模式，pipe 建立前到达的字节被消费后丢弃。
+  // 说明：这个竞态在 Windows 上难以稳定复现（loopback 的 connect 事件常常先于 data 事件），
+  // Linux CI 上则是必现——tcp-relay 用例 1/最后一条曾因此在 ubuntu 作业里失败。
+  // 这里让上游延迟回包，至少覆盖「连上就写、上游稍慢」这条路径。
+  const slowEcho = net.createServer();
+  const slowEchoPort = await h.freePort();
+  await new Promise((resolve, reject) => {
+    slowEcho.once('error', reject);
+    slowEcho.listen(slowEchoPort, LOOPBACK, () => resolve());
+  });
+  slowEcho.on('connection', (socket) => {
+    socket.on('error', () => {});
+    socket.on('data', (chunk) => {
+      // 故意延迟回包，模拟真实服务端的首包延迟
+      setTimeout(() => { if (!socket.destroyed) socket.write(chunk); }, 120);
+    });
+  });
+
+  const relayPort = await h.freePort();
+  const localPort = await h.freePort();
+  const host = createTcpHost({ bindHost: LOOPBACK, relayPort, targetHost: LOOPBACK, targetPort: slowEchoPort });
+  const joiner = createTcpJoiner({ bindHost: LOOPBACK, localPort, host: LOOPBACK, relayPort });
+  let client;
+  try {
+    await host.ready;
+    await joiner.ready;
+    client = await h.connect(localPort);
+    const reply = h.collect(client, 12, 8000);
+    client.write('early-bytes!'); // 连上就写，不给任何缓冲时间
+    assert.equal((await reply).toString(), 'early-bytes!', '首批数据必须完整转发');
+    assert.ok(host.stats.bytesFromPeer >= 12, 'host 应统计到这批字节（不能只统计不转发）');
+  } finally {
+    client?.destroy();
+    await joiner.stop();
+    await host.stop();
+    await new Promise((resolve) => slowEcho.close(() => resolve()));
   }
 });

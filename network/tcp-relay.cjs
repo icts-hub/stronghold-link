@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // Stronghold Link — TCP 中继内核。
 //
 // 角色：
@@ -108,8 +108,10 @@ function createTcpHost(options = {}) {
       streams.encrypt.pipe(socket);
       if (rest && rest.length) streams.decrypt.write(rest);
     } else {
-      socket.on('data', (chunk) => { stats.bytesFromPeer += chunk.length; });
-      upstream.on('data', (chunk) => { stats.bytesToPeer += chunk.length; });
+      // 明文模式这里**不能**挂只做统计的 'data' 监听器：
+      // 挂上会把 socket 切成 flowing 模式，而真正的转发 pipe 要等 upstream 连上才建立，
+      // 这中间到达的字节会被统计器消费掉然后丢掉（Linux 上必现，Windows 上偶发）。
+      // 计数与 pipe 一起在 upstream 的 connect 回调里挂，见下面。
     }
 
     let connected = false;
@@ -132,6 +134,11 @@ function createTcpHost(options = {}) {
       connected = true;
       clearTimeout(connectTimer);
       if (!streams) {
+        // 关键顺序：计数监听器与 pipe 必须同时挂上。
+        // 只要有任何 'data' 监听器先挂，socket 就进入 flowing 模式，
+        // 之后 pipe 建立前到达的字节会被消费掉、不再回放，造成「连接后第一批数据丢失」。
+        socket.on('data', (chunk) => { stats.bytesFromPeer += chunk.length; });
+        upstream.on('data', (chunk) => { stats.bytesToPeer += chunk.length; });
         if (rest && rest.length) upstream.write(rest);
         socket.pipe(upstream);
         upstream.pipe(socket);
