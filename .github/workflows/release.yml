@@ -1,0 +1,58 @@
+name: Release
+
+# 打 tag（v*）或手动触发时，在云端构建便携版并发布到 Releases。
+# 这样本机网络不好、传不上去也不影响：构建与上传都在 GitHub 的机器上完成。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的标签，例如 v0.9.0（不存在会自动创建）'
+        required: true
+        default: 'v0.9.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布便携版
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund || npm install --no-audit --no-fund --omit=optional
+
+      - name: 运行测试
+        run: node tools/ci-run-tests.cjs
+
+      - name: 构建便携版（自动剥离 Valve SDK）
+        run: node tools/prepare-portable.cjs
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: 发布 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.event.inputs.tag }}'
+          if (-not $tag) { $tag = '${{ github.ref_name }}' }
+          $zip = Get-ChildItem release/github/*.zip | Select-Object -First 1
+          $notes = 'CHANGELOG.md'
+          Write-Host "标签: $tag"
+          Write-Host "附件: $($zip.FullName) ($([math]::Round($zip.Length/1MB,2)) MB)"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Stronghold Link $tag" --notes-file $notes --target main
+          }
+          gh release upload $tag $zip.FullName --clobber
+          gh release view $tag --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
