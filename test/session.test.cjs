@@ -302,12 +302,25 @@ test('多端口批量启动：同一协议同一端口重复、或端口被占�
   const tcpEcho = await h.startEchoServer();
   const udpEcho = await startUdpEcho();
   const dupPort = await h.freePort();
-  const busyPort = await h.freePort();
   const manager = makeManager();
-  const blockerServer = await new Promise((resolve) => {
-    const server = require('node:net').createServer();
-    server.listen(busyPort, '127.0.0.1', () => resolve(server));
-  });
+  // 占住一个本地端口当作“冲突端口”。freePort 与实际 listen 之间可能被别的套接字抢走，
+  // 所以这里失败就换一个端口重试，避免用例偶发失败。
+  let busyPort = 0;
+  const blockerServer = await (async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidatePort = await h.freePort();
+      try {
+        const server = await new Promise((resolve, reject) => {
+          const candidate = require('node:net').createServer();
+          candidate.once('error', reject);
+          candidate.listen(candidatePort, '127.0.0.1', () => resolve(candidate));
+        });
+        busyPort = candidatePort;
+        return server;
+      } catch { /* 端口被抢走，换一个再试 */ }
+    }
+    throw new Error('无法占用任何本地端口用于测试');
+  })();
   try {
     await assert.rejects(
       manager.start({
@@ -333,7 +346,8 @@ test('多端口批量启动：同一协议同一端口重复、或端口被占�
       /TCP 端口 .*无法使用/,
     );
     assert.equal(manager.getSnapshot().channels.length, 0);
-    assert.equal(await h.isPortFree(await h.freePort()), true);
+    // 换成确定性的检查：冲突端口此刻确实还被阻塞着（原来的 freePort+isPortFree 组合会偶发失败）
+    assert.equal(await h.isPortFree(busyPort), false, '阻塞端口应仍被占用');
   } finally {
     manager.shutdown();
     blockerServer.close();

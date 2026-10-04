@@ -1,6 +1,6 @@
 {
   "name": "stronghold-link",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Stronghold Link — 通用内网穿透工具（本地 TCP/UDP 中继 + Steam P2P 隧道 + 端到端加密）",
   "private": true,
   "main": "electron/main.cjs",

@@ -1,6 +1,6 @@
 'use strict';
 // 用「用户自己的目录 + 他自己的官方 SDK」做真实初始化验证。
-// 用法：node steam-userdir-probe.cjs "D:\\Stronghold-Link-0.9.0-portable-win-x64"
+// 用法：node steam-userdir-probe.cjs "<解压目录>"
 const fs = require('node:fs');
 const { initSteamSdk, resolveOwnSteamId } = require('../network/steam-adapter.cjs');
 const { diagnoseSteam } = require('../network/steam-env.cjs');

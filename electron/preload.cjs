@@ -8,7 +8,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const SESSION_EVENT_CHANNEL = 'session:event';
 
 contextBridge.exposeInMainWorld('strongholdLink', {
-  version: '0.9.0',
+  version: '0.9.1',
   profiles: {
     load: () => ipcRenderer.invoke('profiles:load'),
     save: (profiles) => ipcRenderer.invoke('profiles:save', profiles),

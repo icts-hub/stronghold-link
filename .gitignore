@@ -5,6 +5,9 @@ dist/
 out/
 build/*.exe
 
+# 构建与发布产物
+RELEASE-NOTES.md
+
 # 测试与运行产物
 test-out/
 *.log

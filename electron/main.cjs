@@ -22,7 +22,7 @@ const APP_DIR = path.resolve(__dirname, '..');
 const appIdFromEnv = () => (process.env.SH_LINK_STEAM_APP_ID ? Number(process.env.SH_LINK_STEAM_APP_ID) : null);
 const localAddress = () => require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '0.9.1';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);

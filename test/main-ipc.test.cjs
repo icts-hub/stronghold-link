@@ -83,7 +83,7 @@ test('main.cjs 注册了预期的 IPC 频道', () => {
 
 test('app:info 返回真实版本与配置路径（基于桩 userData）', async () => {
   const info = await invoke('app:info');
-  assert.equal(info.version, '0.9.0');
+  assert.equal(info.version, '0.9.1');
   assert.equal(info.name, 'Stronghold Link');
   assert.equal(info.configPath, path.join(OUT_ROOT, 'game-profiles.json'));
   assert.equal(info.smoke, false);

@@ -68,6 +68,12 @@ jobs:
             Write-Host '::error title=找不到构建产物::仓库内没有 Stronghold-Link-*-portable-*.zip'
             exit 1
           }
+          # 只取本版本的段落作为发布说明（取不到就退回整个 CHANGELOG）
+          $notesVersion = $tag -replace '^v', ''
+          node tools/changelog-for.cjs $notesVersion > RELEASE-NOTES.md
+          if ($LASTEXITCODE -ne 0) { Copy-Item CHANGELOG.md RELEASE-NOTES.md -Force }
+          Write-Host "说明文件: RELEASE-NOTES.md ($((Get-Item RELEASE-NOTES.md).Length) 字节)"
+
           Write-Host "标签: $tag"
           Write-Host "附件: $($zip.FullName)  ($([math]::Round($zip.Length/1MB,2)) MB)"
 
@@ -78,17 +84,17 @@ jobs:
 
           if ($mine) {
             Write-Host "已存在 Release（draft=$($mine.isDraft)），更新说明并确保为已发布"
-            gh release edit $tag --title $title --notes-file CHANGELOG.md --draft=false
+            gh release edit $tag --title $title --notes-file RELEASE-NOTES.md --draft=false
             if ($LASTEXITCODE -ne 0) {
               Write-Host '::error title=Release 更新失败::gh release edit 返回非零，检查权限'
               exit 1
             }
           } else {
             Write-Host "没有 $tag 的 Release，创建并发布"
-            gh release create $tag --title $title --notes-file CHANGELOG.md --verify-tag
+            gh release create $tag --title $title --notes-file RELEASE-NOTES.md --verify-tag
             if ($LASTEXITCODE -ne 0) {
               Write-Host '::warning title=verify-tag 失败::改用不带 --verify-tag 的方式重试'
-              gh release create $tag --title $title --notes-file CHANGELOG.md
+              gh release create $tag --title $title --notes-file RELEASE-NOTES.md
             }
             if ($LASTEXITCODE -ne 0) {
               Write-Host '::error title=Release 创建失败::检查 permissions: contents: write 与标签是否存在'
