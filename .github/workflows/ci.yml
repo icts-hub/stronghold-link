@@ -34,7 +34,7 @@ jobs:
           node -e "try{require.resolve('steamworks-ffi-node');console.log('steam 绑定: 已安装')}catch(e){console.log('steam 绑定: 未安装（可选依赖）')}"
 
       - name: 运行测试
-        run: npm test
+        run: node tools/ci-run-tests.cjs
 
       - name: 上报测试日志
         if: failure()
