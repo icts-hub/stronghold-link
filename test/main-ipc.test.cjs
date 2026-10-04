@@ -292,10 +292,13 @@ test('Steam IPC（阶段 4）：诊断报告可用，环境未就绪时会话给
   assert.equal(Array.isArray(report.steps), true);
   assert.ok(report.steps.some((s) => s.title.includes('SDK')), '诊断报告应包含 SDK 步骤');
   assert.equal(report.sdk.library, require('../network/steam-env.cjs').PLATFORM_LIBRARY[process.platform]);
-  // 本机确实没有 SDK（Valve 不允许随包分发），所以应判定未就绪并给出 blockers
+  // 未就绪时要说清楚缺什么：可能是 SDK 文件，也可能是可选依赖没装（CI 常见）
   if (!report.available) {
     assert.ok(report.blockers.length > 0);
-    assert.ok(report.blockers.some((b) => /redistributable|steam_api/.test(b)), `blockers：${report.blockers.join('；')}`);
+    assert.ok(
+      report.blockers.some((b) => /redistributable|steam_api|steamworks-ffi-node|koffi/.test(b)),
+      `blockers 应指出可执行的原因：${report.blockers.join('；')}`,
+    );
   }
 
   const adapters = await invoke('adapters:list');

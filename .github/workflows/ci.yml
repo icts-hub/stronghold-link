@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        node: ['20.x', '22.x']
+        node: ['22.x', '24.x']
     steps:
       - uses: actions/checkout@v4
 
@@ -23,22 +23,20 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      # steamworks-ffi-node 是可选依赖：装不上也不影响除 Steam 之外的测试
+      # steamworks-ffi-node 是可选依赖（Steam 隧道用）；它装不上时其余测试仍应通过
       - name: 安装依赖
-        run: npm install --no-audit --no-fund
-        continue-on-error: true
+        run: npm install --no-audit --no-fund || npm install --no-audit --no-fund --omit=optional
 
-      - name: 确认 Electron 已安装
-        run: node -e "console.log('electron', require('electron/package.json').version)"
-        continue-on-error: true
+      - name: 环境信息
+        run: |
+          node -v
+          node -e "try{console.log('electron', require('electron/package.json').version)}catch(e){console.log('electron 未安装:', e.code)}"
+          node -e "try{require.resolve('steamworks-ffi-node');console.log('steam 绑定: 已安装')}catch(e){console.log('steam 绑定: 未安装（可选依赖）')}"
 
-      # 受限环境（沙箱/无管道）下用单进程模式，避免 node:test 子进程隔离失败
       - name: 运行测试
-        run: npm run test:single
-        env:
-          SHL_KEEP_SANDBOX: '1'
+        run: npm test
 
-      - name: 上报测试失败日志
+      - name: 上报测试日志
         if: failure()
         uses: actions/upload-artifact@v4
         with:

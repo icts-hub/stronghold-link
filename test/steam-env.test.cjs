@@ -13,6 +13,18 @@ const os = require('node:os');
 const env = require('../network/steam-env.cjs');
 
 const APP_DIR = path.join(__dirname, '..');
+
+/**
+ * 断言「SDK 文件」这一项检查通过。
+ * steamworks-ffi-node 是可选依赖（CI/minimal 安装下可能没有），
+ * 所以这里只看 SDK 步骤本身的结论，不看整份报告是否 available。
+ */
+function assertSdkStepOk(report) {
+  const sdkStep = report.steps.find((s) => s.title.includes('SDK'));
+  assert.equal(sdkStep.ok, true, `SDK 步骤应通过：${sdkStep.detail}`);
+  const sdkBlockers = report.blockers.filter((b) => /redistributable|steam_api/.test(b));
+  assert.deepEqual(sdkBlockers, [], `不该出现 SDK 缺失的 blocker：${sdkBlockers.join('；')}`);
+}
 const PLATFORM_LIB = env.PLATFORM_LIBRARY[process.platform];
 
 /** 造一个假的 SDK 目录（只验证存在性检查逻辑，不代表 DLL 可用）。 */
@@ -32,8 +44,9 @@ test('目录名拼写容错：steamwork_sdk（少一个 s）也能识别，并�
   try {
     makeFakeSdkDir(temp, { dirName: 'steamwork_sdk' });
     const report = env.diagnoseSteam({ appDir: temp });
-    assert.equal(report.available, true, `少一个 s 也应可用，blockers=${report.blockers.join('；')}`);
-    assert.equal(report.sdk.dirName, 'steamwork_sdk');
+    assert.equal(report.sdk.dirName, 'steamwork_sdk', '少一个 s 也应被找到');
+    assert.equal(report.sdk.libraryExists, true, `应找到库文件，blockers=${report.blockers.join('；')}`);
+    assertSdkStepOk(report);
     assert.match(report.sdk.note, /steamwork_sdk/);
     assert.match(report.sdk.note, /已兼容读取/);
     const step = report.steps.find((s) => s.title.includes('SDK'));
@@ -51,8 +64,7 @@ test('兜底：直接把平台库文件放在应用目录下也能识别', () =>
     fs.mkdirSync(path.dirname(flat), { recursive: true });
     fs.writeFileSync(flat, 'not-a-real-dll');
     const report = env.diagnoseSteam({ appDir: temp });
-    assert.equal(report.available, true, `平铺 DLL 也应可用，blockers=${report.blockers.join('；')}`);
-    assert.equal(report.sdk.libraryExists, true);
+    assert.equal(report.sdk.libraryExists, true, `平铺 DLL 也应被找到，blockers=${report.blockers.join('；')}`);
     assert.match(report.sdk.note, /推荐放到 steamworks_sdk/);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
@@ -68,9 +80,13 @@ test('候选目录：包含应用目录、上两级与 node_modules', () => {
   assert.equal(withExtra[0], path.resolve('D:\\sdk-here'), '自定义目录优先');
 });
 
-test('模块与 FFI 运行时：本机已安装 steamworks-ffi-node（真实检查）', () => {
+test('模块与 FFI 运行时：装了 steamworks-ffi-node 就应可用（可选依赖，未装则跳过）', (t) => {
   const moduleCheck = env.checkModule(APP_DIR);
-  assert.equal(moduleCheck.available, true, `应能解析到 steamworks-ffi-node：${moduleCheck.error || ''}`);
+  if (!moduleCheck.available) {
+    // 它是 optionalDependencies：CI 或最小安装下允许缺失，其余功能不受影响
+    t.skip(`未安装 steamworks-ffi-node（可选依赖）：${moduleCheck.error || ''}`);
+    return;
+  }
   assert.equal(moduleCheck.hasSdkClass, true, '应导出 SteamworksSDK.getInstance');
   const ffi = env.checkFfiRuntime(APP_DIR);
   assert.equal(ffi.available, true, `koffi 应可用：${ffi.error || ''}`);
@@ -111,8 +127,9 @@ test('SDK 目录存在且有本平台库文件时判定为就绪', () => {
   try {
     makeFakeSdkDir(temp, { withLibrary: true });
     const report = env.diagnoseSteam({ appDir: temp });
-    assert.equal(report.available, true, `应判定就绪，blockers=${report.blockers.join('；')}`);
     assert.equal(report.sdk.found, true);
+    assert.equal(report.sdk.libraryExists, true);
+    assertSdkStepOk(report);
     assert.equal(report.sdk.libraryExists, true);
     const expectedSuffix = path.join(...PLATFORM_LIB.split('/'));
     assert.ok(report.sdk.libraryPath.endsWith(expectedSuffix), `实际路径：${report.sdk.libraryPath}`);
