@@ -14,6 +14,12 @@
 - **Steamworks SDK redistributable**（`steam_api64.dll`、`libsteam_api.so`、`libsteam_api.dylib` 等）：
   受 Valve 授权条款限制，仓库与发行包中均不包含。放置方式见 [steamworks_sdk/README.md](steamworks_sdk/README.md)。
 
+## 致谢
+
+本项目的缘起与「浏览器应用隧道」这条连接方式，参考了 [sganggs/Stronghold-Protocol](https://github.com/sganggs/Stronghold-Protocol)
+（《卫戍协议：盟约》非官方同人复刻，GPL-3.0）中客户端「同源 WebSocket」的连接结构。
+两边是各自独立的程序，本项目不包含对方的任何代码或素材。
+
 ## 商标
 
 Steam 与 Steamworks 是 Valve Corporation 的商标或注册商标。

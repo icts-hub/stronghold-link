@@ -189,3 +189,25 @@ node steam-userdir-probe.cjs "D:\某个安装目录"    # 用指定目录里的 
 ## License
 
 [GPL-3.0-or-later](LICENSE)。第三方组件与商标声明见 [NOTICE.md](NOTICE.md)。
+
+## 致谢
+
+这工具最早就是为了跟朋友一起玩《卫戍协议：盟约》才动笔的，所以先谢 [sganggs](https://github.com/sganggs/Stronghold-Protocol)。
+
+他把「卫戍协议：盟约」复刻成了浏览器里打开就能玩的 1–4 人联机合作（GPL-3.0，531 星，值得一看）。
+也正因为他的客户端是「先开网页，网页再用同源 WebSocket 连服务器」这种结构，才有了本项目里
+「本地中继 + 浏览器应用」这条连接方式——加入者不用在自己机器上装任何东西，浏览器打开隧道入口就行。
+写联机那几天反复翻他的代码确认端口、房间码规则（4 位字母、不含 I 和 O）、WebSocket 地址怎么拼，
+省了大量试错。两边是各自独立的程序，本项目没有包含对方任何代码。
+
+感谢 Valve 和 Steam。Steamworks SDK 的 Networking Sockets 加 Steam Relay 网络，把「跨网络、免端口映射」
+这件事做成了现成能力，这个工具说到底是它和本机端口之间的一层桥。Steam 与 Steamworks 是 Valve Corporation
+的商标，本项目与 Valve 没有任何隶属或赞助关系，也不含其 SDK 文件（要自己放，见 [steamworks_sdk/README.md](steamworks_sdk/README.md)）。
+
+也要谢 [Electron](https://www.electronjs.org/)、[steamworks-ffi-node](https://www.npmjs.com/package/steamworks-ffi-node)
+和 [koffi](https://koffi.dev/) 的作者与维护者，桌面外壳、Steam 的 Node 绑定、FFI 运行时这三块都是现成轮子（都是 MIT），
+明细记在 [NOTICE.md](NOTICE.md)。
+
+最后谢谢被我拉着测联机的朋友：两台机器、两个 Steam 账号，一遍遍听我说「再试一次」。
+
+祝大家都能叠 325 层打出 799w 伤害。
