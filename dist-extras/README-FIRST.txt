@@ -14,6 +14,13 @@ FOUR CONNECTION METHODS / 四种连接方式
 3) Steam P2P tunnel                      - across the internet, no port forwarding
 4) No relay (LAN direct)                 - same LAN, tool forwards nothing
 
+RISK WARNING / 风险提示
+------------------------
+Using Steam for P2P multiplayer is RISKY: AppID 480 is Valve's test app, and whether
+Valve treats this as abuse (account limits / bans) is unknown. USE A THROWAWAY STEAM
+ACCOUNT, not your main one. The local relay and LAN-direct modes do not touch Steam at all.
+用 Steam 通道联机属于风险行为，V 社是否封禁没有明确说法——请用小号，别用主账号。
+
 STEAM / Steam 联机
 ------------------
 Put the Steamworks SDK redistributable here (either spelling is accepted):

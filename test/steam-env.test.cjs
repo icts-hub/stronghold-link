@@ -72,12 +72,18 @@ test('兜底：直接把平台库文件放在应用目录下也能识别', () =>
 });
 
 test('候选目录：包含应用目录、上两级与 node_modules', () => {
-  const dirs = env.candidateBaseDirs({ appDir: 'C:\\app\\sub' });
-  assert.ok(dirs.some((d) => d.endsWith(path.join('app', 'sub'))));
-  assert.ok(dirs.some((d) => d.endsWith('app')));
+  // 用平台无关的写法构造绝对路径：CI 会同时跑 Windows 与 Linux
+  const root = path.parse(process.cwd()).root;
+  const appDir = path.join(root, 'app', 'sub');
+  const dirs = env.candidateBaseDirs({ appDir });
+  assert.ok(dirs.includes(path.resolve(appDir)), '应包含应用目录本身');
+  assert.ok(dirs.includes(path.resolve(appDir, '..')), '应包含上一级');
+  assert.ok(dirs.includes(path.resolve(appDir, '..', '..')), '应包含上两级');
   assert.ok(dirs.some((d) => d.includes('node_modules')));
-  const withExtra = env.candidateBaseDirs({ appDir: 'C:\\app', extraDirs: ['D:\\sdk-here'] });
-  assert.equal(withExtra[0], path.resolve('D:\\sdk-here'), '自定义目录优先');
+  assert.equal(dirs[0], path.resolve(appDir), '应用目录优先');
+  const extra = path.join(root, 'sdk-here');
+  const withExtra = env.candidateBaseDirs({ appDir, extraDirs: [extra] });
+  assert.equal(withExtra[0], path.resolve(extra), '自定义目录优先');
 });
 
 test('模块与 FFI 运行时：装了 steamworks-ffi-node 就应可用（可选依赖，未装则跳过）', (t) => {
