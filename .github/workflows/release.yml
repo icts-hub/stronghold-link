@@ -80,7 +80,13 @@ jobs:
               exit 1
             }
           } else {
-            Write-Host "Release $tag 已存在，直接补传附件"
+            Write-Host "Release $tag 已存在，刷新说明并补传附件"
+          }
+
+          # 无论是新建还是已存在，都用 CHANGELOG.md 同步一次 Release 说明
+          gh release edit $tag --notes-file CHANGELOG.md --title "Stronghold Link $tag"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '::warning title=说明更新失败::gh release edit 返回非零，附件仍会继续上传'
           }
 
           gh release upload $tag $zip.FullName --clobber
