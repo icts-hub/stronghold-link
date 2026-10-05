@@ -423,13 +423,13 @@
 
 <div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Friends</span><span class="step__meta" id="friendCount">0 ONLINE</span></div>
 <div class="panel" id="hostPrepPanel" style="margin-bottom:var(--sp-4)">
-  <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+  <div class="row" id="hostPickRow" style="gap:10px;align-items:center;flex-wrap:wrap">
     <button class="btn btn--sm is-primary" id="lobbyPortBtn" type="button">选择要转发的进程</button>
     <input class="inp mono" id="lobbyPortFilter" placeholder="筛选进程名（可留空）" style="max-width:240px">
     <span class="tech" id="lobbyPortOut">房主：选一个进程 → 自动配好隧道与大厅 → 好友只需点接受</span>
   </div>
   <div class="spec" id="lobbyPortBody" style="margin-top:8px"></div>
-  <div class="row" style="margin-top:10px;gap:10px;align-items:center;flex-wrap:wrap">
+  <div class="row" id="hostRoomRow" style="margin-top:10px;gap:10px;align-items:center;flex-wrap:wrap">
     <span class="tech">房主：游戏内建好房间后，把房间号（或游戏给的邀请链接）粘到这里</span>
     <input class="inp mono" id="roomCodeInput" placeholder="例如 ABCD 或 http://…/?room=ABCD" style="max-width:320px">
     <button class="btn btn--sm is-primary" id="roomCodeBtn" type="button">写入大厅</button>
@@ -881,16 +881,19 @@ function renderLobbyPorts(data){
   }).join('');
 }
 function applyFriendsRole(){
-  var panel=$('hostPrepPanel');if(!panel)return;
   var snap=lobbySnapshot||{};
   var role=snap.role||null;
   var isJoiner=(role==='joiner');
-  panel.hidden=isJoiner;                          // 加入者：这是房主的操作，直接隐藏
-  panel.style.display=isJoiner?'none':'';
-  if(isJoiner){
-    var out=$('lobbyPortOut');
-    if(out)out.textContent='你是加入者：不用选端口、不用填 IP。点下面的「打开游戏并进入房间」即可（那是房主的事）';
-  }
+  // 只隐藏"房主专属的两行"：选进程 / 填房间号。
+  // 四步流程卡(#roomSteps)与「联机自检」按钮必须对两种角色始终可见 —— 之前整块隐藏面板
+  // 导致好友连自检和「打开游戏」都点不到，是个严重错误。
+  ['hostPickRow','hostRoomRow'].forEach(function(id){
+    var el=$(id); if(!el)return;
+    el.hidden=isJoiner;
+    el.style.display=isJoiner?'none':'';
+  });
+  var out=$('lobbyPortOut');
+  if(out&&isJoiner)out.textContent='你是加入者：不用选端口、不用填 IP。用下面的四步卡点「打开游戏」即可';
 }
 function initLobbyPort(){
   var btn=$('lobbyPortBtn'),filter=$('lobbyPortFilter'),body=$('lobbyPortBody');
