@@ -844,9 +844,37 @@ ipcMain.handle('lobby:selftest', async () => {
     } else {
       const ownerId = (info.hostSteamId || snap.hostSteamId || '-');
       const noHostInfo = !(info.hostSteamId || port);
-      add('隧道入口', false, noHostInfo
-        ? ('大厅房主 ' + ownerId + ' 还没写入端口（TA 没有开局）。请让房主在自己那边选端口开局；如果这个大厅是误建的，请让 TA 重新建房后邀请你')
-        : '加入者还没有入口端口 → 隧道没起来（请把上面的自检输出发给房主一起看）');
+      // 自检顺手把加入者隧道试起来（自检即修复），并把被拒的真实原因写进结果里
+      let attempt = null;
+      try {
+        const { planLobbyConnect } = require('../network/lobby-connect.cjs');
+        const plan = planLobbyConnect({
+          role: 'joiner',
+          lobby: { lobbyId: snap.lobbyId || null, hostSteamId: info.hostSteamId || snap.hostSteamId || null, port: port, game: info.game || '', version: info.version || '' },
+          session: s,
+          appId: Number(cfg.appId) > 0 ? Number(cfg.appId) : null,
+          appVersion: APP_VERSION,
+        });
+        attempt = { action: plan.action, reason: plan.reason, needsHostStop: Boolean(plan.needsHostStop) };
+        if (plan.action === 'start') {
+          const snap3 = await session.start(sanitizeSessionInput(plan.options));
+          const e3 = snap3.channels && snap3.channels[0] && snap3.channels[0].listen ? snap3.channels[0].listen.port : null;
+          if (e3) {
+            const url3 = 'http://127.0.0.1:' + e3 + '/';
+            const r3 = await httpProbe(url3);
+            add('隧道入口', true, '已自动建立：' + url3 + '（入口端口与房主服务端口同号）');
+            add('隧道转发 HTTP（决定性）', r3.ok, r3.ok ? ('GET ' + url3 + ' → HTTP ' + r3.status + (r3.looksLikeGame ? ' · 内容是网页（数据确实来自房主）' : ' · 内容不像游戏页面')) : ('GET ' + url3 + ' 失败：' + r3.reason + ' → 隧道没把数据送过来'));
+            add('浏览器该打开的地址', true, url3);
+          } else {
+            add('隧道入口', false, '会话起来了但没有入口端口（异常，请把此文件发我）');
+          }
+        } else {
+          add('隧道入口', false, '没能建立加入者隧道：' + plan.reason + (attempt.needsHostStop ? '（可点四步卡里的「以加入者身份重连」）' : ''));
+        }
+      } catch (err) {
+        add('隧道入口', false, '尝试建立隧道时出错：' + (err && err.message ? err.message : err) + (noHostInfo ? ('　（大厅房主 ' + ownerId + ' 尚未写入端口）') : ''));
+      }
+      if (attempt) add('启动计划', attempt.action === 'start' ? true : false, 'action=' + attempt.action + ' · reason=' + attempt.reason);
     }
     return { ok: true, checks, verdict: checks.some((c) => c.ok === false) ? '发现断点：见标红项' : '未发现断点' };
   } catch (err) {
