@@ -365,6 +365,33 @@ function registerIpc() {
     }
   });
   let routeWatch = null;
+ipcMain.handle('network:listening-ports', async () => {
+  // 探测本机监听端口，过滤系统与基础设施，排除本会话自己的端口，给出可转发的候选
+  try {
+    const ports = require('../network/listening-ports.cjs');
+    const snap = session.getSnapshot ? session.getSnapshot() : {};
+    const used = [];
+    (snap.channels || []).forEach((c) => {
+      if (c && c.listen && Number(c.listen.port) > 0) used.push(Number(c.listen.port));
+      if (c && c.peer && Number(c.peer.port) > 0) used.push(Number(c.peer.port));
+    });
+    const found = ports.listListeningPorts({});
+    if (!found.ok) return { ok: false, reason: found.reason, candidates: [], rules: [], steamPick: null, used };
+    const candidates = ports.rankCandidates(found.entries, { exclude: used, limit: 12 });
+    return {
+      ok: true,
+      reason: null,
+      used,
+      candidates,
+      steamPick: ports.suggestSteamGamePort(found.entries, { exclude: used }),
+      rules: ports.suggestRules(found.entries, { exclude: used, max: 4, perProcess: 2 }),
+      scannedAt: Date.now(),
+    };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err), candidates: [], rules: [], steamPick: null, used: [] };
+  }
+});
+
 ipcMain.handle('network:nat-type', async () => {
   // NAT 映射行为实测：同一 socket 问两个 STUN 服务器，比较映射结果
   try {

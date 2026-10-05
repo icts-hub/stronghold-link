@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     routes: (input) => ipcRenderer.invoke('network:routes', input || {}),
     routeWatch: (input) => ipcRenderer.invoke('network:route-watch', input || {}),
     natType: () => ipcRenderer.invoke('network:nat-type'),
+    listeningPorts: () => ipcRenderer.invoke('network:listening-ports'),
   },
   steam: {
     diagnose: () => ipcRenderer.invoke('steam:diagnose'),
