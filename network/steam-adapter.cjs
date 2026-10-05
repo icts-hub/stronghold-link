@@ -299,7 +299,12 @@ function createSteamHost(options = {}) {
       // 只处理「真的从我们的监听 socket 进来」的连接。
       // 实测：同一个 Steam 客户端自连时（同一账号、同进程跑房主+加入者），进程里也会看到自己发起的
       // 出站连接，它的 info.listenSocket === 0；对它调 acceptConnection 会返回 11（InvalidParam）。
-      if (change.info && change.info.listenSocket === 0) return;
+      // 记录每一次进入 Connecting 的事件 —— 没有这行日志，就无法判断"房主到底有没有收到请求"。
+      const lsRaw = change.info ? change.info.listenSocket : undefined;
+      try {
+        emit('notice', { text: 'Steam 连接事件：对端 ' + (steamId || '?') + ' · listenSocket=' + JSON.stringify(lsRaw) + (lsRaw === 0 ? '（判定为出站，跳过）' : '（判定为入站，接受）') });
+      } catch (err) { /* 日志失败不影响主流程 */ }
+      if (change.info && lsRaw === 0) return;
       if (peers.size >= maxPeers) {
         stats.rejected += 1;
         emit('rejected', { reason: 'max-peers', peer: steamId, limit: maxPeers });
