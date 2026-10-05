@@ -218,7 +218,8 @@ function createRelayServer({
     if (msg.type === TYPES.PING) {
       const peer = peersByKey.get(keyOf(rinfo));
       if (peer) peer.lastSeenAt = now();
-      send(encode(TYPES.PONG, { sessionId: msg.sessionId, peerId: peer ? peer.id : 0 }), rinfo);
+      // 回显载荷：客户端靠它把 PONG 对到具体那次心跳上，否则测不出 RTT
+      send(encode(TYPES.PONG, { sessionId: msg.sessionId, peerId: peer ? peer.id : 0, payload: msg.payload }), rinfo);
       return true;
     }
     return drop(DROP_REASONS.MALFORMED);
