@@ -16,6 +16,7 @@
 /** 游戏档案：进程名（小写，可多个）+ 默认端口 + 协议 + 好友端怎么连 */
 /** 命令行证据：进程名太泛（javaw.exe 等）时，用它确认到底是哪个游戏 */
 const CMD_HINTS = {
+  'stronghold-protocol': [/server[\\/]index\.js/i, /stronghold/i, /卫戍/, /alliance/i, /room/i],
   'minecraft-java': [/minecraft/i, /server\.jar/i, /\.minecraft/i, /net\.minecraft/i, /forge|fabric|paper|spigot|bukkit/i],
   'minecraft-bedrock': [/minecraft.*bedrock|bedrock_server/i, /Minecraft\.Win10/i],
   'terraria': [/terraria/i],
@@ -40,6 +41,8 @@ const CMD_HINTS = {
 };
 
 const PROFILES = [
+  // 本项目配套的游戏：Node 权威服，网页与 WebSocket 共用 3000，房间号叫「同盟密钥」
+  { id: 'stronghold-protocol', name: '卫戍协议：盟约', procs: ['node.exe', 'node', 'stronghold protocol.exe'], ports: [3000], protocol: 'TCP', join: '房主建房后把 4 位「同盟密钥」或「复制链接」发给好友；好友点「打开游戏并进入房间」即可' },
   { id: 'minecraft-java', name: 'Minecraft Java 版', procs: ['javaw.exe', 'java.exe', 'minecraft.exe'], ports: [25565], protocol: 'TCP', join: '多人游戏 → 直接连接 → 输入 127.0.0.1:{{port}}' },
   { id: 'minecraft-bedrock', name: 'Minecraft 基岩版', procs: ['minecraft.win10.exe', 'minecraftlauncher.exe'], ports: [19132], protocol: 'UDP', join: '服务器 → 添加服务器 → 地址 127.0.0.1，端口 {{port}}' },
   { id: 'terraria', name: '泰拉瑞亚', procs: ['terraria.exe', 'terrariaserver.exe', 'terrariaserverconfig.exe'], ports: [7777], protocol: 'TCP', join: '多人游戏 → 加入通过 IP → 127.0.0.1 端口 {{port}}' },

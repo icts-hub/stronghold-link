@@ -106,3 +106,21 @@ test('服务端自定义端口（paper jar）：识别成功且标注非默认�
   assert.equal(out[0].port, 47321);
   assert.equal(out[0].isDefaultPort, false);
 });
+
+test('同时存在《卫戍协议》(node.exe:3000) 与 CS2(27015)：首选卫戍协议，不让别的游戏抢先', () => {
+  const entries = [
+    { port: 3000, process: 'node.exe', protocol: 'TCP', state: 'LISTENING', pid: 111 },
+    { port: 27015, process: 'cs2.exe', protocol: 'UDP', state: 'LISTENING', pid: 222 },
+  ];
+  const out = G.detectGames(entries);
+  assert.equal(out[0].id, 'stronghold-protocol', '默认端口 3000 的卫戍协议应排在前面');
+  assert.equal(G.pickPrimaryGame(entries).id, 'stronghold-protocol');
+});
+
+test('node.exe 跑在非 3000 端口且无命令行：仍是 low（不冒充确定）', () => {
+  const entries = [{ port: 45123, process: 'node.exe', protocol: 'TCP', state: 'LISTENING', pid: 333 }];
+  const out = G.detectGames(entries);
+  assert.equal(out[0].id, 'stronghold-protocol');
+  assert.equal(out[0].confidence, 'low');
+  assert.equal(G.pickPrimaryGame(entries), null);
+});
