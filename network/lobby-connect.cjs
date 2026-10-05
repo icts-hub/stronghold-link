@@ -62,12 +62,14 @@ function planLobbyConnect({ role = 'joiner', lobby = null, session = null, appId
     if (lobby.version && appVersion && String(lobby.version) !== String(appVersion)) {
       notes.push('大厅由版本 ' + lobby.version + ' 创建，本机是 ' + appVersion + '：协议不一致时可能连不上');
     }
-    if (port) notes.push('房主共享的服务端口：' + port + '（加入者连的是自己机器的入口端口，不是这个）');
-    notes.push('入口端口未指定时会自动选一个空闲端口，启动后日志里会打印要连的地址');
+    if (port) notes.push('房主共享的服务端口：' + port + '；本机入口端口也取同一个数字（' + port + '），这样你只需打开 127.0.0.1:' + port);
+    notes.push('入口端口与房主服务端口同号 = 实测可用的配方；若该端口在你本机已被占用（例如你自己也开着游戏），会直接报错并提示先关掉它或换一个端口');
     return {
       action: ACTIONS.START,
-      options: { adapter: 'steam', role: 'joiner', hostSteamId, localPort: 0, appId: appId || null },
-      reason: '用大厅里的房主 SteamID 建立 Steam 隧道',
+      // 关键：入口端口取"房主服务端口同一个数字"，而不是随机分配。
+      // 用户实测：两端都用 3000 时可以直接联机；随机端口会导致好友照旧打开 3000（连到自己那边）而失败。
+      options: { adapter: 'steam', role: 'joiner', hostSteamId, localPort: Number(port) > 0 ? Number(port) : 0, appId: appId || null },
+      reason: '用大厅里的房主 SteamID 建立 Steam 隧道（入口端口与房主服务端口同号）',
       notes,
     };
   }

@@ -20,9 +20,9 @@ test('加入者：用大厅里的房主 SteamID 启动 Steam 隧道，端口自�
   assert.equal(out.options.adapter, 'steam');
   assert.equal(out.options.role, 'joiner');
   assert.equal(out.options.hostSteamId, LOBBY.hostSteamId);
-  assert.equal(out.options.localPort, 0, '入口端口交给系统自动分配');
+  assert.equal(out.options.localPort, LOBBY.port, '入口端口应与房主服务端口同号（实测可用配方），而不是随机分配');
   assert.equal(out.options.appId, 480);
-  assert.ok(out.notes.some((n) => n.includes('不是这个')), '必须说明加入者连的不是房主端口');
+  assert.ok(out.notes.some((n) => n.includes('127.0.0.1:3000')), '必须告诉加入者该打开哪个地址');
 });
 
 test('加入者：大厅里没有房主信息时不启动（房主未启动房主会话）', () => {
