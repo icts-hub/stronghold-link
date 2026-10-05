@@ -1001,6 +1001,23 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
       appVersion: APP_VERSION,
     });
     if (plan.action !== 'start') {
+      // "已经连上了"不是失败，而是"已就绪"：直接把入口端口与网址返回，界面照常打开游戏。
+      // 之前把它当失败处理，用户看到的是"连接失败：已经通过大厅连上了这条隧道" —— 与事实相反。
+      const cur0 = session.getSnapshot();
+      const ch0 = cur0.channels && cur0.channels[0];
+      const entryNow = ch0 && ch0.listen ? ch0.listen.port : null;
+      const alreadyUp = /已经通过大厅连上|已经以房主身份在等/.test(String(plan.reason || ''));
+      if (alreadyUp && entryNow) {
+        return {
+          ok: true, already: true, action: 'none', reason: plan.reason, notes: plan.notes,
+          room: (info && info.room) || '',
+          hostPort: Number(info && info.port) > 0 ? Number(info.port) : null,
+          entryPort: entryNow,
+          entryUrl: 'http://127.0.0.1:' + entryNow,
+          entryHint: '隧道已就绪：用浏览器打开 http://127.0.0.1:' + entryNow,
+          snapshot: cur0, status: snap,
+        };
+      }
       // 一键纠正：加入者本机残留房主会话时，先停掉它再重试（用户点按钮才会走到这里）
       if (plan.needsHostStop && input.fix === true) {
         try {

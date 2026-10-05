@@ -913,6 +913,7 @@ function renderRoomSteps(s){
       toast('正在连接房主…（若本机有旧会话会自动停掉）');
       apiC.connect({fix:true}).then(function(r5){
         if(r5&&r5.ok&&r5.entryUrl){
+          if(r5.already)lobbyLog('隧道本来就已就绪（大厅里读到了房主信息）','ok');
           var u5=r5.room?(r5.entryUrl+'/?room='+encodeURIComponent(r5.room)):r5.entryUrl;
           lobbyLog('隧道已建立：'+u5,'ok');
           renderRoomSteps({entryUrl:r5.entryUrl,room:r5.room||null});
