@@ -62,8 +62,7 @@
   opacity: var(--fx-noise-opacity);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
   background-size: 180px 180px;
-  mix-blend-mode: multiply;
-  animation: sl-fx-grain 2.4s steps(2, end) infinite;
+  mix-blend-mode: multiply; /* grain 静态化：去掉每 2.4s 重绘（方案 G） */
 }
 
 /* -------------------- Glass system -------------------- */

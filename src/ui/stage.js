@@ -47,11 +47,11 @@
 
   var renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true, powerPreference: 'low-power' });
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, alpha: true, powerPreference: 'low-power' });
   } catch (err) {
     return; // 没有 WebGL：保留 CSS 背景
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));   // 高 DPI 不再 1.5 倍（方案 C）
   host.insertBefore(canvas, host.firstChild);
   // 画布之上压一层极薄纸色：正文始终落在安静的底上（舞台仍然可见）
   var scrim = document.createElement('div');
@@ -62,9 +62,9 @@
   var camera = new THREE.PerspectiveCamera(38, 1, 1, 400);
 
   // 节点方阵：长条方柱按网格排布，越远越淡（靠雾）
-  var COLS = 26;
-  var ROWS = 16;
-  var SPACING = 7.4;
+  var COLS = 19;
+  var ROWS = 10;                 // 190 个实例（原 416，方案 D）
+  var SPACING = 9.6;
   var count = COLS * ROWS;
   var box = new THREE.BoxGeometry(1.35, 1, 3.6);
   var material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5 });
@@ -140,15 +140,39 @@
 
   var clock = 0;
   var running = true;
-  function frame() {
+  var lastPaint = 0;
+  var paintCount = 0;
+  var FRAME_MIN_MS = 33;              // 装饰性舞台 30 FPS（方案 E）
+  var LOOKAT_EVERY = 3;               // 相机朝向每 3 帧更新（方案 F）
+
+  /** 只有 Session / Network 页需要网络舞台，其它页面完全不渲染（方案 B/P） */
+  function stageWanted() {
+    if (reduceMotion) return true;
+    try {
+      var nv = document.getElementById('networkView');
+      var sv = document.getElementById('sessionView');
+      if (nv && nv.classList.contains('active')) return true;
+      if (sv && sv.classList.contains('active')) return true;
+      return false;
+    } catch (e) { return true; }
+  }
+
+  function frame(now) {
     if (!running) return;
     requestAnimationFrame(frame);
-    if (!reduceMotion) clock += 0.0016;
+    var t = now || 0;
+    if (!reduceMotion) {
+      if (t - lastPaint < FRAME_MIN_MS) return;      // 30 FPS 门控
+      if (!stageWanted()) return;                    // 当前页面不需要舞台：跳过渲染
+      lastPaint = t;
+      clock += (FRAME_MIN_MS / 1000) * 0.02;
+    }
     var radius = 132;
     var angle = reduceMotion ? -0.55 : -0.55 + clock;
     camera.position.set(Math.cos(angle) * radius, 48 + (reduceMotion ? 0 : Math.sin(clock * 0.7) * 4), Math.sin(angle) * radius);
-    camera.lookAt(0, 4, 0);
-    if (!reduceMotion) {
+    paintCount += 1;
+    if (reduceMotion || paintCount % LOOKAT_EVERY === 0) camera.lookAt(0, 4, 0);
+    if (!reduceMotion && paintCount % 2 === 0) {
       scan.position.set(0, 7, ((clock * 26) % (ROWS * SPACING)) - (ROWS * SPACING) / 2);
       if (activeLine) activeLine.material.opacity = 0.3 + Math.sin(clock * 6) * 0.12;
     }
@@ -157,7 +181,7 @@
 
   applyTheme();
   resize();
-  frame();
+  frame(0);
 
   window.addEventListener('resize', resize);
   try {

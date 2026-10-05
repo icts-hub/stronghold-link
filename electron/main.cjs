@@ -181,6 +181,7 @@ const session = new SessionManager({
 // ---------------------------------------------------------------------------
 
 let lobbyManager = null;
+let lastLobbyHostInfo = null;   // 大厅交换来的房主信息（供 lobby:connect 用）
 let lastLobbyEvent = null;
 
 function sendLobbyEvent(type, payload) {
@@ -526,6 +527,7 @@ ipcMain.handle('steam:diagnose', () => {
       if (!lobbyId) throw Object.assign(new Error('请填写大厅 ID'), { code: 'EINVALIDLOBBY' });
       const manager = getLobby();
       const result = await manager.join(lobbyId);
+      lastLobbyHostInfo = result || null;        // 大厅里交换来的房主信息（SteamID + 端口）
       return { ...result, status: manager.snapshot() };
     } catch (err) {
       throw toIpcError(err);
@@ -541,7 +543,48 @@ ipcMain.handle('steam:diagnose', () => {
     const result = getLobby().invite(steamId);
     return result;
   });
-  ipcMain.handle('lobby:stop', async () => {
+  ipcMain.handle('lobby:connect', async (_event, raw) => {
+  // 用大厅里已交换的信息直接建立 Steam 隧道（房主写 shl_host/shl_port，加入者读取）
+  try {
+    const input = raw && typeof raw === 'object' ? raw : {};
+    const manager = getLobby();
+    const snap = manager.snapshot ? manager.snapshot() : {};
+    const info = lastLobbyHostInfo || snap.hostInfo || {};
+    const lobby = {
+      lobbyId: snap.lobbyId || info.lobbyId || null,
+      hostSteamId: info.hostSteamId || snap.hostSteamId || null,
+      port: info.port || snap.port || null,
+      game: info.game || '',
+      version: info.version || '',
+    };
+    const current = session.getSnapshot();
+    const { planLobbyConnect } = require('../network/lobby-connect.cjs');
+    const plan = planLobbyConnect({
+      role: manager.isOwner ? 'host' : 'joiner',
+      lobby,
+      session: current,
+      appId: Number(input.appId) > 0 ? Number(input.appId) : (Number(current.config && current.config.appId) || null),
+      appVersion: APP_VERSION,
+    });
+    if (plan.action !== 'start') {
+      return { ok: false, action: 'none', reason: plan.reason, notes: plan.notes, status: snap };
+    }
+    const snapshot = await session.start(sanitizeSessionInput(plan.options));
+    if (manager.isOwner) openLobbyForSession(snapshot).catch(() => { /* 建房失败不影响隧道 */ });
+    const entry = snapshot.channels && snapshot.channels[0] && snapshot.channels[0].listen ? snapshot.channels[0].listen.port : null;
+    return {
+      ok: true, action: 'start', reason: plan.reason, notes: plan.notes,
+      entryPort: entry,
+      entryHint: plan.options.role === 'joiner' && entry ? ('客户端请连 127.0.0.1:' + entry) : null,
+      snapshot,
+      status: snap,
+    };
+  } catch (err) {
+    return { ok: false, action: 'none', reason: String(err && err.message ? err.message : err), notes: [] };
+  }
+});
+
+ipcMain.handle('lobby:stop', async () => {
     if (!lobbyManager) return { ok: true, stopped: false };
     await lobbyManager.stop();
     lobbyManager = null;

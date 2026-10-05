@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1327,6 +1327,22 @@ function renderLobby(){
  if($('steamOwnSteamId'))$('steamOwnSteamId').textContent=s.steamId||'—';
  if($('friendsHint'))$('friendsHint').textContent=s.ready?'大厅只用来交换连接信息，数据通路仍是 Steam P2P 隧道。同一账号自连无效，请用两台机器与两个账号。':(s.error?('Steam 未就绪：'+s.error):'尚未连接 Steam：点右上 REFRESH 或先启动一次 Steam 会话。');
 }
+async function lobbyConnect(){
+  try{
+   const r=await window.strongholdLink.lobby.connect({});
+   if(r&&r.ok){
+    lobbyLog('已通过大厅建立隧道：'+(r.reason||''),'ok');
+    if(r.entryHint)lobbyLog(r.entryHint,'ok');
+    (r.notes||[]).forEach(x=>lobbyLog(x,''));
+    toast(r.entryHint?('隧道已建立 · '+r.entryHint):'隧道已建立');
+    await refreshLobby();
+   }else{
+    lobbyLog('暂未建立隧道：'+((r&&r.reason)||'未知原因'),'');
+    toast('暂未建立隧道：'+((r&&r.reason)||''));
+   }
+   return r;
+  }catch(e){lobbyLog('建立隧道出错：'+(e.message||e),'error');toast('建立隧道出错：'+(e.message||e));return null}
+ }
 function renderFriends(list){
  const box=$('friendList');if(!box)return;
  const friends=list||lobbySnapshot?.friends||[];
@@ -1337,7 +1353,7 @@ function renderFriends(list){
   <span class="friend__idx">${String(i+1).padStart(2,'0')}</span>
   <div><div class="friend__name">${esc(f.name)}</div>
   <div class="friend__meta"><span>${esc(f.stateName||'')}</span><span>${esc(f.steamId)}</span>${f.game&&f.game.lobbyId?'<span>IN LOBBY</span>':''}</div></div>
-  <div class="friend__side"><button class="cmd is-accent" data-invite="${esc(f.steamId)}" ${(lobbySnapshot&&lobbySnapshot.lobbyId)?'':'disabled'}>INVITE</button></div>
+  <div class="friend__side"><button class="cmd is-accent" data-invite="${esc(f.steamId)}" title="没有大厅时会自动创建一个再邀请">INVITE</button></div>
  </div>`).join('');
 }
 async function refreshFriends(){
@@ -1365,6 +1381,7 @@ async function joinLobbyById(lobbyId){
   if(result.ok){
    const host=result.host||{};
    lobbyLog(`已加入大厅 ${lobbyId}${host.hostSteamId?` · 房主 ${host.hostSteamId}`:''}`,'ok');
+   lobbyConnect();   // 加入大厅后直接用大厅信息建立隧道
    if(host.hostSteamId){
     $('steamHostId').value=host.hostSteamId;
     if(host.port)$('steamGamePort').value=host.port;
@@ -1397,6 +1414,7 @@ $('lobbyCreate').onclick=async()=>{
   const result=await window.strongholdLink.lobby.create({maxMembers:4,port:Number(cfg.targetPort)||null,game:current()?.name||''});
   lobbySnapshot=result.status||lobbySnapshot;renderLobby();
   toast(result.ok?`大厅已创建：${result.lobbyId}`:'建房失败：'+(result.reason||''));
+  if(result.ok)lobbyConnect();   // 建房成功后立刻以房主身份建立隧道
  }catch(e){toast('建房失败：'+(e.message||e))}
 };
 $('lobbyLeave').onclick=async()=>{try{const r=await window.strongholdLink.lobby.leave();lobbySnapshot=r.status||lobbySnapshot;renderLobby();toast('已离开大厅')}catch(e){toast('离开失败：'+(e.message||e))}};
@@ -1406,11 +1424,30 @@ $('copyLobbyId').onclick=async()=>{const id=(lobbySnapshot&&lobbySnapshot.lobbyI
 $('lobbyPendingAccept').onclick=()=>{const id=$('lobbyPendingAccept').dataset.lobbyId;if(id)joinLobbyById(id);$('lobbyPending').hidden=true};
 if($('friendList'))$('friendList').addEventListener('click',async e=>{
  const btn=e.target.closest('[data-invite]');if(!btn)return;
- const steamId=btn.dataset.invite;
- try{const r=await window.strongholdLink.lobby.invite(steamId);toast(r.ok?'邀请了 '+steamId:'邀请失败：'+(r.reason||''))}
- catch(err){toast('邀请出错：'+(err.message||err))}
-});
-if(window.addEventListener)window.addEventListener('resize',()=>drawWave());
+  const steamId=btn.dataset.invite;
+  try{
+   // 没有大厅时自动创建一个再邀请：Steam 侧没有大厅就无处可邀（旧版直接禁用按钮，点了毫无反馈）
+   if(!(lobbySnapshot&&lobbySnapshot.lobbyId)){
+    lobbyLog('还没有大厅：先自动创建一个，再邀请','');
+    toast('正在创建大厅…');
+    const createBtn=$('lobbyCreate');if(createBtn)createBtn.click();
+    for(let i=0;i<20;i++){
+     await new Promise(r=>setTimeout(r,200));
+     try{lobbySnapshot=await window.strongholdLink.lobby.status()}catch(_){/* 读状态失败就继续等 */}
+     if(lobbySnapshot&&lobbySnapshot.lobbyId)break;
+    }
+   }
+   if(!(lobbySnapshot&&lobbySnapshot.lobbyId)){
+    lobbyLog('大厅未能创建（Steam 未就绪或建房失败），无法邀请','error');
+    toast('无法邀请：大厅未创建成功，请看 LOBBY 卡片提示');
+    return;
+   }
+   lobbyLog('正在向 '+steamId+' 发送邀请…','');
+   const r=await window.strongholdLink.lobby.invite(steamId);
+   lobbyLog(r.ok?('已向 '+steamId+' 发送邀请'):('邀请失败：'+(r.reason||'未知原因')),r.ok?'ok':'error');
+   toast(r.ok?'邀请已发送':'邀请失败：'+(r.reason||''));
+  }catch(err){lobbyLog('邀请出错：'+(err.message||err),'error');toast('邀请出错：'+(err.message||err))}
+ });if(window.addEventListener)window.addEventListener('resize',()=>drawWave());
 
 /* ---- 启动 ---- */
 render();

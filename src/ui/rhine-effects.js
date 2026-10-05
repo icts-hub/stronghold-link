@@ -78,27 +78,31 @@
   }
 
   function bindLocalPointerReflection() {
+    // rect 缓存 250ms：pointermove 不再每个事件都 getBoundingClientRect（方案 N）
+    var rectCache = new WeakMap();
+    function rectOf(el) {
+      var now = (window.performance && performance.now) ? performance.now() : Date.now();
+      var hit = rectCache.get(el);
+      if (hit && now - hit.at < 250) return hit.rect;
+      var r = el.getBoundingClientRect();
+      rectCache.set(el, { at: now, rect: r });
+      return r;
+    }
     document.addEventListener('pointermove', function (e) {
-      var target = e.target && e.target.closest
-        ? e.target.closest('.fx-interactive')
-        : null;
+      var target = e.target && e.target.closest ? e.target.closest('.fx-interactive') : null;
       if (!target) return;
-
-      var rect = target.getBoundingClientRect();
+      var rect = rectOf(target);
       if (!rect.width || !rect.height) return;
-
       var lx = clamp((e.clientX - rect.left) / rect.width, 0, 1);
       var ly = clamp((e.clientY - rect.top) / rect.height, 0, 1);
       target.style.setProperty('--fx-local-x', (lx * 100).toFixed(2) + '%');
       target.style.setProperty('--fx-local-y', (ly * 100).toFixed(2) + '%');
     }, { passive: true });
-
     document.addEventListener('pointerout', function (e) {
-      var target = e.target && e.target.closest
-        ? e.target.closest('.fx-interactive')
-        : null;
+      var target = e.target && e.target.closest ? e.target.closest('.fx-interactive') : null;
       if (!target) return;
       if (e.relatedTarget && target.contains(e.relatedTarget)) return;
+      rectCache.delete(target);
       target.style.removeProperty('--fx-local-x');
       target.style.removeProperty('--fx-local-y');
     }, { passive: true });
@@ -211,61 +215,73 @@
     get lite() { return lite; }
   };
 
-  /* ---------- 1b) Idle 时钟：由中央循环驱动（不再另开常驻 RAF） ---------- */
-  var __idleClockInstalled = true;
-  (function () {
-    var idleStart = (window.performance && performance.now) ? performance.now() : Date.now();
-    addTask(function (now) {
-      if (reduce()) return;                       // 减少动效：时钟停住，ambient 层由 CSS 静止
-      var t = (now || ((window.performance && performance.now) ? performance.now() : Date.now())) - idleStart;
-      root.style.setProperty('--fx-idle-t', (t * 0.001).toFixed(3) + 's');
-      root.style.setProperty('--fx-idle-phase', ((t * 0.000025) % 1).toFixed(4));
-    });
-  })();
+  /* ---------- 1b) 常驻 Idle 运动由 CSS @keyframes 负责（无 JS RAF、无每帧 setProperty） ---------- */
 
-  /* ---------- 2) 数字补间：数据变化连续滚动，不闪断 ---------- */
+﻿  /* ---------- 2) 数字补间（每元素单一 tween；忽略自身写入，避免自触发循环） ---------- */
   var NUM = /(-?\d+(?:\.\d+)?)/;
-  function tweenNumber(el) {
+  var tweens = new WeakMap();
+  var lastWritten = new WeakMap();
+
+  function startTween(el, raw, target, decimals) {
+    var prev = tweens.get(el);
+    var from = prev ? prev.current : (parseFloat(el.getAttribute('data-silk-value')) || 0);
+    if (prev && prev.task) prev.task();
+    var span = Math.abs(target - from);
+    var dur = Math.max(150, Math.min(300, 150 + span * 4));
+    var state = { current: from, to: target, t: 0, dur: dur, decimals: decimals, raw: raw, task: null };
+    state.task = addTask(function (now, dt) {
+      state.t += dt;
+      var pr = Math.min(1, state.t / state.dur);
+      var e = 1 - Math.pow(1 - pr, 3);
+      state.current = from + (target - from) * e;
+      var text = raw.replace(NUM, decimals ? state.current.toFixed(decimals) : String(Math.round(state.current)));
+      lastWritten.set(el, text);
+      el.textContent = text;
+      if (pr >= 1) {
+        state.current = target;
+        el.setAttribute('data-silk-value', String(target));
+        lastWritten.set(el, raw.replace(NUM, decimals ? target.toFixed(decimals) : String(Math.round(target))));
+        if (state.task) state.task();
+        tweens.delete(el);
+      }
+    });
+    tweens.set(el, state);
+  }
+
+  function onNumberMutated(el) {
     if (reduce()) return;
     var raw = el.textContent || '';
+    if (lastWritten.get(el) === raw) return;      // 自身写入不算数据变化
     var m = raw.match(NUM);
     if (!m) return;
     var target = parseFloat(m[1]);
     if (!isFinite(target)) return;
-    var from = parseFloat(el.getAttribute('data-silk-value'));
-    if (!isFinite(from)) { el.setAttribute('data-silk-value', String(target)); return; }
-    if (Math.abs(target - from) < 1e-9) return;
-    var decimals = (m[1].split('.')[1] || '').length;
-    var span = Math.abs(target - from);
-    var dur = Math.max(150, Math.min(300, 150 + span * 4));
-    var t0 = 0;
-    var off = addTask(function (t, dt) {
-      t0 += dt;
-      var p = Math.min(1, t0 / dur);
-      var e = 1 - Math.pow(1 - p, 3);                  // ease-out cubic
-      var v = from + (target - from) * e;
-      var text = raw.replace(NUM, decimals ? v.toFixed(decimals) : String(Math.round(v)));
-      watching = true;
-      el.textContent = text;
-      watching = false;
-      if (p >= 1) { el.setAttribute('data-silk-value', String(target)); off(); }
-    });
+    startTween(el, raw, target, (m[1].split('.')[1] || '').length);
   }
 
-  var watching = false;
   function watchNumbers() {
     var nodes = document.querySelectorAll('.readout__v');
     if (!nodes.length || !window.MutationObserver) return;
+    var queued = new Set();
+    var flushQueued = false;
     var mo = new MutationObserver(function (records) {
-      if (watching) return;
-      records.forEach(function (r) { if (r.target && r.target.nodeType === 1) tweenNumber(r.target); });
+      for (var i = 0; i < records.length; i += 1) {
+        var t = records[i].target;
+        if (t && t.nodeType === 1) queued.add(t);
+      }
+      if (flushQueued) return;
+      flushQueued = true;
+      requestAnimationFrame(function () {
+        flushQueued = false;
+        queued.forEach(function (el) { queued.delete(el); onNumberMutated(el); });
+      });
     });
     nodes.forEach(function (el) {
-      el.setAttribute('data-silk-value', String(parseFloat((el.textContent || '').match(NUM) ? (el.textContent || '').match(NUM)[1] : '0') || 0));
+      var m = (el.textContent || '').match(NUM);
+      el.setAttribute('data-silk-value', String(m ? parseFloat(m[1]) : 0));
       mo.observe(el, { childList: true, characterData: true, subtree: true });
     });
   }
-
   /* ---------- 3) 网络包流：沿 SVG 路径平滑移动（惰性发现，视图可见后才取几何） ---------- */
   var silkPaths = [];
   var silkDots = [];
