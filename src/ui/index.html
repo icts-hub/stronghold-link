@@ -301,6 +301,10 @@
 <div class="c-12">
 <div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">05</span><span class="step__title">Available routes</span><span class="step__meta" id="routeCount">0 candidates</span></div>
 <div class="tlist" id="routeCandidates"></div>
+            <div class="row" style="margin-top:12px;gap:10px;align-items:center">
+              <button class="btn btn--sm" id="relaySelfTestBtn" type="button">RUN RELAY SELF-TEST</button>
+              <span class="tech" id="relaySelfTestOut">未测量 · 点上方按钮本机实测</span>
+            </div>
 </div>
 
 <div class="c-7">
@@ -633,6 +637,22 @@ function currentRouteInfo(){
  const protos=[...new Set(rules.map(r=>r.protocol))].join(' / ')||'TCP / UDP';
  return{id:'local',label:'STRONGHOLD LOCAL RELAY',mode:protos+' LOCAL RELAY',hops:['—','—'],active:'local'};
 }
+function renderRelaySelfTest(out){
+  var el=$('relaySelfTestOut');if(!el)return;
+  if(!out){el.textContent='未测量 · 点上方按钮本机实测';return;}
+  if(!out.measured){el.textContent='未测量 · '+(out.reason||'测量失败');return;}
+  el.textContent='RTT '+out.rtt+'ms · 抖动 '+out.jitter+'ms · 丢包 '+(out.packetLoss*100).toFixed(1)+'% · 样本 '+out.samples+' · 本机回环（非跨公网）';
+}
+function initRelaySelfTest(){
+  var btn=$('relaySelfTestBtn');if(!btn)return;
+  btn.addEventListener('click',function(){
+    var api=window.strongholdLink&&window.strongholdLink.network;
+    var out=$('relaySelfTestOut');
+    if(!api||!api.relaySelfTest){if(out)out.textContent='此环境未提供自检接口';return;}
+    if(out)out.textContent='测量中…';
+    api.relaySelfTest().then(function(r){renderRelaySelfTest(r);}).catch(function(e){renderRelaySelfTest({measured:false,reason:String(e&&e.message||e)});});
+  });
+}
 function renderRoute(){
  const info=currentRouteInfo();
  const cur=$('routeCurrent');if(cur)cur.textContent=info.label;
@@ -677,7 +697,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();
+ renderRoute();renderNetEvents();initRelaySelfTest();
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。

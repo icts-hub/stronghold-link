@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     recipes: () => ipcRenderer.invoke('adapters:recipes'),
     recipeHints: (input) => ipcRenderer.invoke('adapters:recipe-hints', input),
   },
+  network: {
+    relaySelfTest: () => ipcRenderer.invoke('network:relay-selftest'),
+  },
   steam: {
     diagnose: () => ipcRenderer.invoke('steam:diagnose'),
   },

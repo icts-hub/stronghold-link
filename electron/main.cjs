@@ -363,7 +363,17 @@ function registerIpc() {
       throw toIpcError(err);
     }
   });
-  ipcMain.handle('steam:diagnose', () => {
+  ipcMain.handle('network:relay-selftest', async () => {
+  // 本机真实测量：起临时中继服务端 + 两个客户端，测 RTT/抖动/丢包后全部关停
+  try {
+    const { runRelaySelfTest } = require('../network/relay/selftest.cjs');
+    return await runRelaySelfTest({ pings: 8 });
+  } catch (err) {
+    return { ok: false, measured: false, scope: 'loopback', reason: String(err && err.message ? err.message : err), rtt: null, jitter: null, packetLoss: null, samples: 0, notes: [] };
+  }
+});
+
+ipcMain.handle('steam:diagnose', () => {
     try {
       return diagnoseSteam({ appDir: APP_DIR, appId: appIdFromEnv() });
     } catch (err) {
@@ -669,6 +679,8 @@ async function runProbe(dir) {
   try {
     // 1) 启动序列：截到中途，并读出真实步骤文本
     await new Promise((r) => setTimeout(r, 1500));
+    const relay = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.relaySelfTest(); } catch (e) { return { measured: false, reason: String(e && e.message || e) }; } })()");
+    console.log('[probe] 中继自检（真实测量） = ' + JSON.stringify({ measured: relay.measured, rtt: relay.rtt, jitter: relay.jitter, packetLoss: relay.packetLoss, samples: relay.samples, delivered: relay.delivered, scope: relay.scope, reason: relay.reason }));
     const boot = await win.webContents.executeJavaScript(`({
       open: !!(document.getElementById('bootScreen')||{}).classList && document.getElementById('bootScreen').classList.contains('open'),
       rows: Array.from(document.querySelectorAll('.boot__row')).map(function(r){return r.textContent.trim()}),
