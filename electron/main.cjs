@@ -396,6 +396,7 @@ function registerIpc() {
   ipcMain.handle('session:stop', async () => {
     try {
       const snapshot = await session.stop();
+      preferredGamePort = null;      // 会话停了：上次选的端口不再代表"有人在服务"
       // 桥接停了，大厅里已经没有可加入的东西，收掉
       if (lobbyManager && lobbyManager.lobbyId && lobbyManager.isOwner) {
         lobbyManager.leave();
