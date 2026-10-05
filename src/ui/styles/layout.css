@@ -97,3 +97,25 @@
 @media (min-width: 1600px) {
   :root { --work-max: 1420px; }
 }
+
+/* -------------------------- 12 列栅格（显式） --------------------------- */
+/* 用法：<div class="grid"><div class="c-7">…</div><div class="c-5">…</div></div> */
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--sp-6); }
+.c-3 { grid-column: span 3; }
+.c-4 { grid-column: span 4; }
+.c-5 { grid-column: span 5; }
+.c-6 { grid-column: span 6; }
+.c-7 { grid-column: span 7; }
+.c-8 { grid-column: span 8; }
+.c-9 { grid-column: span 9; }
+.c-12 { grid-column: span 12; }
+@media (max-width: 1180px) {
+  .grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .c-3, .c-4 { grid-column: span 3; }
+  .c-5, .c-6, .c-7 { grid-column: span 6; }
+  .c-8, .c-9, .c-12 { grid-column: span 6; }
+}
+@media (max-width: 860px) {
+  .grid { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+  .c-3, .c-4, .c-5, .c-6, .c-7, .c-8, .c-9, .c-12 { grid-column: span 1; }
+}

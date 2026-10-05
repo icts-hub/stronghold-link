@@ -46,41 +46,30 @@
 <section class="view active" id="libraryView">
 <div class="pagehead">
 <div>
-<div class="eyebrow">01 — Service Index</div>
-<h1>Service <span class="accent">Library.</span></h1>
-<div class="sub">管理「本地服务 + 端口」配置：任何需要跨网络访问的 TCP/UDP 服务都可以在这里登记。选中一项后到 SESSION 页启动桥接。</div>
+<div class="eyebrow">01 / Library</div>
+<h1>Service Library</h1>
+<div class="sub">登记需要跨网络访问的服务，选中后到 SESSION 启动。</div>
 </div>
-<div class="pagehead__actions"><button class="btn primary" id="addGame">＋ ADD PROFILE</button></div>
+<div class="pagehead__actions">
+<button class="btn" id="addGame">＋ Add profile</button>
+<button class="btn" id="hostAction">Host</button>
+<button class="btn primary" id="joinAction">Join</button>
+</div>
 </div>
 
 <div class="toolbar">
-<div class="search"><input id="search" placeholder="搜索名称或协议…" aria-label="搜索配置"></div>
+<div class="search"><input id="search" placeholder="Search" aria-label="搜索配置"></div>
 <span class="count" id="profileCount">00 PROFILES</span>
 </div>
 
 <div class="tlist" id="gameList"></div>
 
-<div class="section">
-<div class="sec"><span class="sec__idx">01.1</span><span class="sec__title">Selected Profile</span><span class="sec__meta">Readout</span></div>
-<div class="metrics">
-<div class="metric"><span class="metric__k">Profile</span><span class="metric__v is-dim" id="detailName">未选择</span></div>
-<div class="metric"><span class="metric__k">Transport</span><span class="metric__v is-dim" id="detailTransport">—</span></div>
-<div class="metric"><span class="metric__k">Endpoint</span><span class="metric__v is-dim" id="detailEndpoint">—</span></div>
-</div>
-</div>
-
-<div class="section">
-<div class="sec"><span class="sec__idx">01.2</span><span class="sec__title">Quick Actions</span><span class="sec__meta">Select a profile to continue</span></div>
-<div class="quick">
-<div class="quickcard">
-<div class="quickicon">H</div>
-<div><strong>创建隧道会话 / HOST</strong><small>作为房主开放本地服务端口</small></div>
-<button class="btn" id="hostAction">CONFIGURE</button>
-</div>
-<div class="quickcard">
-<div class="quickicon">J</div>
-<div><strong>加入好友会话 / JOIN</strong><small>填写好友提供的邀请码或地址</small></div>
-<button class="btn" id="joinAction">JOIN</button>
+<div class="grid" style="margin-top:var(--sp-7)">
+<div class="c-12">
+<div class="step"><span class="step__idx">01</span><span class="step__title">Selected profile</span><span class="step__meta" id="detailTransport">—</span></div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Profile</span><span class="readout__v" id="detailName" style="font-size:15px;font-weight:400">未选择</span></div>
+<div class="readout"><span class="readout__k">Endpoint</span><span class="readout__v" id="detailEndpoint" style="font-size:15px;font-weight:400">—</span></div>
 </div>
 </div>
 </div>
@@ -90,11 +79,11 @@
 <section class="view" id="sessionView">
 <div class="pagehead">
 <div>
-<div class="eyebrow">02 — Session Control</div>
-<h1>Session <span class="accent">Console.</span></h1>
-<div class="sub">选定连接方式与角色后启动桥接。所有读数都来自真实中继进程，不伪造连接状态。</div>
+<div class="eyebrow">02 / Session</div>
+<h1>Session Control</h1>
+<div class="sub">选目标、填参数、启动。读数来自真实中继进程。</div>
 </div>
-<div class="pagehead__actions"><button class="btn ghost" id="backLibrary">← LIBRARY</button></div>
+<div class="pagehead__actions"><button class="btn ghost" id="backLibrary">← Library</button></div>
 </div>
 
 <div class="idbar">
@@ -104,130 +93,123 @@
 <div class="idbar__cell"><span class="tech">Started</span><span class="v" id="sessionStarted">—</span></div>
 </div>
 
-<div class="console">
-<div class="stack gap-6">
-<div>
-<div class="sec"><span class="sec__idx">02.1</span><span class="sec__title">Target &amp; Method</span><span class="sec__meta">Recipe</span></div>
+<div class="grid">
+<div class="c-7">
+
+<div class="step"><span class="step__idx">01</span><span class="step__title">Target</span><span class="step__meta">Profile · Method · Role</span></div>
 <div class="formgrid">
-<div class="field full"><label for="sessionProfile">当前端口配置 / PROFILE</label><select class="sel" id="sessionProfile"></select></div>
-<div class="field full"><label for="sessionRecipe">连接方式 / METHOD</label><select class="sel" id="sessionRecipe"></select></div>
-<div class="field full"><label for="sessionRole">连接角色 / ROLE</label><select class="sel" id="sessionRole"><option value="host">房主 / HOST — 开放本地服务</option><option value="joiner">加入者 / JOINER — 连接房主</option></select></div>
+<div class="field full"><label for="sessionProfile">端口配置 / Profile</label><select class="sel" id="sessionProfile"></select></div>
+<div class="field full"><label for="sessionRecipe">连接方式 / Method</label><select class="sel" id="sessionRecipe"></select></div>
+<div class="field full"><label for="sessionRole">角色 / Role</label><select class="sel" id="sessionRole"><option value="host">房主 / HOST — 开放本地服务</option><option value="joiner">加入者 / JOINER — 连接房主</option></select></div>
 </div>
 <p class="tech tech-dim" id="recipeSummary" style="margin-top:10px"></p>
-<div class="row gap-3" style="margin-top:12px">
-<button class="btn ghost sm" id="refreshHints">REFRESH HINTS</button>
-<span class="tech tech-dim">「复制邀请信息」里也会带上这些说明</span>
-</div>
 <div class="note accent" id="hintBox" hidden style="margin-top:12px"></div>
-</div>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">02</span><span class="step__title">Parameters</span><span class="step__meta">TCP / UDP / Steam</span></div>
 
 <div id="hostFields">
-<div class="sec"><span class="sec__idx">02.2</span><span class="sec__title">Host Parameters</span><span class="sec__meta">TCP / UDP</span></div>
-<div class="field full"><label for="hostRules">端口规则 / RULES · 每行一条：协议,本地服务端口,对好友开放的端口</label><textarea class="ta mono" id="hostRules" rows="4" placeholder="TCP,3000,3001"></textarea></div>
-<div class="row gap-2" style="margin-top:10px">
-<button class="btn ghost sm" id="fillHostRules">FILL FROM PROFILE</button>
-<button class="btn ghost sm" id="checkHostPorts">CHECK PORTS</button>
-</div>
-<div class="field full" style="margin-top:16px"><label for="hostToken">会话口令 / PRE-SHARED KEY（两端必须一致）</label>
-<div class="field-row"><input class="inp mono" id="hostToken" autocomplete="off"><button class="btn sm" id="genToken">RANDOM</button></div>
+<div class="field full"><label for="hostRules">端口规则 / Rules · 每行一条：协议,本地服务端口,对好友开放的端口</label><textarea class="ta mono" id="hostRules" rows="4" placeholder="TCP,3000,3001"></textarea></div>
+<div class="field full" style="margin-top:var(--sp-5)"><label for="hostToken">会话口令 / Key（两端必须一致，留空=明文）</label>
+<div class="field-row"><input class="inp mono" id="hostToken" autocomplete="off"><button class="btn sm" id="genToken">Random</button></div>
 </div>
 </div>
 
 <div id="joinFields" hidden>
-<div class="sec"><span class="sec__idx">02.3</span><span class="sec__title">Join Parameters</span><span class="sec__meta">Paste invite</span></div>
-<div class="field full"><label for="invitePaste">粘贴邀请码 / INVITE CODE</label>
-<div class="field-row"><input class="inp mono" id="invitePaste" placeholder="SHL2-…"><button class="btn sm" id="applyInvite">PARSE</button></div>
+<div class="field full"><label for="invitePaste">邀请码 / Invite code</label>
+<div class="field-row"><input class="inp mono" id="invitePaste" placeholder="SHL2-…"><button class="btn sm" id="applyInvite">Parse</button></div>
 </div>
-<div class="formgrid" style="margin-top:14px">
-<div class="field"><label for="joinHost">房主地址 / HOST</label><input class="inp mono" id="joinHost" placeholder="192.168.1.20"></div>
-<div class="field"><label for="joinToken">会话口令 / KEY</label><input class="inp mono" id="joinToken" autocomplete="off"></div>
-<div class="field full"><label for="joinRules">端口规则 / RULES · 每行一条：协议,本机入口端口,房主端口</label><textarea class="ta mono" id="joinRules" rows="4" placeholder="TCP,3000,3001"></textarea></div>
-</div>
-<div class="row gap-2" style="margin-top:10px">
-<button class="btn ghost sm" id="fillJoinRules">FILL FROM PROFILE</button>
-<button class="btn ghost sm" id="checkJoinPorts">CHECK PORTS</button>
+<div class="formgrid" style="margin-top:var(--sp-5)">
+<div class="field"><label for="joinHost">房主地址 / Host</label><input class="inp mono" id="joinHost" placeholder="192.168.1.20"></div>
+<div class="field"><label for="joinToken">会话口令 / Key</label><input class="inp mono" id="joinToken" autocomplete="off"></div>
+<div class="field full"><label for="joinRules">端口规则 / Rules · 每行一条：协议,本机入口端口,房主端口</label><textarea class="ta mono" id="joinRules" rows="4" placeholder="TCP,3000,3001"></textarea></div>
 </div>
 </div>
 
 <div id="steamHostFields" hidden>
-<div class="sec"><span class="sec__idx">02.4</span><span class="sec__title">Steam Host</span><span class="sec__meta">Networking Sockets</span></div>
 <div class="formgrid">
-<div class="field"><label for="steamGameHost">本地服务地址 / TARGET HOST</label><input class="inp mono" id="steamGameHost" value="127.0.0.1"></div>
-<div class="field"><label for="steamGamePort">本地服务端口 / TARGET PORT</label><input class="inp" id="steamGamePort" type="number" min="1" max="65535" placeholder="3000"></div>
+<div class="field"><label for="steamGameHost">本地服务地址 / Target host</label><input class="inp mono" id="steamGameHost" value="127.0.0.1"></div>
+<div class="field"><label for="steamGamePort">本地服务端口 / Target port</label><input class="inp" id="steamGamePort" type="number" min="1" max="65535" placeholder="3000"></div>
 <div class="field"><label for="steamAppIdHost">Steam AppID（测试可用 480）</label><input class="inp" id="steamAppIdHost" type="number" min="1" placeholder="480"></div>
 <div class="field"><label for="steamOwnId">本机 SteamID（发给好友）</label><input class="inp mono" id="steamOwnId" readonly placeholder="启动后显示"></div>
 </div>
 </div>
 
 <div id="steamJoinFields" hidden>
-<div class="sec"><span class="sec__idx">02.5</span><span class="sec__title">Steam Join</span><span class="sec__meta">Peer to peer</span></div>
 <div class="formgrid">
 <div class="field"><label for="steamHostId">房主 SteamID</label><input class="inp mono" id="steamHostId" placeholder="7656119…"></div>
-<div class="field"><label for="steamLocalPort">本机入口端口 / ENTRY PORT（客户端连它）</label><input class="inp" id="steamLocalPort" type="number" min="1" max="65535" placeholder="留空自动选择"></div>
+<div class="field"><label for="steamLocalPort">本机入口端口 / Entry port</label><input class="inp" id="steamLocalPort" type="number" min="1" max="65535" placeholder="留空自动选择"></div>
 <div class="field"><label for="steamAppIdJoin">Steam AppID（与房主一致）</label><input class="inp" id="steamAppIdJoin" type="number" min="1" placeholder="480"></div>
 </div>
 </div>
 
 <div id="noneFields" hidden>
-<div class="sec"><span class="sec__idx">02.6</span><span class="sec__title">Direct (No Relay)</span><span class="sec__meta">LAN only</span></div>
-<div class="field"><label for="noneGamePort">服务端口 / SERVICE PORT（局域网直连用）</label><input class="inp" id="noneGamePort" type="number" min="1" max="65535"></div>
+<div class="field"><label for="noneGamePort">服务端口 / Service port（局域网直连用）</label><input class="inp" id="noneGamePort" type="number" min="1" max="65535"></div>
 </div>
 
-<div id="steamDiagRow" hidden>
-<div class="sec"><span class="sec__idx">02.7</span><span class="sec__title">Steam Environment</span><span class="sec__meta">Self check</span></div>
-<div class="row gap-3"><button class="btn ghost sm" id="steamDiagnoseBtn">RUN SELF-CHECK</button><span class="tech tech-dim">缺少 SDK 时这里会列出具体缺什么</span></div>
+<details class="fold" style="margin-top:var(--sp-6)">
+<summary>Advanced<span class="tech tech-dim">检查端口 · 自检 · 从配置填充</span></summary>
+<div class="fold__body">
+<div class="row gap-2" style="flex-wrap:wrap">
+<button class="btn ghost sm" id="fillHostRules">Fill host rules</button>
+<button class="btn ghost sm" id="fillJoinRules">Fill join rules</button>
+<button class="btn ghost sm" id="checkHostPorts">Check host ports</button>
+<button class="btn ghost sm" id="checkJoinPorts">Check join ports</button>
+<button class="btn ghost sm" id="checkPort">Check</button>
+<button class="btn ghost sm" id="refreshHints">Refresh hints</button>
+</div>
+<div id="steamDiagRow" hidden style="margin-top:var(--sp-5)">
+<div class="row gap-3"><button class="btn ghost sm" id="steamDiagnoseBtn">Steam self-check</button><span class="tech tech-dim">缺少 SDK 时会列出具体缺什么</span></div>
 <div class="note" id="steamReport" hidden style="margin-top:12px"></div>
 </div>
-
-<p class="note" id="sessionHint">房主：把中继端口开放给好友，本地服务保持运行。</p>
-<div class="note error" id="sessionError" hidden></div>
-<div class="note warn" id="sessionWarnings" hidden></div>
-
-<div class="session-actions" style="margin-top:20px">
-<button class="btn primary" id="startSession">▶ START BRIDGE</button>
-<button class="btn" id="stopSession" disabled>■ STOP</button>
-<button class="btn ghost" id="checkPort">CHECK</button>
-<button class="btn ghost" id="copyInvite">COPY INVITE</button>
 </div>
+</details>
 
-<div id="inviteBox" class="invite" hidden style="margin-top:16px">
-<div class="sec" style="margin-bottom:10px"><span class="sec__idx">02.8</span><span class="sec__title">Invite Payload</span><span class="sec__meta">Send to peer</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Control</span><span class="step__meta">One primary action</span></div>
+<div class="session-actions">
+<button class="btn primary" id="startSession">▶ Start bridge</button>
+<button class="btn" id="stopSession" disabled>■ Stop</button>
+</div>
+<p class="note" id="sessionHint" style="margin-top:var(--sp-4)">房主：把中继端口开放给好友，本地服务保持运行。</p>
+<div class="note error" id="sessionError" hidden style="margin-top:var(--sp-3)"></div>
+<div class="note warn" id="sessionWarnings" hidden style="margin-top:var(--sp-3)"></div>
+
+<div id="inviteBox" class="invite" hidden style="margin-top:var(--sp-5)">
+<div class="row gap-3" style="align-items:baseline;margin-bottom:var(--sp-2)">
+<span class="tech">Invite payload</span><span class="tech tech-dim right">发给好友</span>
+<button class="cmd" id="copyInvite">Copy</button>
+</div>
 <textarea id="inviteText" readonly spellcheck="false"></textarea>
 </div>
 </div>
 
-<div class="side">
-<div>
-<div class="sec"><span class="sec__idx">02.9</span><span class="sec__title">Startup Sequence</span><span class="sec__meta">Live</span></div>
-<div class="seq" id="seqList"></div>
+<div class="c-5">
+<div class="step"><span class="step__idx">04</span><span class="step__title">Telemetry</span><span class="step__meta">Real counters</span></div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Connections</span><span class="readout__v" id="sessionConnections">0</span></div>
+<div class="readout"><span class="readout__k">Rate ↑</span><span class="readout__v" id="rateUp">0 B/s</span></div>
 </div>
-
-<div>
-<div class="sec"><span class="sec__idx">02.10</span><span class="sec__title">Telemetry</span><span class="sec__meta">Real counters</span></div>
-<div class="metrics">
-<div class="metric"><span class="metric__k">Connections</span><span class="metric__v" id="sessionConnections">0</span></div>
-<div class="metric"><span class="metric__k">Traffic ↑ / ↓</span><span class="metric__v is-dim" id="sessionTraffic">0 B / 0 B</span></div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Rate ↓</span><span class="readout__v" id="rateDown">0 B/s</span></div>
+<div class="readout"><span class="readout__k">Traffic ↑ / ↓</span><span class="readout__v" id="sessionTraffic" style="font-size:15px;font-weight:400">0 B / 0 B</span></div>
+</div>
+<div class="metrics" style="margin-top:var(--sp-3)">
 <div class="metric"><span class="metric__k">Datagrams ↑ / ↓</span><span class="metric__v is-dim" id="sessionPackets">0 / 0</span></div>
 <div class="metric"><span class="metric__k">Rejected / Failed</span><span class="metric__v is-dim" id="sessionRejected">0 / 0</span></div>
-<div class="metric"><span class="metric__k">Rate ↑</span><span class="metric__v is-accent" id="rateUp">0 B/s</span></div>
-<div class="metric"><span class="metric__k">Rate ↓</span><span class="metric__v is-accent" id="rateDown">0 B/s</span></div>
 </div>
-<div class="wave" style="margin-top:14px">
+<div class="wave" style="margin-top:var(--sp-4)">
 <div class="wave__axis"></div>
 <canvas id="trafficWave" width="600" height="92"></canvas>
 </div>
-<p class="tech tech-dim" style="margin-top:8px">↑ 上行速率柱 / ↓ 下行速率柱 · 每 1 秒对真实累计字节取差分，最多 60 点</p>
-</div>
+<p class="tech tech-dim" style="margin-top:8px">每秒对真实累计字节取差分，最多 60 点</p>
 
-<div>
-<div class="sec"><span class="sec__idx">02.11</span><span class="sec__title">Channels</span><span class="sec__meta" id="channelCount">0 条</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">05</span><span class="step__title">Startup sequence</span><span class="step__meta">Live</span></div>
+<div class="seq" id="seqList"></div>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">06</span><span class="step__title">Channels</span><span class="step__meta" id="channelCount">0 条</span></div>
 <div class="chanlist" id="channelList"></div>
-</div>
 
-<div>
-<div class="sec"><span class="sec__idx">02.12</span><span class="sec__title">Runtime Log</span><span class="sec__meta" id="logCount">0 条</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">07</span><span class="step__title">Runtime log</span><span class="step__meta" id="logCount">0 条</span></div>
 <div class="term" id="sessionLogs"></div>
-</div>
 </div>
 </div>
 </section>
@@ -238,7 +220,7 @@
 <div>
 <div class="eyebrow">03 — Network Profile</div>
 <h1>Network <span class="accent">Parameters.</span></h1>
-<div class="sub">这些参数直接传给本地中继内核（TCP / UDP）。Steam 通道由 Steam 传输层负责，不受这里的超时与连接数影响。</div>
+<div class="sub">这些参数直接传给本地中继内核，Steam 通道不受影响。</div>
 </div>
 </div>
 
@@ -275,7 +257,7 @@
 <div>
 <div class="eyebrow">04 — Adapters</div>
 <h1>Transport <span class="accent">Adapters.</span></h1>
-<div class="sub">状态来自主进程真实探测：可用、运行中、未配置。Steam 环境自检在 SESSION 页的对应字段里。</div>
+<div class="sub">状态来自主进程真实探测。</div>
 </div>
 </div>
 
@@ -299,7 +281,7 @@
 <div>
 <div class="eyebrow">05 — Friends &amp; Lobby</div>
 <h1>Invite <span class="accent">Friends.</span></h1>
-<div class="sub">用 Steam 大厅交换连接信息：房主建房后点一下邀请，好友在 Steam 里接受即可。同一账号自连无效，需要两台机器与两个账号。</div>
+<div class="sub">房主建房并邀请，好友在 Steam 里接受。同一账号自连无效。</div>
 </div>
 <div class="pagehead__actions">
 <button class="btn ghost" id="friendsReload">↻ REFRESH</button>
@@ -374,7 +356,7 @@
 <div>
 <div class="eyebrow">06 — System</div>
 <h1>System <span class="accent">Preferences.</span></h1>
-<div class="sub">应用信息与配置数据管理。配置保存在应用数据目录，卸载不会删除。</div>
+<div class="sub">应用信息与配置数据管理。</div>
 </div>
 </div>
 
@@ -436,7 +418,7 @@
 <div class="full"><label class="check"><input type="checkbox" id="fFavorite"> 标记为常用</label></div>
 </div>
 <p class="dialoghint">端口与协议请以目标服务的实际要求为准；本工具只做透明转发，不解析应用协议。</p>
-<div class="dialog__actions"><button class="btn ghost" data-close>取消</button><button class="btn primary" id="saveProfile">保存配置</button></div>
+<div class="dialog__actions"><button class="btn danger" id="deleteProfileBtn" hidden>删除配置</button><span class="grow"></span><button class="btn ghost" data-close>取消</button><button class="btn primary" id="saveProfile">保存</button></div>
 </div></div>
 
 <!-- ── Join Dialog ── -->
@@ -539,9 +521,8 @@ function render(){
     </div>
    </div>
    <div class="trow__side">
-    <button class="cmd" data-act="edit">EDIT</button>
-    <button class="cmd is-danger" data-act="delete">DELETE</button>
-    <button class="cmd is-accent" data-act="select">OPEN →</button>
+    <button class="cmd" data-act="edit">Edit</button>
+    <button class="cmd is-accent" data-act="select">Open →</button>
    </div>`;
   row.addEventListener('click',e=>{const act=e.target.closest('[data-act]')?.dataset.act;if(act==='edit'){e.stopPropagation();editProfile(p.id)}else if(act==='delete'){e.stopPropagation();deleteProfile(p.id)}else{selectedId=p.id;render()}});
   void index;
@@ -567,7 +548,10 @@ document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',(
 $('backLibrary').onclick=()=>showView('library');$('search').addEventListener('input',render);
 function openEditor(id=null){editingId=id;const p=profiles.find(x=>x.id===id);$('editorTitle').textContent=p?'编辑端口配置':'添加端口配置';$('fName').value=p?.name||'';$('fTransport').value=p?.transport||'UDP';$('fPort').value=p?(p.ports||[{protocol:p.transport==='TCP'?'TCP':'UDP',localPort:p.port,remotePort:p.remotePort||p.port}]).map(r=>`${r.protocol},${r.localPort},${r.remotePort}`).join('\n'):'';$('fHost').value=p?.host||'127.0.0.1';$('fRemote').value=p?.remotePort||'';$('fPath').value=p?.path||'';$('fArgs').value=p?.args||'';$('fRecipe').innerHTML=recipes.map(r=>`<option value="${esc(r.id)}"${r.available?'':' disabled'}>${esc(r.name)}${r.available?'':'（不可用）'}</option>`).join('');
  $('fRecipe').value=(p&&p.recipe&&recipes.some(r=>r.id===p.recipe))?p.recipe:(recipes[0]?recipes[0].id:'');
- $('fFavorite').checked=!!p?.favorite;$('editor').classList.add('open');setTimeout(()=>$('fName').focus(),50)}
+ $('fFavorite').checked=!!p?.favorite;
+ // 删除只在“编辑已有配置”时出现（交互瘦身：行上不再放破坏性动作）
+ const del=$('deleteProfileBtn');if(del){del.hidden=!p;if(!p)del.onclick=null;else del.onclick=()=>{deleteProfile(p.id);closeOverlays()}}
+ $('editor').classList.add('open');setTimeout(()=>$('fName').focus(),50)}
 function editProfile(id){openEditor(id)}
 function closeOverlays(){document.querySelectorAll('.overlay').forEach(x=>x.classList.remove('open'))}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeOverlays);document.querySelectorAll('.overlay').forEach(x=>x.addEventListener('click',e=>{if(e.target===x)closeOverlays()}));document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlays()});

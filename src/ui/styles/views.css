@@ -56,11 +56,7 @@
   text-transform: uppercase;
 }
 .nav button:hover { color: var(--ink-muted); background: rgba(var(--ink-rgb), 0.03); }
-.nav button.active {
-  color: var(--ink);
-  border-left-color: var(--accent);
-  background: rgba(var(--ink-rgb), 0.02);
-}
+.nav button.active { color: var(--ink); border-left-color: var(--accent); }
 .nav button.active .n-idx { color: var(--accent-text); }
 
 .rail__foot {

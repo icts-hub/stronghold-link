@@ -166,9 +166,9 @@
   transform-origin: top;
   transition: transform var(--mo-base) var(--ease-line);
 }
-.trow:hover { background: rgba(var(--ink-rgb), 0.035); }
+.trow:hover { background: none; }
 .trow:hover::before { transform: scaleY(1); }
-.trow.is-selected { background: rgba(var(--ink-rgb), 0.05); }
+.trow.is-selected { background: none; }
 .trow.is-selected::before { transform: scaleY(1); }
 
 .trow__idx {
@@ -260,8 +260,12 @@
 .btn:disabled:hover { border-color: var(--line-soft); background: transparent; }
 
 /* 主操作：琥珀描边（允许位置之一），仍无填充渐变 */
-.btn.primary { border-color: var(--accent-line); color: var(--accent-text); }
-.btn.primary:hover { background: var(--accent-wash); color: var(--accent-text-hover); }
+.btn.primary {
+  border-color: var(--invert-bg);
+  background: var(--invert-bg);
+  color: var(--invert-fg);
+}
+.btn.primary:hover { background: var(--accent-text); border-color: var(--accent-text); color: var(--paper); }
 .btn.ghost { border-color: var(--hair); color: var(--ink-muted); }
 .btn.ghost:hover { color: var(--ink); border-color: var(--line-strong); }
 .btn.danger { border-color: var(--signal-error); color: var(--signal-error); }
@@ -533,13 +537,14 @@
 
 /* ------------------------------- 空状态 --------------------------------- */
 .empty {
-  padding: var(--sp-8) var(--sp-5);
-  border: var(--bw) dashed var(--line-soft);
-  border-radius: var(--radius-none);
-  text-align: center;
-  color: var(--ink-faint);
+  padding: var(--sp-6) 0;
+  border-top: var(--bw) solid var(--hair);
+  border-bottom: var(--bw) solid var(--hair);
+  text-align: left;
+  color: var(--ink-muted);
   font-size: var(--fs-ui);
-  line-height: 2;
+  line-height: 1.9;
+  max-width: var(--measure);
 }
 
 /* ------------------------------- 邀请信息 ------------------------------- */
@@ -664,7 +669,7 @@
   transition: background-color var(--mo-base) var(--ease-smooth);
 }
 .friend:last-child { border-bottom: 0; }
-.friend:hover { background: rgba(var(--ink-rgb), 0.035); }
+.friend:hover { background: none; }
 .friend.is-offline { opacity: 0.5; }
 .friend.is-here .friend__name::after {
   content: "IN ROOM";
@@ -740,3 +745,63 @@
   .spec__row { grid-template-columns: 1fr; }
   .dialog { padding: var(--sp-5); }
 }
+
+/* ------------------------------- 折叠区 --------------------------------- */
+/* 交互瘦身：诊断类控件默认收起，主操作保持唯一；用 details 实现，无脚本依赖 */
+.fold { border-top: var(--bw) solid var(--hair); }
+.fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-tech);
+  letter-spacing: var(--ls-tech);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  transition: color var(--mo-base) var(--ease-smooth);
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before {
+  content: "+";
+  width: 10px;
+  color: var(--ink-faint);
+  font-family: var(--font-latin);
+}
+.fold[open] > summary::before { content: "–"; }
+.fold > summary:hover { color: var(--ink); }
+.fold > summary .tech { margin-left: auto; }
+.fold__body { padding-bottom: var(--sp-4); }
+
+/* 步骤编号标题：01 TARGET / 02 PARAMETERS / 03 CONTROL */
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: var(--bw) solid var(--hair);
+  margin-bottom: var(--sp-4);
+}
+.step__idx {
+  font-family: var(--font-latin);
+  font-size: var(--fs-label);
+  letter-spacing: var(--ls-label);
+  color: var(--accent-text);
+}
+.step__title {
+  font-family: var(--font-latin);
+  font-size: var(--fs-label);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.step__meta { margin-left: auto; font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: var(--ls-micro); text-transform: uppercase; color: var(--ink-faint); }
+
+/* 大号读数：遥测里的关键数字用展示级字重与字距（瑞士风格的数字层级） */
+.readout { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3) 0; border-top: var(--bw) solid var(--hair); }
+.readout__k { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: var(--ls-micro); text-transform: uppercase; color: var(--ink-faint); }
+.readout__v { font-family: var(--font-mono); font-size: 26px; font-weight: var(--fw-light); line-height: 1.1; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.readout__u { font-family: var(--font-latin); font-size: var(--fs-label); color: var(--ink-muted); margin-left: 6px; }
+.readout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 var(--sp-6); }
