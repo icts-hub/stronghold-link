@@ -787,6 +787,20 @@ function httpProbe(url, timeoutMs = 8000) {
   });
 }
 
+ipcMain.handle('selftest:save', async (_event, raw) => {
+  // 把自检文本写到桌面旁的文件，便于直接把两侧输出发给我定位
+  try {
+    const text = String((raw && raw.text) || '').slice(0, 20000);
+    const dir = app.getPath('userData');
+    const file = require('node:path').join(dir, 'selftest-' + Date.now() + '.txt');
+    require('node:fs').writeFileSync(file, text, 'utf8');
+    logLine('自检结果已保存：' + file);
+    return { ok: true, file };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err) };
+  }
+});
+
 ipcMain.handle('lobby:selftest', async () => {
   // 联机自检：逐环打印真实状态，直接指出断点在哪一环
   const checks = [];

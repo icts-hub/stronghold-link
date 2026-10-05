@@ -792,6 +792,12 @@ function initSelfTest(){
         return mark+' '+c.name+'：'+c.detail;
       }).join('\n');
       if(out)out.textContent=r.verdict;
+      try{
+        var asText='Stronghold Link 联机自检 '+(new Date().toLocaleString())+'\n'+lines;
+        var apiL=window.strongholdLink&&window.strongholdLink.lobby;
+        if(apiL&&apiL.saveSelftest){apiL.saveSelftest(asText).then(function(sv){if(sv&&sv.ok)lobbyLog('自检结果已保存到文件：'+sv.file,'ok');});}
+        if(navigator.clipboard)navigator.clipboard.writeText(asText);
+      }catch(_){}
       (r.checks||[]).forEach(function(c){ lobbyLog((c.ok===null?'[—] ':(c.ok?'[✔] ':'[✘] '))+c.name+'：'+c.detail, c.ok===false?'error':(c.ok?'ok':'')); });
       toast(r.verdict);
     }catch(e){if(out)out.textContent='自检出错：'+(e.message||e);}
@@ -827,6 +833,7 @@ function renderRoomSteps(s){
       + (x.ok?'<span class="t-invert">就绪</span>':'<span class="tech">待办</span>')
       + '</div>';
   }).join('');
+  if(!s.entryUrl&&!s.port){box.innerHTML='<div class="tech" style="display:block">房主：点「选择要转发的进程」选端口开局 → 邀请好友　|　加入者：点接受邀请 → 点「打开游戏」</div>'+box.innerHTML;}
   if(s.entryUrl){
     var full=s.room?(s.entryUrl+'/?room='+encodeURIComponent(s.room)):s.entryUrl;
     box.innerHTML='<div class="tech" style="display:block;margin-bottom:8px">好友端：点下面的按钮自动用浏览器打开房主的服务器'

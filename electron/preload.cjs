@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     prepare: (input) => ipcRenderer.invoke('lobby:prepare', input || {}),
     setRoom: (room) => ipcRenderer.invoke('lobby:set-room', { room }),
     selftest: () => ipcRenderer.invoke('lobby:selftest'),
+    saveSelftest: (text) => ipcRenderer.invoke('selftest:save', { text }),
     stop: () => ipcRenderer.invoke('lobby:stop'),
     /** 订阅大厅事件（成员变化、邀请结果、有人邀请你等） */
     onEvent: (handler) => {
