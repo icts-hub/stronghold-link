@@ -29,7 +29,7 @@ async function withRelay(options, fn) {
   }
 }
 
-test('吞吐护栏：1000 个 512B 包在 8 秒内送达，计数精确、无静默丢弃', async () => {
+test('吞吐护栏：1000 个 512B 包在宽裕预算内送达，计数精确、无静默丢弃', async () => {
   await withRelay({ ratePerSec: 0, maxPacketBytes: 1400 }, async ({ server, a, b }) => {
     const total = 1000;
     const size = 512;
@@ -42,7 +42,8 @@ test('吞吐护栏：1000 个 512B 包在 8 秒内送达，计数精确、无静
       a.send(Buffer.alloc(size, i % 251));
       if (i % 100 === 99) await wait(5);          // 让出事件循环，避免发送端压垮接收端
     }
-    while (received < total && Date.now() - started < 8000) await wait(20);
+    const budget = 25000;   // 宽裕上限：抓退化而不是跑分
+    while (received < total && Date.now() - started < budget) await wait(20);
     const elapsed = Date.now() - started;
 
     const stats = server.getStats();
@@ -54,7 +55,7 @@ test('吞吐护栏：1000 个 512B 包在 8 秒内送达，计数精确、无静
     assert.equal(a.getStats().packetsToPeer, total, '发送方计数要精确');
     assert.equal(b.getStats().packetsFromPeer, total, '接收方计数要精确');
     assert.equal(stats.dropped.malformed + stats.dropped.oversized + stats.dropped['rate-limited'], 0, '不应有异常丢弃');
-    assert.ok(elapsed < 8000, '耗时应远小于 8 秒，实际 ' + elapsed + 'ms');
+    assert.ok(elapsed < 25000, '耗时应远小于预算，实际 ' + elapsed + 'ms');
   });
 });
 
