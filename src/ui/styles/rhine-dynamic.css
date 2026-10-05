@@ -987,3 +987,64 @@ html, body { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
   .panel, .lobby, .dialog { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
+
+/* ==========================================================================
+   RAIL REDESIGN —— 左侧栏重做（原版对比度过低，编号几乎看不见）
+   目标：一眼看清当前在第几页；编号成为实心块；侧栏与内容明确分栏。
+   ========================================================================== */
+.rail {
+  background: rgba(var(--paper-rgb), 0.94);
+  border-right: 1px solid var(--plate-line);
+  position: relative;
+  z-index: 5;                     /* 高于内容压暗层，避免被冲淡 */
+}
+[data-theme='dark'] .rail { background: rgba(var(--paper-rgb), 0.92); }
+
+.rail .nav button {
+  opacity: 1;                     /* 不再靠整体透明度区分，改用颜色与实心块 */
+  color: var(--muted);
+  padding-left: 10px;
+}
+.rail .nav button .n-idx,
+.rail .nav button span:first-child {
+  color: var(--faint, var(--muted));
+}
+.rail .nav button:hover { color: var(--ink); }
+
+/* 当前页：实心墨牌 + 琥珀竖条，一眼可见 */
+.rail .nav button.active {
+  background: var(--plate-ink);
+  color: var(--plate-paper) !important;
+  border-left: 3px solid var(--accent);
+  padding-left: 7px;
+}
+.rail .nav button.active::before { display: none; }   /* 关掉 hover 细线，避免与实心块叠 */
+.rail .nav button.active .n-idx,
+.rail .nav button.active span { color: var(--plate-paper) !important; }
+[data-theme='dark'] .rail .nav button.active {
+  background: var(--plate-paper);
+  color: var(--plate-ink) !important;
+}
+[data-theme='dark'] .rail .nav button.active .n-idx,
+[data-theme='dark'] .rail .nav button.active span { color: var(--plate-ink) !important; }
+
+/* 编号本身也做成小实心块，未选中时仍有辨识度 */
+.rail .nav button:not(.active) .n-idx {
+  display: inline-block;
+  min-width: 18px;
+  background: rgba(var(--ink-rgb), 0.10);
+  color: var(--ink);
+  padding: 1px 4px;
+  margin-right: 6px;
+}
+[data-theme='dark'] .rail .nav button:not(.active) .n-idx { background: rgba(var(--paper-rgb), 0.14); color: var(--paper); }
+
+/* 侧栏底部与顶部分隔线加粗，形成仪表盘分栏 */
+.rail__foot { border-top: 2px solid var(--plate-line); }
+
+/* 内容压暗层不要盖住侧栏与底栏 */
+.wrap::before { left: 0; }
+
+.rail .nav button .n-name { color: var(--muted); letter-spacing: 0.10em; }
+.rail .nav button:hover .n-name { color: var(--ink); }
+.rail .nav button.active .n-name { color: inherit !important; }

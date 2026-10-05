@@ -8,7 +8,7 @@
 // 安全基线：contextIsolation: true、nodeIntegration: false、sandbox: true，
 // 渲染进程拿不到 Node.js，也拿不到任何文件路径，只能通过白名单 IPC 与会话交互。
 
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const nodeFs = require('node:fs');
@@ -643,6 +643,7 @@ ipcMain.handle('lobby:stop', async () => {
 
 function createWindow({ show = true, query = null } = {}) {
   const win = new BrowserWindow({
+    autoHideMenuBar: true,          // 不显示原生菜单栏（界面自带导航）
     width: 1200,
     height: 800,
     minWidth: 900,
@@ -863,6 +864,8 @@ async function runProbe(dir) {
     const watchState = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'state' }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
     const watchStop = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'stop' }); } catch (e) { return { ok: false }; } })()");
     console.log('[probe] 路由监看（真实） = ' + JSON.stringify({ started: watchStart.running, polls: watchState.polls, current: watchState.current, score: watchState.currentScore, routeChanges: watchState.routeChanges, failures: watchState.measurement && watchState.measurement.failures, lastRtt: watchState.measurement && watchState.measurement.last && watchState.measurement.last.rtt, stopped: watchStop.running }));
+    const scan = await win.webContents.executeJavaScript("(async () => { try { const r = await window.strongholdLink.network.listeningPorts(); return { ok: r.ok, n: (r.candidates||[]).length, top: (r.candidates||[]).slice(0,3).map(c => c.protocol+':'+c.port+':'+(c.process||'?')), steam: r.steamPick && r.steamPick.port, rules: (r.rules||[]).length, used: r.used }; } catch (e) { return { ok: false, err: String(e && e.message || e) }; } })()");
+    console.log('[probe] 端口探测（真实） = ' + JSON.stringify(scan));
     const diag = await win.webContents.executeJavaScript("(async () => { try { const r = await window.strongholdLink.network.routes({ measure: true }); return r.decision; } catch (e) { return { error: String(e && e.message || e) }; } })()");
     console.log('[probe] 路由决策（真实测量） = ' + JSON.stringify({ state: diag.state, current: diag.current, currentScore: diag.currentScore, routeChanges: diag.routeChanges, lastAction: diag.lastAction, lastReason: diag.lastReason, logCount: (diag.log || []).length, policy: diag.policy }));
     const relay = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.relaySelfTest(); } catch (e) { return { measured: false, reason: String(e && e.message || e) }; } })()");
@@ -924,7 +927,7 @@ async function runProbe(dir) {
   console.log('[probe] 网络页包流 = ' + JSON.stringify(silk2));
   console.log('[probe] 待机运动 = nodes:' + boot.ambientNodes + ' orbits:' + boot.ambientOrbits + ' flows:' + boot.ambientFlows + ' idleT:' + boot.idleT + ' phase:' + boot.idlePhase);
   console.log('[probe] 分层速度 = grid:' + boot.gridDur + ' | glow:' + boot.glowDur + ' | orbit:' + boot.orbitDur + ' | flow:' + boot.flowDur + ' | node:' + boot.nodeDur);
-  console.log('[probe] 溢出元凶 = ' + JSON.stringify(boot.widest) + '  bodyScrollW:' + boot.bodyScrollW);
+  console.log('[probe] 菜单栏 = ' + JSON.stringify({ visible: win.isMenuBarVisible(), autoHide: win.isMenuBarAutoHide(), appMenu: Menu.getApplicationMenu() === null }) + '\n' + console.log('[probe] 溢出元凶 = ' + JSON.stringify(boot.widest) + '  bodyScrollW:' + boot.bodyScrollW);
   console.log('[probe] 签名层 = strands:' + boot.ribbonStrands + ' accent:' + boot.ribbonAccent + ' wrapW:' + boot.ribbonW + ' docScrollW:' + boot.docScrollW + ' innerW:' + boot.innerW);
   console.log('[probe] 丝滑层 = surfaces:' + boot.silkSurfaces + ' loopTasks:' + boot.silkLoopTasks + ' packets:' + boot.silkPackets + ' revealed:' + boot.silkRevealed + '/' + boot.silkWatching + ' lite:' + boot.silkLite + ' ease:' + boot.silkEase);
     for (const row of boot.rows) console.log('         ' + row);
@@ -1169,7 +1172,10 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(async () => {
+  // 去掉应用菜单：界面自带导航，原生 File/Edit/View 菜单与整体设计冲突
+try { Menu.setApplicationMenu(null); } catch (err) { /* 忽略 */ }
+
+app.whenReady().then(async () => {
     logLine('app ready');
     registerIpc();
     if (IS_SMOKE) {
