@@ -823,6 +823,14 @@ function initRoomCode(){
 function renderRoomSteps(s){
   var box=$('roomSteps');if(!box)return;
   s=s||{};
+  // 房主的连接信息：SteamID 直接取界面上已显示的本地账号（不依赖大厅返回值，避免为空时按钮不出现）
+  try{
+    if(!s.inviteLine){
+      var own=($('steamOwnId')&&$('steamOwnId').value)?String($('steamOwnId').value).trim():'';
+      var p=(s.port||s.hostPort||null);
+      if(own&&p)s.inviteLine='房主 SteamID '+own+' · 入口端口 '+p;
+    }
+  }catch(_){}
   var steps=[
     {n:'01',t:'创建房间',d:s.port?('已就绪 · 本机服务端口 '+s.port):'点上方「创建房间」，从进程里挑一个端口',ok:!!s.port},
     {n:'02',t:'邀请好友',d:s.lobbyId?('大厅已就绪 '+(s.lobbyId||'')):'点好友右侧 INVITE（没有大厅会自动创建）',ok:!!s.lobbyId},
@@ -837,6 +845,10 @@ function renderRoomSteps(s){
       + (x.ok?'<span class="t-invert">就绪</span>':'<span class="tech">待办</span>')
       + '</div>';
   }).join('');
+  if(s.manualPrompt===undefined&&!s.entryUrl&&!s.port){
+    // 加入者默认也给直连通道：不依赖大厅，等价于 SESSION 页手动配置
+    s.manualPrompt=true;
+  }
   if(s.manualPrompt){
     box.innerHTML='<div class="tech" style="display:block;margin-bottom:6px">大厅读不到房主信息时，用这条直连通道（和 SESSION 页手动配置等价）：</div>'
       + '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">'
@@ -1178,7 +1190,10 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();initRoomCode();initSelfTest();renderRoomSteps({});pollRouteWatch();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();initRoomCode();initSelfTest();
+// 首屏就把两种角色的入口都画出来：房主看"复制连接信息"，加入者看"直连框"
+renderRoomSteps({port:(lobbySnapshot&&lobbySnapshot.port)||null,hostPort:(lobbySnapshot&&lobbySnapshot.port)||null});
+setTimeout(function(){try{renderRoomSteps({port:(lobbySnapshot&&lobbySnapshot.port)||null,hostPort:(lobbySnapshot&&lobbySnapshot.port)||null});}catch(_){}},1500);pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
