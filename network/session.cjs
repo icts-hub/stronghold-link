@@ -24,6 +24,8 @@ const { createSteamP2PProvider } = require('./providers/steam-p2p.cjs');
 const { STEAM_ID_PATTERN } = require('./steam-adapter.cjs');
 const { diagnoseSteam } = require('./steam-env.cjs');
 const { normalizeRoutePolicy, describeRoutePolicy } = require('./route/policy.cjs');
+const { planStandby } = require('./route/standby.cjs');
+const { planMigration, describeMigration } = require('./route/migrate.cjs');
 const { describeHints, getRecipe } = require('./adapters.cjs');
 
 const STATES = Object.freeze({ IDLE: 'idle', STARTING: 'starting', RUNNING: 'running', STOPPING: 'stopping', ERROR: 'error' });
@@ -896,6 +898,91 @@ class SessionManager {
   /** 多通道策略：只读，供界面展示；开关关闭时行为与从前一致。 */
   getRoutePolicy() {
     return { ...this.routePolicy, description: describeRoutePolicy(this.routePolicy) };
+  }
+
+  /** 通道描述符：供备用决策与迁移计划使用（只读快照，不改通道）。 */
+  _channelDescriptors() {
+    return (this.channels || []).map((c) => ({
+      id: (c.provider && c.provider.id) || 'channel',
+      provider: (c.provider && c.provider.id) || null,
+      port: (c.listen && c.listen.port) || null,
+      ready: Boolean(c.provider && typeof c.provider.getState === 'function' && c.provider.getState() === 'ready'),
+      standby: c.standby === true,
+      ref: c,
+    }));
+  }
+
+  /** 备用通道决策（不建通道，只回答该不该建；策略关闭时永远返回不建）。 */
+  planStandbyChannel(candidates = []) {
+    return planStandby({
+      policy: this.routePolicy,
+      channels: this._channelDescriptors(),
+      candidates,
+      sessionRunning: this.state === STATES.RUNNING,
+    });
+  }
+
+  /**
+   * 切到备用通道：按 route/migrate.cjs 的清单执行（先停主 → 备绑同端口 → 验证 → 提升）。
+   * 只在显式调用时动作；任何拒绝条件都会如实返回原因、不做任何改动。
+   * 注意：切换会中断连接，客户端需要重连（不承诺无缝迁移）。
+   */
+  async migrateToStandby() {
+    const all = this.channels || [];
+    const currentRef = all.find((c) => c.standby !== true);
+    const standbyRef = all.find((c) => c.standby === true);
+    const describeRef = (c) => (c ? {
+      id: (c.provider && c.provider.id) || 'channel',
+      provider: (c.provider && c.provider.id) || null,
+      port: (c.listen && c.listen.port) || null,
+      ready: Boolean(c.provider && typeof c.provider.getState === 'function' && c.provider.getState() === 'ready'),
+    } : null);
+
+    const plan = planMigration({
+      current: describeRef(currentRef),
+      standby: describeRef(standbyRef),
+      samePort: true,
+      allowInterrupt: this.routePolicy.enabled,
+    });
+    if (!plan.ok) {
+      this.note('拒绝切换：' + plan.reason, 'warn');
+      return { ok: false, reason: plan.reason, steps: [] };
+    }
+
+    this.note(describeMigration(plan), 'warn');
+    const done = [];
+    try {
+      // 1) 先停主通道（释放入口端口）
+      await currentRef.provider.stop();
+      done.push('stop-channel');
+      // 2) 让备用接管同一入口端口
+      await standbyRef.provider.start({ port: plan.targetPort });
+      done.push('bind-channel');
+      // 3) 验证备用确实就绪
+      const state = typeof standbyRef.provider.getState === 'function' ? standbyRef.provider.getState() : null;
+      if (state !== 'ready') throw new Error('备用通道未进入 ready（当前 ' + state + '）');
+      done.push('verify-channel');
+      // 4) 提升为当前通道
+      standbyRef.standby = false;
+      currentRef.standby = true;
+      this.relay = standbyRef.provider;
+      done.push('promote-channel');
+      this._emit({ type: 'log', entry: { level: 'ok', message: '已切换到备用通道（连接会中断，客户端需重连）', at: Date.now() } });
+      return { ok: true, steps: done, plan };
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      this.note('切换失败：' + message + '，开始回滚', 'error');
+      try {
+        await standbyRef.provider.stop();
+        await currentRef.provider.start({ port: plan.rollback[0].port });
+        this.note('已回滚到原通道（端口 ' + plan.rollback[0].port + '）', 'warn');
+        return { ok: false, reason: message, steps: done, rolledBack: true };
+      } catch (rollbackErr) {
+        const rm = rollbackErr && rollbackErr.message ? rollbackErr.message : String(rollbackErr);
+        this.note('回滚也失败：' + rm + '（两条通道可能都不可用）', 'error');
+        return { ok: false, reason: message, steps: done, rolledBack: false, rollbackError: rm };
+      }
+    }
   }
 
   note(text, level = 'info') {
