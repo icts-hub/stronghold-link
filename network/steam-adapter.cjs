@@ -144,9 +144,9 @@ function startCallbackLoop({ steam, pump, onFatal, label = '', onNotice = null }
       steam.runCallbacks?.();
       const ns = steam.networkingSockets;
       ns?.runCallbacks?.();
-      // 关键：连接状态变化与"有人请求连接"都排在这两个队列里，
-      // 不泵它们 -> 房主永远收不到连接请求、从不 accept -> 加入者连接一直 pending
-      // -> 本机入口 socket 被关掉 -> 浏览器表现为 ERR_EMPTY_RESPONSE（实测就是这样）。
+      // 实测更正：FFI 的 runCallbacks() 内部已经调用了 pollConnectionStates()
+      // （SteamNetworkingSocketsManager.js L894-899），所以这里再显式调一次属于**冗余保险**，
+      // 不是"根因修复"。保留它是为了兼容 runCallbacks 不做这件事的旧版 FFI。
       try { ns?.pollConnectionStates?.(); } catch (err) { /* 兼容旧版 FFI */ }
       try { ns?.ensureCallbackRegistered?.(); } catch (err) { /* 兼容旧版 FFI */ }
       // 证据日志：把"收到连接请求 / 连接状态变化"打到日志里，联机时一眼可见
@@ -367,6 +367,8 @@ function createSteamHost(options = {}) {
 
     offStateChange = sockets.onConnectionStateChange(handleStateChange);
     stopLoop = startCallbackLoop({
+      label: 'STEAM',
+      onNotice: (msg) => { try { emit('notice', { text: msg }); } catch (err) { /* 日志失败不影响转发 */ } },
       steam,
       pump,
       onFatal: (err) => emit('error', { stage: 'callbacks', error: { code: 'ESTEAMCALLBACK', friendly: `Steam 回调出错：${err.message}`, message: err.message } }),
@@ -563,6 +565,8 @@ function createSteamJoiner(options = {}) {
         if (!socketsApi?.connectP2P) throw makeError('ESTEAMAPI', 'steamworks-ffi-node 未提供 networkingSockets 接口');
         offStateChange = socketsApi.onConnectionStateChange(handleStateChange);
         stopLoop = startCallbackLoop({
+          label: 'STEAM',
+          onNotice: (msg) => { try { emit('notice', { text: msg }); } catch (err) { /* 日志失败不影响转发 */ } },
           steam,
           pump,
           onFatal: (err) => emit('error', { stage: 'callbacks', error: { code: 'ESTEAMCALLBACK', friendly: `Steam 回调出错：${err.message}`, message: err.message } }),
