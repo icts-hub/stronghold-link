@@ -843,7 +843,7 @@ function initLobbyPort(){
         lobbyLog('已选定端口 '+port+(r.lobbyOk?(' · 大厅已就绪 '+(r.lobbyId||'')):(' · 大厅创建失败：'+(r.lobbyReason||''))),r.lobbyOk?'ok':'error');
         if(out)out.textContent='已就绪：本机服务端口 '+port+' · 好友点「接受邀请」即可加入';
         toast(r.lobbyOk?('已配好 · 端口 '+port+' · 可以去邀请好友了'):('隧道已起，但大厅创建失败：'+(r.lobbyReason||'')));
-        renderRoomSteps({port:Number(port),lobbyId:r.lobbyId,gameUrl:'http://127.0.0.1:'+port});
+        renderRoomSteps({port:Number(port),lobbyId:r.lobbyId,gameUrl:'http://127.0.0.1:'+port,members:(lobbySnapshot&&lobbySnapshot.members)?lobbySnapshot.members.length:0});
         await refreshLobby();
       }else{
         if(out)out.textContent='配置失败：'+((r&&r.reason)||'未知原因');
@@ -1584,6 +1584,7 @@ async function refreshFriends(){
 }
 async function refreshLobby(){
  try{lobbySnapshot=await window.strongholdLink.lobby.status();renderLobby();
+ if($('roomSteps')&&lobbySnapshot&&lobbySnapshot.lobbyId){try{renderRoomSteps({port:lobbySnapshot.port||null,lobbyId:lobbySnapshot.lobbyId,gameUrl:lobbySnapshot.port?('http://127.0.0.1:'+lobbySnapshot.port):null,members:(lobbySnapshot.members||[]).length});}catch(_){}}
   if(lobbySnapshot.commandLineLobbyId){lobbyLog(`Steam 想把本机加入大厅 ${lobbySnapshot.commandLineLobbyId}`,'');await joinLobbyById(lobbySnapshot.commandLineLobbyId)}
   if(lobbySnapshot.pendingJoin){showInviteBanner(lobbySnapshot.pendingJoin)}
  }catch(e){/* 主进程不可用 */}

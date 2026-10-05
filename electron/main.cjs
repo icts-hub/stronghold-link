@@ -215,9 +215,14 @@ function resolveLobbyGame(input, config) {
 function resolveLobbyPort(input, config) {
   const explicit = Number(input && input.port) > 0 ? Number(input.port) : 0;
   if (explicit) return explicit;
-  if (Number(preferredGamePort) > 0) return Number(preferredGamePort);   // 用户选过的优先
-  const fromSession = Number(config && config.targetPort) || 0;
+  // 运行中会话的"真实端口"优先于"用户曾经选过的端口"：
+  // 否则会话换了端口之后，大厅仍会发布旧端口，好友连不上。
+  const fromSession = Number(config && (config.targetPort || config.gamePort)) > 0
+    ? Number(config.targetPort || config.gamePort)
+    : (Array.isArray(config && config.rules) && config.rules[0] && Number(config.rules[0].localPort) > 0
+        ? Number(config.rules[0].localPort) : 0);
   if (fromSession) return fromSession;
+  if (Number(preferredGamePort) > 0) return Number(preferredGamePort);
   try {
     const ports = require('../network/listening-ports.cjs');
     const games = require('../network/game-detect.cjs');
@@ -718,7 +723,6 @@ ipcMain.handle('steam:diagnose', () => {
     const input = raw && typeof raw === 'object' ? raw : {};
     const port = Number(input.port) > 0 ? Number(input.port) : 0;
     if (!port) return { ok: false, reason: '没有选择端口' };
-    preferredGamePort = port;
 
     let snapshot = session.getSnapshot();
     const running = snapshot && snapshot.state === 'running';
@@ -737,6 +741,7 @@ ipcMain.handle('steam:diagnose', () => {
       }));
       logLine('已按选定端口 ' + port + ' 启动房主会话，准备等待好友加入');
     }
+    preferredGamePort = port;      // 只有真正起来了才记住（失败时不留脏值）
 
     const hostSteamId = (snapshot.channels && snapshot.channels[0] && snapshot.channels[0].steamId) || null;
     const game = String(input.game || cfg.game || '');
