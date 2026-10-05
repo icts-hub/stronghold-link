@@ -810,6 +810,14 @@ ipcMain.handle('lobby:selftest', async () => {
     add('大厅里的连接信息', Boolean(info.hostSteamId || port),
       '房主SteamID=' + (info.hostSteamId || '-') + ' · 端口=' + (port || '-') + ' · 游戏=' + (info.game || '-') + ' · 房间号=' + (info.room || '-'));
 
+    // 角色一致性：这两种情况会直接导致"好友进不来 / 看不到房间"
+    if (isOwner && s.state !== 'running') {
+      add('角色一致性', false, '你是这个大厅的房主，但还没启动房主会话：请在自己这边「选择要转发的进程」选端口开局，好友才有东西可连');
+    } else if (!isOwner && snap.lobbyId && s.state === 'running' && cfg.adapter === 'steam' && cfg.role === 'host') {
+      add('角色一致性', false, '你既是别人大厅的成员，又在当房主（会在本机起第二台服务器）：请先点 LEAVE 离开大厅，只用房主身份');
+    } else if (isOwner) {
+      add('角色一致性', true, '你是房主且会话在运行，配置一致');
+    }
     if (isOwner) {
       add('房主本地服务', null, '房主侧不监听端口，只连 127.0.0.1:' + (cfg.gamePort || cfg.targetPort || '-') + '（隧道好不好用由好友侧自检判定）');
     } else if (entry) {
@@ -820,7 +828,11 @@ ipcMain.handle('lobby:selftest', async () => {
              : ('GET ' + url + ' 失败：' + r.reason + ' → 隧道没起作用'));
       add('浏览器该打开的地址', true, url + '（只打开这个；不要打开 127.0.0.1:' + (port || 3000) + '，那是你自己那边）');
     } else {
-      add('隧道入口', false, '加入者还没有入口端口 → 隧道没起来（多半是大厅里还缺房主的端口，或房主没启动 Steam 房主会话）');
+      const ownerId = (info.hostSteamId || snap.hostSteamId || '-');
+      const noHostInfo = !(info.hostSteamId || port);
+      add('隧道入口', false, noHostInfo
+        ? ('大厅房主 ' + ownerId + ' 还没写入端口（TA 没有开局）。请让房主在自己那边选端口开局；如果这个大厅是误建的，请让 TA 重新建房后邀请你')
+        : '加入者还没有入口端口 → 隧道没起来（请把上面的自检输出发给房主一起看）');
     }
     return { ok: true, checks, verdict: checks.some((c) => c.ok === false) ? '发现断点：见标红项' : '未发现断点' };
   } catch (err) {
