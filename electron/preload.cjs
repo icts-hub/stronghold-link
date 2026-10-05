@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     natType: () => ipcRenderer.invoke('network:nat-type'),
     listeningPorts: () => ipcRenderer.invoke('network:listening-ports'),
     openUrl: (url) => ipcRenderer.invoke('app:open-url', { url }),
+    // 最小化/后台时是否暂停动画
+    onActivity: (listener) => { const h = (_e, p) => listener(p); ipcRenderer.on('app:activity', h); return () => ipcRenderer.removeListener('app:activity', h); },
     processList: (input) => ipcRenderer.invoke('network:process-list', input || {}),
     processDetail: (pid) => ipcRenderer.invoke('network:process-detail', { pid }),
   },

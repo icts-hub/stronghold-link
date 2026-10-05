@@ -1248,7 +1248,24 @@ async function runMatrix(dir) {
   const shotViews = ["library", "session"];
   const win = createWindow({ show: true, query: { capture: "1", ...(FORCE_MOTION ? { motion: "force" } : {}) } });
   mainWindow = win;
-  startMemoryWatch();   // 启动总内存看护（超阈值降级 / 重载）
+  startMemoryWatch();
+
+  // 最小化 / 隐藏 / 失焦时通知渲染进程停掉所有动画（省电、省 CPU/内存）
+  const notifyActivity = (active) => {
+    try { if (win && !win.isDestroyed()) win.webContents.send('app:activity', { active: Boolean(active) }); } catch (err) { /* 忽略 */ }
+  };
+  // 仅用于自测：SHL_PAUSE_TEST=1 时 3 秒后强制发一次"暂停"，便于对比 CPU 占用
+  // 仅用于自测：SHL_PAUSE_TEST=1 时 3 秒后真实最小化窗口（走完整路径：minimize 事件 -> IPC -> 渲染进程暂停）
+  if (process.env.SHL_PAUSE_TEST === '1') setTimeout(() => { try { win.minimize(); } catch (err) { /* 忽略 */ } }, 3000);
+  try {
+    win.on('minimize', () => notifyActivity(false));
+    win.on('hide', () => notifyActivity(false));
+    win.on('blur', () => notifyActivity(false));
+    win.on('restore', () => notifyActivity(true));
+    win.on('show', () => notifyActivity(true));
+    win.on('focus', () => notifyActivity(true));
+    win.webContents.on('did-finish-load', () => notifyActivity(win.isFocused() && !win.isMinimized()));
+  } catch (err) { /* 事件挂载失败不影响主流程 */ }   // 启动总内存看护（超阈值降级 / 重载）
   win.setPosition(20, 20);
   win.setAlwaysOnTop(true);
   win.webContents.on("console-message", (_e, level, message, line, source) => { if (level >= 2) issues.push(source + ":" + line + " " + message); });

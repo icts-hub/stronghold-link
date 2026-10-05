@@ -1570,3 +1570,19 @@ html:not(.has-3d) .ribbon-strand { stroke: rgba(var(--ink-rgb), 0.70); }
 .lobby, .dialog { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(var(--paper-rgb), 0.86); }
 [data-theme='dark'] .lobby, [data-theme='dark'] .dialog { background: rgba(var(--paper-rgb), 0.84); }
 // 说明：毛玻璃只保留 .top / .rail / .panel 三类，实测合成层少一层约省 10~20MB
+
+/* ==========================================================================
+   PAUSE WHEN MINIMIZED / BACKGROUND
+   一条规则冻结所有动画与过渡：最小化、切到后台、或页面不可见时不再消耗 CPU/GPU。
+   （3D 舞台本来就在 document.hidden 时跳过渲染；这里覆盖纯 CSS 动画，如 ∞ 流动带、
+     环境光晕、轨道、流动线、节点呼吸等。）
+   ========================================================================== */
+html.shl-paused *,
+html.shl-paused *::before,
+html.shl-paused *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+html.shl-paused .ribbon-wrap { will-change: auto; }
+/* 恢复时不做补间，直接回到当前状态，避免"追赶动画"的卡顿 */
+html:not(.shl-paused) .ribbon-group { animation-play-state: running; }

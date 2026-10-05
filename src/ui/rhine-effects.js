@@ -451,3 +451,32 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildRibbon);
     else buildRibbon();
   })();
+/* ---------- 7) 最小化/后台时暂停一切动画 ---------- */
+(function () {
+  'use strict';
+  if (typeof document === 'undefined') return;
+  var root = document.documentElement;
+
+  function setPaused(paused) {
+    if (paused) root.classList.add('shl-paused');
+    else root.classList.remove('shl-paused');
+  }
+  // 本地兜底：页面不可见（最小化、切标签页）时也暂停
+  function fromVisibility() { setPaused(Boolean(document.hidden)); }
+  document.addEventListener('visibilitychange', fromVisibility);
+  fromVisibility();
+
+  // 主进程通知（更准：最小化/失焦都覆盖）
+  try {
+    var api = window.strongholdLink && window.strongholdLink.app;
+    if (api && api.onActivity) api.onActivity(function (p) { setPaused(!(p && p.active)); });
+  } catch (e) { /* 忽略 */ }
+
+  // 暂停时顺带把常驻动画循环里的任务也停掉（如果有）
+  try {
+    var loop = window.__silkLoop;
+    if (loop && typeof loop.pause === 'function') {
+      document.addEventListener('visibilitychange', function () { loop.pause(Boolean(document.hidden)); });
+    }
+  } catch (e) { /* 忽略 */ }
+})();
