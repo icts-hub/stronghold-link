@@ -88,3 +88,39 @@ test('空输入不报错：没有候选就是空清单', () => {
   assert.equal(out.measuredCount, 0);
   assert.equal(out.total, 0);
 });
+
+test('NAT 行为接进直连候选：端点无关 → 提示打洞通常可行', () => {
+  const out = describeRouteCandidates({
+    providers: [{ id: 'direct-udp-host', name: '直连 UDP', kind: 'direct', capabilities: { unreliable: true } }],
+    natMapping: 'endpoint-independent',
+  });
+  assert.match(out.candidates[0].unmeasuredReason, /端点无关（打洞通常可行）/);
+  assert.match(out.candidates[0].unmeasuredReason, /两台机器/, '原有原因不能被覆盖掉');
+});
+
+test('NAT 行为接进直连候选：地址相关 → 提示走中继；未测到 → 如实说未测得', () => {
+  const dep = describeRouteCandidates({
+    providers: [{ id: 'direct-udp-host', kind: 'direct', capabilities: {} }],
+    natMapping: 'address-dependent',
+  });
+  assert.match(dep.candidates[0].unmeasuredReason, /建议走中继/);
+  const none = describeRouteCandidates({
+    providers: [{ id: 'direct-udp-host', kind: 'direct', capabilities: {} }],
+    natMapping: 'unknown',
+  });
+  assert.match(none.candidates[0].unmeasuredReason, /未测得/);
+  const absent = describeRouteCandidates({ providers: [{ id: 'direct-udp-host', kind: 'direct', capabilities: {} }] });
+  // 基础文案本身就含“NAT 回环”，这里要断言的是**NAT 实测提示**没有出现
+  assert.doesNotMatch(absent.candidates[0].unmeasuredReason, /端点无关|建议走中继|未测得/, '没测过就不要带 NAT 实测提示');
+});
+
+test('NAT 提示只加在直连候选上，不改动其它候选', () => {
+  const out = describeRouteCandidates({
+    providers: [
+      { id: 'steam-p2p-host', kind: 'steam', capabilities: {} },
+      { id: 'local-tcp-host', kind: 'local', capabilities: {} },
+    ],
+    natMapping: 'endpoint-independent',
+  });
+  for (const c of out.candidates) assert.doesNotMatch(c.unmeasuredReason, /端点无关/);
+});

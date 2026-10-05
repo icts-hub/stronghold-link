@@ -419,8 +419,16 @@ ipcMain.handle('network:routes', async (event, input) => {
         }
       }
     }
+    let natMapping = null;
+    if (input && input.measure) {
+      try {
+        const { measureNatMapping } = require('../network/direct-udp/nat-type.cjs');
+        const nat = await measureNatMapping({});
+        natMapping = nat.ok ? nat.mapping : 'unknown';
+      } catch (err) { natMapping = 'unknown'; }
+    }
     const { describeRouteCandidates } = require('../network/routes.cjs');
-    const described = describeRouteCandidates({ providers, qualityById });
+    const described = describeRouteCandidates({ providers, qualityById, natMapping });
 
     // 用同一份候选跑一次决策：让界面能看到"现在选哪条、为什么、策略是什么"
     const { createRouteManager } = require('../network/route/manager.cjs');
@@ -430,7 +438,7 @@ ipcMain.handle('network:routes', async (event, input) => {
       if (c.measured && c.quality) manager.update(c.id, c.quality);
     }
     const decision = manager.tick();
-    return { ok: true, ...described, decision: { ...manager.snapshot(), lastAction: decision.action, lastReason: decision.reason } };
+    return { ok: true, natMapping, ...described, decision: { ...manager.snapshot(), lastAction: decision.action, lastReason: decision.reason } };
   } catch (err) {
     return { ok: false, reason: String(err && err.message ? err.message : err), candidates: [], measuredCount: 0, total: 0 };
   }
@@ -754,6 +762,8 @@ async function runProbe(dir) {
     await new Promise((r) => setTimeout(r, 1500));
     const routes = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routes({ measure: true }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
     console.log('[probe] 候选清单（真实测量） = ' + JSON.stringify((routes.candidates || []).map((c) => ({ id: c.id, display: c.display, measured: c.measured, reason: c.unmeasuredReason }))));
+    const routed = await win.webContents.executeJavaScript("(async () => { try { const r = await window.strongholdLink.network.routes({ measure: true }); return { nat: r.natMapping, direct: (r.candidates || []).filter((c) => c.kind === 'direct').map((c) => c.unmeasuredReason)[0] }; } catch (e) { return { error: String(e && e.message || e) }; } })()");
+    console.log('[probe] 候选原因（含 NAT） = ' + JSON.stringify(routed));
     const watchStart = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'start', intervalMs: 3000 }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
     await new Promise((r) => setTimeout(r, 4000));
     const watchState = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'state' }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");

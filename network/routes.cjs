@@ -32,7 +32,14 @@ const UNMEASURED_REASONS = Object.freeze({
  * @param {object} [options.qualityById]  id → 质量快照（真实测量结果，没有就是没测）
  * @param {object} [options.reliabilityById]
  */
-function describeRouteCandidates({ providers = [], qualityById = {}, reliabilityById = {} } = {}) {
+const NAT_HINTS = Object.freeze({
+  'endpoint-independent': '本机 NAT 实测为端点无关（打洞通常可行）',
+  'address-dependent': '本机 NAT 实测为地址相关（对称倾向，打洞成功率低，建议走中继）',
+  'multiple-exits': '本机为多出口网络（打洞基本不可行）',
+  unknown: '本机 NAT 行为未测得',
+});
+
+function describeRouteCandidates({ providers = [], qualityById = {}, reliabilityById = {}, natMapping = null } = {}) {
   const entries = providers.map((p) => ({
     id: p.id,
     name: p.name || p.id,
@@ -64,7 +71,10 @@ function describeRouteCandidates({ providers = [], qualityById = {}, reliability
       score: scored.score,
       measured: scored.measured,
       reasons: scored.reasons,
-      unmeasuredReason: scored.measured ? null : (UNMEASURED_REASONS[e.id] || '本机条件下无法测量'),
+      unmeasuredReason: scored.measured
+        ? null
+        : ((UNMEASURED_REASONS[e.id] || '本机条件下无法测量')
+          + (e.kind === 'direct' && natMapping ? '；' + (NAT_HINTS[natMapping] || NAT_HINTS.unknown) : '')),
       display: scored.measured ? (scored.score + ' 分') : '未测量',
     };
   });
@@ -85,4 +95,4 @@ function describeRouteCandidates({ providers = [], qualityById = {}, reliability
   };
 }
 
-module.exports = { UNMEASURED_REASONS, describeRouteCandidates, scoreQuality };
+module.exports = { UNMEASURED_REASONS, NAT_HINTS, describeRouteCandidates, scoreQuality };
