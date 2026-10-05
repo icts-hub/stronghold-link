@@ -57,45 +57,46 @@
 
   var scene = new THREE.Scene();
   var camera = new THREE.PerspectiveCamera(34, 1, 1, 600);
-  camera.position.set(0, 16, 260);
+  camera.position.set(0, 14, 300);
   camera.lookAt(0, 2, 0);
 
-  var ambient = new THREE.AmbientLight(0xffffff, 0.42);
+  var ambient = new THREE.AmbientLight(0xffffff, 0.78);
   scene.add(ambient);
-  var key = new THREE.DirectionalLight(0xffffff, 1.15);
+  var key = new THREE.DirectionalLight(0xffffff, 0.42);
   key.position.set(-60, 90, 70);
   scene.add(key);
-  var fill = new THREE.DirectionalLight(0xffffff, 0.3);
+  var fill = new THREE.DirectionalLight(0xffffff, 0.20);
   fill.position.set(70, -40, -60);
   scene.add(fill);
 
   var A = 68;          // ∞ 横向半径
   var B = 26;          // 纵向起伏
   var WIDTH = 27;      // 带宽（收窄才像带子）
-  var THICK = 0.62;    // 方块厚度（薄板）
-  var LONG = 150;      // 沿路径方块数
-  var WIDE = 7;        // 沿带宽方块数
-  var TWIST = 1.05;    // 扭转强度（过大就会折向镜头）
+  var LONG = 300;         // 沿路径的薄片数（更细密 -> 梳齿更匀）
+  var LAYERS = 34;        // 厚度方向层数（侧面细线更密）
+  var THICK_TOTAL = 4.4;  // 带子总厚度（更薄更整）
+  var SLAB = (THICK_TOTAL / 34) * 0.86;   // 每片厚度（留极细缝，形成等距线）
+  var TWIST = 0.26;    // 扭转强度（更缓慢，∞ 形态更易读）
 
   var tmp = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), wid: new THREE.Vector3() };
   var normal = new THREE.Vector3();
   var basis = new THREE.Matrix4();
   var quat = new THREE.Quaternion();
   var one = new THREE.Vector3(1, 1, 1);
-  var segLen = ((Math.PI * 2 * A) / LONG) * 1.28;
+  var segLen = ((Math.PI * 2 * A) / LONG) * 1.04;   // 片与片首尾相接
 
   function pointAt(t, u, out) {
     var x = A * Math.sin(t);
     var z = (A * Math.sin(2 * t)) / 3.6;
-    var y = Math.sin(2 * t) * (B / 2) + Math.sin(t) * 4;
+    var y = Math.sin(2 * t) * (B / 2);
 
     var dx = A * Math.cos(t);
     var dz = (A * 2 * Math.cos(2 * t)) / 3.6;
-    var dy = Math.cos(2 * t) * B + Math.cos(t) * 4;
+    var dy = Math.cos(2 * t) * B;
     var len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     var tx = dx / len, ty = dy / len, tz = dz / len;
 
-    var theta = t * 0.5 + (u - 0.5) * Math.PI * TWIST;
+    var theta = t * TWIST;   // 统一扭转（不随 u 变化）：线条保持平行等距
     var wx = Math.cos(theta), wy = Math.sin(theta) * 0.85, wz = Math.sin(theta) * 0.4;
     var dot = wx * tx + wy * ty + wz * tz;
     wx -= tx * dot; wy -= ty * dot; wz -= tz * dot;
@@ -109,25 +110,29 @@
     return out;
   }
 
-  var box = new THREE.BoxGeometry(segLen, THICK, (WIDTH / WIDE) * 1.06);
+  var box = new THREE.BoxGeometry(segLen, SLAB, WIDTH);   // 长=切向 厚=法向 宽=整条带宽
   var material = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  var count = LONG * WIDE;
+  var count = LONG * LAYERS;
   var mesh = new THREE.InstancedMesh(box, material, count);
   mesh.frustumCulled = false;
-  mesh.rotation.z = -0.10;
+  mesh.rotation.z = -0.05;
   scene.add(mesh);
 
   function buildField() {
     var i = 0;
     var m = new THREE.Matrix4();
+    var pos = new THREE.Vector3();
     for (var s = 0; s < LONG; s += 1) {
       var t = (s / LONG) * Math.PI * 2;
-      for (var u = 0; u < WIDE; u += 1) {
-        pointAt(t, (u + 0.5) / WIDE, tmp);
-        normal.crossVectors(tmp.tan, tmp.wid).normalize();
-        basis.makeBasis(tmp.tan, tmp.wid, normal);
-        quat.setFromRotationMatrix(basis);
-        m.compose(tmp.pos, quat, one);
+      pointAt(t, 0.5, tmp);                                  // 带中心
+      normal.crossVectors(tmp.tan, tmp.wid).normalize();     // 带面法向 = 厚度方向
+      // 基：X=切向（片长），Y=法向（片厚方向），Z=带宽方向
+      basis.makeBasis(tmp.tan, normal, tmp.wid);
+      quat.setFromRotationMatrix(basis);
+      for (var k = 0; k < LAYERS; k += 1) {
+        var off = (LAYERS === 1 ? 0 : (k / (LAYERS - 1) - 0.5)) * THICK_TOTAL;
+        pos.copy(tmp.pos).addScaledVector(normal, off);
+        m.compose(pos, quat, one);
         mesh.setMatrixAt(i, m);
         i += 1;
       }
@@ -140,9 +145,9 @@
     var luma = (paper[0] * 0.299 + paper[1] * 0.587 + paper[2] * 0.114) / 255;
     var isLight = luma > 0.5;
     material.color.setRGB(isLight ? 0.93 : 0.15, isLight ? 0.922 : 0.18, isLight ? 0.905 : 0.195);
-    ambient.intensity = isLight ? 0.44 : 0.36;
-    key.intensity = isLight ? 1.12 : 0.72;
-    fill.intensity = isLight ? 0.34 : 0.24;
+    ambient.intensity = isLight ? 0.72 : 0.56;
+    key.intensity = isLight ? 0.58 : 0.44;
+    fill.intensity = isLight ? 0.20 : 0.16;
     buildField();
   }
 
@@ -153,7 +158,7 @@
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
     var far = Math.max(1, Math.min(w, h));
-    camera.position.set(0, 15, far * 0.235);
+    camera.position.set(0, 12, far * 0.305);
     camera.lookAt(0, 2, 0);
   }
 

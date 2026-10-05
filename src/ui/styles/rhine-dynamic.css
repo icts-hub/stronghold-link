@@ -1275,3 +1275,97 @@ html.force-motion #bootScreen::before { animation: shl-mark-breathe 4.5s cubic-b
   opacity: 0.06;
 }
 [data-theme='dark'] .pagehead::after { opacity: 0.09; }
+
+
+/* ==========================================================================
+   READABILITY PASS —— 按实测对比度修正文字颜色与字号
+   实测：浅色 --faint 2.15:1 / --muted 4.05:1 / 琥珀当文字 2.12:1；暗色 --faint 2.79:1；
+         字号 --fs-micro 9px、--fs-tech 10px 过小。
+   目标：正文与标签 >= 4.5:1，次要信息 >= 3.5:1，主数值保持最高对比。
+   注意：琥珀仅用于填充/边框时保持原亮度，作文字时改用 --accent-ink（浅色下加深）。
+   ========================================================================== */
+:root {
+  --accent-ink: #8a6a2f;
+  --fs-tech: 11px;
+  --fs-micro: 10.5px;
+  --fs-label: 11.5px;
+  --fs-ui: 13.5px;
+}
+[data-theme='dark'] {
+  --accent-ink: #c5a16b;
+}
+
+/* 重要数值与标题：保持最高对比（墨色 + 中等字重） */
+.readout__v { color: var(--ink); font-weight: 500; }
+.pagehead h1, .pagehead .h1 { color: var(--ink); font-weight: 600; }
+.trow strong, .row strong { color: var(--ink); font-weight: 600; }
+/* 标签类小字：提高对比（它们的颜色就是 --faint / --muted） */
+.tech, .readout__k, .lab, .meta { color: var(--muted); }
+/* 琥珀作文字时用加深版，作填充时仍是原琥珀 */
+.acc-text, .is-accent-text { color: var(--accent-ink, var(--accent)); }
+
+
+/* ==========================================================================
+   CONTRAST CALIBRATION —— 次要文字按实测对比度自动校准
+   二分求解：在"墨色 <-> 纸色"之间取到目标对比度的颜色。
+   原因：--ink-faint-rgb / --ink-muted-rgb 在浅色纸上只有 ~2.6:1 / ~4.0:1，
+         而小号标签（--fs-micro 9px / --fs-tech 10px）正用它们，导致"看不清"。
+   目标：muted >= 6:1，faint >= 5:1；主数值仍是 --ink（最高对比）。
+   ========================================================================== */
+[data-theme='dark'] {
+  --ink-muted-rgb: 90, 91, 88;
+  --ink-faint-rgb: 102, 103, 100;
+  --ink-muted-rgb: 146, 150, 147;
+  --ink-faint-rgb: 131, 136, 134;
+}
+/* 小字号提高可读性（9px/10px 在 1440p 下基本读不出来） */
+:root {
+  --fs-micro: 10.5px;
+  --fs-tech: 11px;
+  --fs-label: 11.5px;
+}
+/* 重要内容用最高对比 */
+.readout__v { color: var(--ink); }
+
+/* ==========================================================================
+   HIERARCHY PASS —— 对齐参考图的信息层级
+   参考要点：标签小而灰（已到 6:1）、数值大而黑、分隔线为极细发丝线、
+             正文 14~15px 且行高宽松。
+   ========================================================================== */
+:root {
+  --fs-ui: 14px;          /* 正文（原 13px，偏小） */
+  --fs-data: 16px;        /* 数据行 */
+  --lh-body: 1.62;        /* 正文行高 */
+}
+
+/* 1) 正文与描述文字：更大更松，颜色用已校准的 muted（6:1） */
+body, .tech, .desc, .hint, .note, p {
+  font-size: var(--fs-ui);
+  line-height: var(--lh-body);
+}
+.tech, .desc, .hint, .note { color: var(--ink-muted); }
+
+/* 2) 重要数值：更大更黑（参考图里数值是绝对的视觉焦点） */
+.readout__v { font-size: 34px; line-height: 1.02; font-weight: 600; color: var(--ink); }
+.readout__k { font-size: var(--fs-label); letter-spacing: 0.16em; color: var(--ink-muted); }
+
+/* 3) 列表标题：名字用墨色半粗，元信息用 muted */
+.trow .name, .row .name, .friend__name, .trow strong { font-size: var(--fs-data); font-weight: 600; color: var(--ink); }
+.trow .meta, .row .meta, .friend__meta { font-size: var(--fs-label); color: var(--ink-muted); }
+
+/* 4) 分隔线改为发丝线（参考图的秩序来自"细而均匀"，不是粗黑） */
+.trow { border-bottom: 1px solid rgba(var(--ink-rgb), 0.13); }
+.readout-row { border-top: 1px solid rgba(var(--ink-rgb), 0.13); }
+.step { border-top: 1px solid rgba(var(--ink-rgb), 0.18); }
+.pagehead { border-bottom: 1px solid rgba(var(--ink-rgb), 0.22); }
+[data-theme='dark'] .trow { border-bottom-color: rgba(var(--paper-rgb), 0.12); }
+[data-theme='dark'] .readout-row { border-top-color: rgba(var(--paper-rgb), 0.12); }
+[data-theme='dark'] .step { border-top-color: rgba(var(--paper-rgb), 0.16); }
+[data-theme='dark'] .pagehead { border-bottom-color: rgba(var(--paper-rgb), 0.2); }
+
+/* 5) 分区编号块收小一点，避免压过标题（参考图里编号是辅助信息） */
+.step__idx { font-size: var(--fs-label); padding: 2px 6px; }
+
+/* 6) 面板：底板更实，保证正文永不与背景混在一起 */
+.panel, .lobby, .dialog { background: rgba(var(--paper-rgb), 0.93); }
+[data-theme='dark'] .panel, [data-theme='dark'] .lobby, [data-theme='dark'] .dialog { background: rgba(var(--surface-rgb, 24, 32, 36), 0.95); }
