@@ -44,6 +44,7 @@ function createSteamNetworkDiagnostics({
   steamModule = null,
   maxPops = DEFAULT_MAX_POPS,
   waitMs = DEFAULT_WAIT_MS,
+  waitForReadyMs = 0,
   now = Date.now,
 } = {}) {
   function utils() {
@@ -118,6 +119,16 @@ function createSteamNetworkDiagnostics({
     return pops.slice(0, Math.max(1, maxPops));
   }
 
+  const NOT_READY = new Set(['Waiting', 'Retrying', 'NeverTried']);
+
+  /** 中继网络是否就绪（Waiting / Retrying 都算没就绪 —— 此时读 POP 只会得到空列表）。 */
+  function isReady(status) {
+    if (!status) return false;
+    if (status.measuring) return false;
+    if (status.availabilityName && NOT_READY.has(status.availabilityName)) return false;
+    return true;
+  }
+
   /** 采集一次。测不到就如实说明原因，绝不填占位数字。 */
   async function collect() {
     const u = utils();
@@ -125,6 +136,9 @@ function createSteamNetworkDiagnostics({
       return {
         available: false,
         reason: 'Steam 环境不可用（缺少 SDK 或未登录），无法读取中继网络状态',
+        ready: false,
+        waitedMs: 0,
+        hint: null,
         relay: null,
         local: null,
         pops: [],
@@ -143,11 +157,18 @@ function createSteamNetworkDiagnostics({
     // 等 ping 测量结束（有上限；到点没结束就如实标注 measuring）
     let status = relayStatus(u);
     const started = now();
-    while (status && status.measuring && now() - started < waitMs) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+    const budget = Math.max(waitMs, waitForReadyMs);
+    while (status && !isReady(status) && now() - started < budget) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
       status = relayStatus(u);
     }
+    const waitedMs = now() - started;
+    const ready = isReady(status);
     if (status && status.measuring) notes.push('ping 测量仍在进行，延迟数据可能不完整');
+    if (!ready) {
+      notes.push('Steam 中继网络未就绪（' + ((status && status.availabilityName) || '未知') + '）：'
+        + '需要 Steam 客户端处于在线状态并完成中继网络预热，之后才能读到各 POP 的延迟。');
+    }
 
     const pops = popList(u);
     const popCount = (() => {
@@ -162,6 +183,9 @@ function createSteamNetworkDiagnostics({
     return {
       available: true,
       reason: null,
+      ready,
+      waitedMs,
+      hint: ready ? null : '中继网络未就绪：延迟数据不可用，请确认 Steam 客户端在线后重试',
       relay: status,
       local: localLocation(u),
       pops,

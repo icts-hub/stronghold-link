@@ -92,3 +92,27 @@ test('readPing：number / 对象 / 无效值 三种形状', () => {
   assert.equal(D.readPing(null), null);
   assert.equal(D.readPing('abc'), null);
 });
+
+test('中继网络一直 Waiting：等满预算后如实标注未就绪，POP 为空', async () => {
+  const sdk = fakeSdk({ pops: [] });
+  sdk.networkingUtils.getRelayNetworkStatus = () => ({
+    availability: 0, availabilityName: 'Waiting', pingMeasurementInProgress: false, networkConfigAvailability: 0,
+  });
+  const diag = D.createSteamNetworkDiagnostics({ sdk, waitMs: 0, waitForReadyMs: 400 });
+  const out = await diag.collect();
+  assert.equal(out.available, true);
+  assert.equal(out.ready, false, 'Waiting 不算就绪');
+  assert.ok(out.waitedMs >= 300, '应等满预算：实际 ' + out.waitedMs + 'ms');
+  assert.deepEqual(out.pops, []);
+  assert.match(out.hint, /中继网络未就绪/);
+  assert.ok(out.notes.some((x) => x.includes('Waiting')));
+});
+
+test('中继已就绪时 ready=true 且不再等待', async () => {
+  const diag = D.createSteamNetworkDiagnostics({ sdk: fakeSdk(), waitMs: 0, waitForReadyMs: 5000 });
+  const out = await diag.collect();
+  assert.equal(out.ready, true);
+  assert.ok(out.waitedMs < 400, '已就绪就不该继续等：实际 ' + out.waitedMs + 'ms');
+  assert.equal(out.hint, null);
+  assert.ok(out.pops.length > 0);
+});
