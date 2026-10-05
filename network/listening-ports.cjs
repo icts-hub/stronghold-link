@@ -145,6 +145,23 @@ function listListeningPorts({ timeoutMs = 12000 } = {}) {
       const list = execFileSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, timeout: timeoutMs });
       names = parseTasklist(list);
     } catch (err) { /* 批量失败则走下面的逐个兜底 */ }
+    // 名称缺失较多时：改用 PowerShell 一次性取全量 PID->名称（实测比逐个 tasklist 快且完整）
+    const missing = entries.filter((e) => !names.get(e.pid)).length;
+    if (names.size === 0 || missing > entries.length * 0.2) {
+      try {
+        const psOut = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+          'Get-Process | Select-Object Id,ProcessName | ConvertTo-Json -Compress'], {
+          encoding: 'utf8', windowsHide: true, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024,
+        });
+        const arr = JSON.parse(String(psOut || '[]').trim() || '[]');
+        const list = Array.isArray(arr) ? arr : [arr];
+        for (const row of list) {
+          const pid = Number(row.Id);
+          const name = String(row.ProcessName || '').toLowerCase();
+          if (Number.isFinite(pid) && name) names.set(pid, name.endsWith('.exe') ? name : name + '.exe');
+        }
+      } catch (err) { /* PowerShell 不可用就继续用 tasklist 的结果 */ }
+    }
     if (names.size === 0) {
       // 兜底：只给"像服务端"的端口补查进程名（最多 12 个），否则慢
       const pids = [...new Set(entries.filter((e) => e.port < EPHEMERAL_FROM && !WELL_KNOWN_PORTS.has(e.port)).map((e) => e.pid))].slice(0, 12);
