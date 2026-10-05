@@ -1078,7 +1078,8 @@ html.has-3d .ribbon-wrap { display: none; }
          因此自动跟随主题与所在元素的文字颜色。
    ========================================================================== */
 :root {
-  --shl-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 44'%3E%3Cpath d='M36 22c-7.5-11-13-16-19.5-16C9.5 6 4 12.5 4 22s5.5 16 12.5 16C23 38 28.5 33 36 22c7.5-11 13-16 19.5-16C62.5 6 68 12.5 68 22s-5.5 16-12.5 16C49 38 43.5 33 36 22z' fill='none' stroke='%23000' stroke-width='5.5' stroke-linejoin='round'/%3E%3Crect x='32.6' y='17.4' width='6.8' height='9.2' fill='%23000'/%3E%3C/svg%3E");
+  /* 默认符号：按参考图重绘的矢量（粗笔画 ∞ + 交叉断口 + 左＋右－） */
+  --shl-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 104 62'%3E%3Cpath d='M52 31c0-12-11-21-22-21C17 10 7 19 7 31s10 21 23 21c11 0 22-9 22-21 0-12 11-21 22-21 13 0 23 9 23 21s-10 21-23 21c-11 0-22-9-22-21z' fill='none' stroke='%23000' stroke-width='9.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3Cpath d='M44.5 17.5 L66 40' stroke='%23000' stroke-width='14' stroke-linecap='butt'/%3E%3Crect x='20.5' y='27.6' width='19' height='6.8'/%3E%3Crect x='26.6' y='21.5' width='6.8' height='19'/%3E%3Crect x='64.5' y='27.6' width='19' height='6.8'/%3E%3C/svg%3E");
 }
 .shl-mark {
   -webkit-mask-image: var(--shl-mark);
