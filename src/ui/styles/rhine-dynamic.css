@@ -1177,3 +1177,12 @@ html.force-motion #bootScreen::before { animation: shl-mark-breathe 4.5s cubic-b
   mask-size: contain;
   background-color: currentColor;
 }
+
+/* --------------------------------------------------------------------------
+   品牌符号来源：默认用上面 :root 里的自绘图形的 data URI。
+   想换成你自己的文件（见 src/ui/brand/README.md），只需把下面这行取消注释
+   并把文件放进 src/ui/brand/ —— 顶栏 / 页头水印 / 侧栏 / 启动序列会一起换掉。
+   -------------------------------------------------------------------------- */
+/*
+:root { --shl-mark: url("brand/mark.svg"); }
+*/
