@@ -129,7 +129,7 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 ├─ src/ui/index.html      界面外壳与全部视图（单文件 + 单块内联脚本，便于 DOM 桩测试）
 ├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集（MiSans 免费商用 + Inter/Plex OFL，见同目录许可与 SOURCE.txt）
-├─ test/                  node:test 测试（286 例）
+├─ test/                  node:test 测试（300 例）
 ├─ tools/                 开发工具：Steam 探针、MiSans 子集裁剪、CI 测试运行器、便携版打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告（PHASE1 ~ PHASE6 + 排错与 Steam 步骤）
 ```
@@ -141,6 +141,12 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 - 路径评分与 RouteManager：阈值 55 分、滞回 12 分、观察窗 4 秒、冷却 15 秒
 - NETWORK 页的 `RUN RELAY SELF-TEST` 会在本机起中继服务端与两个客户端实测一次
 - 未测量的候选会写明原因（本地中继无包级往返 / Steam 需真实对端 / 打洞需两台机器）
+
+## 相关文档
+
+- [跨机验证手册](docs/跨机验证手册.md)：打洞 / 自建中继 / Steam 端到端 / 局域网四类验证的步骤与回填表
+- [中继部署](docs/中继部署.md)：守护进程、防火墙、systemd 示例、健康检查与安全边界
+- [多通道选路设计](docs/多通道选路设计.md)：**未实现**，含影响面、测试计划与回滚方案
 
 ## 主进程 IPC 契约（渲染进程可见的全部能力）
 
@@ -170,7 +176,7 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 
 ## 测试
 
-`npm test` 覆盖 **286 个用例**（29 个测试文件：适配器、加密、中继、会话、IPC、界面逻辑，以及网络 Provider / 路由评分 / 中继服务端 / STUN / 打洞等新增部分），
+`npm test` 覆盖 **300 个用例**（29 个测试文件：适配器、加密、中继、会话、IPC、界面逻辑，以及网络 Provider / 路由评分 / 中继服务端 / STUN / 打洞等新增部分），
 全部使用本机回环真实端口与真实数据往返；包括**链路抓包无明文**、**跨会话重放被拒**、**伪造认证标签被拒**、
 **旧协议明确拒绝**、**端口冲突带占用者提示**、**SDK 目录名容错**等实测项。
 Steam 传输层逻辑用注入的假 SDK 测试（测试文件内明确标注），真实 Steam 的验证情况见下一节。
