@@ -8,8 +8,8 @@
     "start": "electron .",
     "smoke": "electron . --smoke",
     "smoke:restricted": "electron . --smoke --no-sandbox",
-    "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
-    "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
+    "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs test/providers.test.cjs test/quality.test.cjs",
+    "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs test/providers.test.cjs test/quality.test.cjs",
     "build": "electron-builder --win nsis",
     "build:dir": "electron-builder --win --dir"
   },

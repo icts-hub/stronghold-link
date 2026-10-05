@@ -5,7 +5,7 @@
 
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-![tests](https://img.shields.io/badge/tests-140%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-158%20passing-brightgreen)
 ![version](https://img.shields.io/badge/version-0.11.0-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密（X25519 + AES-256-GCM）
@@ -39,7 +39,7 @@ git clone https://github.com/icts-hub/stronghold-link.git
 cd stronghold-link
 npm install                # 需要 Node.js 20+；会装 electron 与可选依赖 steamworks-ffi-node
 npm start                  # 启动图形界面
-npm test                   # 140 个测试用例
+npm test                   # 158 个测试用例
 ```
 
 想用 Steam 隧道：把 SDK 的 `steam_api64.dll` 放到 `steamworks_sdk/redistributable_bin/win64/`
@@ -162,7 +162,7 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 
 ## 测试
 
-`npm test` 覆盖 **140 个用例**（适配器 8 + 加密原语 7 + TCP 安全通道 13 + UDP 安全通道 12 + Steam 环境 10 +
+`npm test` 覆盖 **158 个用例**（适配器 8 + 加密原语 7 + TCP 安全通道 13 + UDP 安全通道 12 + Steam 环境 10 +
 Steam 适配器 11 + Steam 大厅 13 + TCP 中继 11 + UDP 中继 10 + 会话控制器 21 + 主进程 IPC 13 + UI 逻辑 11），
 全部使用本机回环真实端口与真实数据往返；包括**链路抓包无明文**、**跨会话重放被拒**、**伪造认证标签被拒**、
 **旧协议明确拒绝**、**端口冲突带占用者提示**、**SDK 目录名容错**等实测项。
