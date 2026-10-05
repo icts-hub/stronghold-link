@@ -210,9 +210,41 @@ function createLobbyManager({
   }
 
   /** 建房：把连接信息写进大厅数据，好友加入后就能读到。 */
+  /** 把连接信息写进大厅。新建与"大厅已存在"两条路径都要调用 —— 否则会出现
+   *  "先开会话后建房"导致 shl_host/shl_port 缺失、好友读到空大厅信息的经典故障。 */
+  function writeLobbyData({ hostSteamId = null, port = null, game = '', room = '', version = '' } = {}) {
+    const host = String(hostSteamId || own.steamId || '');
+    const values = {
+      [DATA_KEYS.proto]: PROTO_TAG,
+      [DATA_KEYS.host]: host,
+      [DATA_KEYS.room]: String(room || '').slice(0, 16),
+      [DATA_KEYS.version]: String(version || ''),
+      [DATA_KEYS.game]: String(game || ''),
+    };
+    if (port) values[DATA_KEYS.port] = String(port);
+    if (!host) {
+      lastError = '本机 SteamID 为空，无法写入大厅的连接信息（Steam 可能还没就绪）';
+      emit('error', { stage: 'set-lobby-data', reason: lastError });
+      return values;
+    }
+    try {
+      for (const [key, value] of Object.entries(values)) matchmaking.setLobbyData(lobbyId, key, value);
+      matchmaking.setLobbyJoinable?.(lobbyId, true);
+    } catch (err) {
+      lastError = String(err && err.message ? err.message : err);
+    }
+    return values;
+  }
+
   async function create({ maxMembers = 4, type = 'friends', hostSteamId = null, port = null, game = '', room = '', version = '' } = {}) {
     await attach();
-    if (lobbyId) return { ok: true, lobbyId, alreadyOpen: true };
+    if (lobbyId) {
+      // 大厅已存在（例如会话先自动开了大厅）：仍然要把最新的连接信息写进去，
+      // 否则好友读到的大厅信息是空的 —— 这正是"好友能进大厅但连不上"的根因。
+      const values = writeLobbyData({ hostSteamId, port, game, room, version });
+      emit('lobby-created', { lobbyId, members, hostSteamId: values[DATA_KEYS.host], port: port || null, alreadyOpen: true });
+      return { ok: true, lobbyId, alreadyOpen: true, updated: true, hostSteamId: values[DATA_KEYS.host] };
+    }
 
     const lobbyType = LOBBY_TYPES[type] ?? LOBBY_TYPES.friends;
     const result = await matchmaking.createLobby(lobbyType, Math.max(2, Math.min(250, Number(maxMembers) || 4)));
@@ -229,20 +261,7 @@ function createLobbyManager({
     refreshMembers('created');
     startLoops();
 
-    const values = {
-      [DATA_KEYS.proto]: PROTO_TAG,
-      [DATA_KEYS.host]: String(hostSteamId || own.steamId || ''),
-      [DATA_KEYS.room]: String(room || '').slice(0, 16),
-      [DATA_KEYS.version]: String(version || ''),
-      [DATA_KEYS.game]: String(game || ''),
-    };
-    if (port) values[DATA_KEYS.port] = String(port);
-    try {
-      for (const [key, value] of Object.entries(values)) matchmaking.setLobbyData(lobbyId, key, value);
-      matchmaking.setLobbyJoinable?.(lobbyId, true);
-    } catch (err) {
-      lastError = String(err && err.message ? err.message : err);
-    }
+    const values = writeLobbyData({ hostSteamId, port, game, room, version });
 
     emit('lobby-created', { lobbyId, members, hostSteamId: values[DATA_KEYS.host], port: port || null });
     return { ok: true, lobbyId, hostSteamId: values[DATA_KEYS.host] };
