@@ -454,6 +454,8 @@ class SessionManager {
   }
 
   _handleRelayEvent(type, payload = {}, channel) {
+    // Steam 适配器的证据日志（连接请求 / 状态变化）—— 联机排查时用户能直接看到
+    if (type === 'notice') { this.log('[Steam] ' + ((payload && payload.text) || ''), 'info'); return; }
     const tag = channel ? this._label(channel) : '';
     switch (type) {
       case 'listening':
