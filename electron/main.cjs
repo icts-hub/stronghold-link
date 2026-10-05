@@ -392,6 +392,12 @@ ipcMain.handle('network:route-watch', async (event, input) => {
                 sessionManager.note('路由切换：' + ev.from + ' → ' + ev.to + (ev.reason ? '（' + ev.reason + '）' : ''), 'warn');
               }
             } catch (err) { /* 日志注入失败不影响监看 */ }
+            // 自动迁移：默认策略下只会记一行日志、不碰通道；开启多通道策略后才会真正迁移
+            try {
+              const { handleRouteChange } = require('../network/route/auto-migrate.cjs');
+              handleRouteChange({ event: ev, session: sessionManager, log: (msg) => console.log(msg) })
+                .catch((err) => console.log('[route] 自动迁移处理异常：' + (err && err.message ? err.message : err)));
+            } catch (err) { /* 模块缺失不影响监看 */ }
           },
         });
       }
