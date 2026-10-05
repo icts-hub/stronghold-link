@@ -422,7 +422,7 @@
 <p class="tech tech-dim" style="margin-top:8px">Steam 客户端没能自动拉起本程序时，用这个入口手动加入。</p>
 
 <div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Friends</span><span class="step__meta" id="friendCount">0 ONLINE</span></div>
-<div class="panel" style="margin-bottom:var(--sp-4)">
+<div class="panel" id="hostPrepPanel" style="margin-bottom:var(--sp-4)">
   <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
     <button class="btn btn--sm is-primary" id="lobbyPortBtn" type="button">选择要转发的进程</button>
     <input class="inp mono" id="lobbyPortFilter" placeholder="筛选进程名（可留空）" style="max-width:240px">
@@ -848,6 +848,18 @@ function renderLobbyPorts(data){
       + '<button class="cmd is-accent" type="button" data-lobby-port="'+p0.port+'" data-lobby-game="'+String(label).replace(/"/g,'')+'">用 '+p0.port+' 开局</button>'
       + '</div>';
   }).join('');
+}
+function applyFriendsRole(){
+  var panel=$('hostPrepPanel');if(!panel)return;
+  var snap=lobbySnapshot||{};
+  var role=snap.role||null;
+  var isJoiner=(role==='joiner');
+  panel.hidden=isJoiner;                          // 加入者：这是房主的操作，直接隐藏
+  panel.style.display=isJoiner?'none':'';
+  if(isJoiner){
+    var out=$('lobbyPortOut');
+    if(out)out.textContent='你是加入者：不用选端口、不用填 IP。点下面的「打开游戏并进入房间」即可（那是房主的事）';
+  }
 }
 function initLobbyPort(){
   var btn=$('lobbyPortBtn'),filter=$('lobbyPortFilter'),body=$('lobbyPortBody');
@@ -1634,7 +1646,7 @@ async function refreshFriends(){
  catch(e){lobbyLog('读取好友失败：'+(e.message||e),'error');renderFriends([])}
 }
 async function refreshLobby(){
- try{lobbySnapshot=await window.strongholdLink.lobby.status();renderLobby();
+ try{lobbySnapshot=await window.strongholdLink.lobby.status();renderLobby();applyFriendsRole();
  if($('roomSteps')&&lobbySnapshot&&lobbySnapshot.lobbyId){try{renderRoomSteps({port:lobbySnapshot.port||null,lobbyId:lobbySnapshot.lobbyId,gameUrl:lobbySnapshot.port?('http://127.0.0.1:'+lobbySnapshot.port):null,members:(lobbySnapshot.members||[]).length});}catch(_){}}
   if(lobbySnapshot.commandLineLobbyId){lobbyLog(`Steam 想把本机加入大厅 ${lobbySnapshot.commandLineLobbyId}`,'');await joinLobbyById(lobbySnapshot.commandLineLobbyId)}
   if(lobbySnapshot.pendingJoin){showInviteBanner(lobbySnapshot.pendingJoin)}

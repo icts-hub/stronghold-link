@@ -661,6 +661,11 @@ ipcMain.handle('steam:diagnose', () => {
 
   // ---- Steam 大厅 / 好友 ----
   ipcMain.handle('lobby:status', () => {
+  // 角色信息给界面用：加入者不该看到"选进程/选端口"（那是房主的操作）
+  const withRole = (snap) => Object.assign({}, snap || {}, {
+    isOwner: Boolean(lobbyManager && lobbyManager.isOwner),
+    role: lobbyManager && lobbyManager.isOwner ? 'host' : (lobbyManager && lobbyManager.lobbyId ? 'joiner' : null),
+  });
     const manager = getLobby();
     const snapshot = manager.snapshot();
     return {
@@ -763,6 +768,13 @@ ipcMain.handle('lobby:prepare', async (_event, raw) => {
     const input = raw && typeof raw === 'object' ? raw : {};
     const port = Number(input.port) > 0 ? Number(input.port) : 0;
     if (!port) return { ok: false, reason: '没有选择端口' };
+    // 加入者误点"选进程开局"会把本机变成另一台服务器，好友那边就永远看不到房主的房间
+    if (lobbyManager && lobbyManager.lobbyId && !lobbyManager.isOwner) {
+      return {
+        ok: false,
+        reason: '你现在是好友大厅的成员（加入者），加入者不需要选端口：直接点「打开游戏并进入房间」即可。要自己开房请先点 LEAVE 离开大厅。',
+      };
+    }
 
     let snapshot = session.getSnapshot();
     const running = snapshot && snapshot.state === 'running';
