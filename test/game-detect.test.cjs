@@ -70,3 +70,39 @@ test('档案自身完整性：id 唯一、端口为正、提示里有占位符�
   }
   assert.ok(G.PROFILES.length >= 15, '档案数量应覆盖常见联机游戏');
 });
+
+test('泛名进程（javaw.exe）没有命令行证据：降级为 low，且不参与一键自动选端口', () => {
+  const e = [{ port: 51823, process: 'javaw.exe', protocol: 'TCP', state: 'LISTENING', pid: 4242 }];
+  const out = G.detectGames(e);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].confidence, 'low');
+  assert.match(out[0].evidence, /未取到命令行|未确认/);
+  assert.equal(G.pickPrimaryGame(e), null, 'low 不能作为一键首选');
+});
+
+test('泛名进程 + 命令行确认是 Minecraft（随机端口）：high，且用真实端口', () => {
+  const e = [{ port: 51823, process: 'javaw.exe', protocol: 'TCP', state: 'LISTENING', pid: 4242 }];
+  const table = [{ pid: 4242, name: 'javaw.exe', cmd: '"javaw.exe" -Xmx2G -jar server.jar nogui' }];
+  const out = G.detectGames(e, { processTable: table });
+  assert.equal(out[0].id, 'minecraft-java');
+  assert.equal(out[0].confidence, 'high');
+  assert.equal(out[0].port, 51823);
+  assert.equal(out[0].isDefaultPort, false);
+  assert.equal(G.pickPrimaryGame(e, { processTable: table }).port, 51823);
+});
+
+test('泛名进程 + 命令行不像游戏：明确否决，不误判', () => {
+  const e = [{ port: 51823, process: 'javaw.exe', protocol: 'TCP', state: 'LISTENING', pid: 4242 }];
+  const table = [{ pid: 4242, name: 'javaw.exe', cmd: '"javaw.exe" -jar my-business-app.jar' }];
+  assert.deepEqual(G.detectGames(e, { processTable: table }), []);
+  assert.equal(G.pickPrimaryGame(e, { processTable: table }), null);
+});
+
+test('服务端自定义端口（paper jar）：识别成功且标注非默认端口', () => {
+  const e = [{ port: 47321, process: 'java.exe', protocol: 'TCP', state: 'LISTENING', pid: 777 }];
+  const table = [{ pid: 777, name: 'java.exe', cmd: 'java -Xms1G -Xmx4G -jar paper-1.21.jar nogui' }];
+  const out = G.detectGames(e, { processTable: table });
+  assert.equal(out[0].id, 'minecraft-java');
+  assert.equal(out[0].port, 47321);
+  assert.equal(out[0].isDefaultPort, false);
+});

@@ -64,6 +64,9 @@ const PROFILES = [
   { id: 'dst-together', name: '泰拉科技 / 通用 UDP', procs: ['terratech.exe'], ports: [7777], protocol: 'UDP', join: '直连 127.0.0.1:{{port}}' },
 ];
 
+/** 名字太泛的进程：光凭名字不能断定是某个游戏，必须有命令行证据（或降级为 low） */
+const AMBIGUOUS_PROCS = new Set(['javaw.exe', 'java.exe', 'javaws.exe', 'python.exe', 'pythonw.exe', 'node.exe', 'dotnet.exe', 'wine.exe', 'wine64.exe', 'mono.exe']);
+
 const BY_PROC = new Map();
 const BY_PORT = new Map();
 for (const p of PROFILES) {
@@ -97,7 +100,26 @@ function detectGames(entries, { limit = 8, processTable = null } = {}) {
     let profile = null;
     let confidence = null;
     let evidence = null;
-    if (byProc && byPort.includes(byProc)) { profile = byProc; confidence = 'high'; evidence = '进程名与默认端口一致'; }
+    const ambiguous = proc ? AMBIGUOUS_PROCS.has(proc) : false;
+    if (byProc && ambiguous) {
+      // 泛名进程（javaw.exe / java.exe 等）：名字本身不能定身份，分三种情况
+      const cmd = cmdOf(e.pid);
+      const hints = CMD_HINTS[byProc.id];
+      if (cmd && hints && hints.some((re) => re.test(cmd))) {
+        // 命令行确认 -> 最可靠，随机端口也认
+        profile = byProc; confidence = 'high'; evidence = '命令行确认：' + byProc.name;
+      } else if (cmd) {
+        // 取到命令行但不像 -> 明确否决（普通 Java 程序不该被当成 Minecraft）
+        profile = null; confidence = null;
+      } else if (byPort.includes(byProc)) {
+        // 没取到命令行，但端口正是该游戏的默认端口 -> 名字 + 默认端口是强证据
+        profile = byProc; confidence = 'high'; evidence = '进程名 + 默认端口 ' + e.port + ' 一致（未取命令行）';
+      } else {
+        // 名字像、端口不是默认值、又没有命令行 -> 只能算未确认
+        profile = byProc; confidence = 'low'; evidence = '进程名 ' + e.process + ' 可能是 ' + byProc.name + '，端口非默认且未取到命令行，未确认';
+      }
+    }
+    else if (byProc && byPort.includes(byProc)) { profile = byProc; confidence = 'high'; evidence = '进程名与默认端口一致'; }
     else if (byProc) { profile = byProc; confidence = 'high'; evidence = '进程名为 ' + e.process + '（端口非默认，已按真实监听端口处理）'; }
     else if (byPort.length === 1) { profile = byPort[0]; confidence = 'medium'; evidence = '仅端口 ' + e.port + ' 命中默认端口'; }
     else if (byPort.length > 1) { profile = byPort.find((p) => p.protocol === e.protocol) || byPort[0]; confidence = 'medium'; evidence = '端口 ' + e.port + ' 与多个档案重合'; }
@@ -128,7 +150,7 @@ function detectGames(entries, { limit = 8, processTable = null } = {}) {
       join: String(profile.join).replace('{{port}}', String(e.port)),
     });
   }
-  const rank = { high: 0, medium: 1 };
+  const rank = { high: 0, medium: 1, low: 2 };
   return out
     .sort((a, b) => (rank[a.confidence] - rank[b.confidence]) || (Number(b.isDefaultPort) - Number(a.isDefaultPort)) || (a.port - b.port))
     .slice(0, limit);
@@ -137,7 +159,9 @@ function detectGames(entries, { limit = 8, processTable = null } = {}) {
 /** 一键联机时选哪一个：优先 high 置信度 + 默认端口 */
 function pickPrimaryGame(entries, options) {
   const games = detectGames(entries, options || {});
-  return games.length ? games[0] : null;
+  // 只取"可确认"的：未取到命令行的泛名进程（low）不参与一键自动选端口
+  const solid = games.filter((x) => x.confidence !== 'low');
+  return solid.length ? solid[0] : null;
 }
 
-module.exports = { PROFILES, CMD_HINTS, detectGames, pickPrimaryGame };
+module.exports = { PROFILES, CMD_HINTS, AMBIGUOUS_PROCS, detectGames, pickPrimaryGame };
