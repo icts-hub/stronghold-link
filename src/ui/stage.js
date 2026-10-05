@@ -13,6 +13,11 @@
 (function () {
   'use strict';
 
+  // 背景主视觉由 SVG ∞ 线带负责（rhine-effects.js 第 6 段）：线条严格平行等距，
+  // 读起来是"整齐的 ∞"。3D 薄片版仍保留在下面，改成 true 即可切回。
+  var USE_3D_RIBBON = false;
+  if (!USE_3D_RIBBON) return;
+
   var host = document.querySelector('.bg');
   if (!host || typeof window.THREE === 'undefined') return;
   if (typeof window.WebGLRenderingContext === 'undefined') return;

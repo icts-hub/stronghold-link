@@ -1369,3 +1369,8 @@ body, .tech, .desc, .hint, .note, p {
 /* 6) 面板：底板更实，保证正文永不与背景混在一起 */
 .panel, .lobby, .dialog { background: rgba(var(--paper-rgb), 0.93); }
 [data-theme='dark'] .panel, [data-theme='dark'] .lobby, [data-theme='dark'] .dialog { background: rgba(var(--surface-rgb, 24, 32, 36), 0.95); }
+
+/* SVG ∞ 线带重新接管背景：秩序来自"严格平行等距"，这是当前最干净的一版 */
+html:not(.has-3d) .ribbon-wrap { display: block; }
+html:not(.has-3d) .ribbon-strand { stroke: rgba(var(--ink-rgb), 0.62); }
+html:not(.has-3d) .ribbon-wrap { opacity: 0.86; }
