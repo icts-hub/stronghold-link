@@ -222,7 +222,13 @@ function resolveLobbyPort(input, config) {
     const found = ports.listListeningPorts({});
     if (found && found.ok) {
       // 先认游戏（一键联机的主路径）：认出就直接用它的端口
-      const game = games.pickPrimaryGame(found.entries);
+      const procTable = require('../network/process-table.cjs');
+      let table = null;
+      if (found.entries.some((e) => procTable.needsCommandLine(e.process))) {
+        const t = procTable.readProcessTable({});
+        if (t.ok) table = t.rows;
+      }
+      const game = games.pickPrimaryGame(found.entries, { processTable: table });
       if (game && Number(game.port) > 0) {
         logLine('大厅未指定端口：已识别到 ' + game.name + '（' + game.protocol + ' ' + game.port + '），自动使用');
         return Number(game.port);
@@ -427,8 +433,14 @@ ipcMain.handle('network:listening-ports', async () => {
     if (!found.ok) return { ok: false, reason: found.reason, candidates: [], rules: [], steamPick: null, games: [], primaryGame: null, used };
     const candidates = ports.rankCandidates(found.entries, { exclude: used, limit: 12 });
     const games = require('../network/game-detect.cjs');
-    const detected = games.detectGames(found.entries, { limit: 6 });
-    const primary = games.pickPrimaryGame(found.entries);
+    const procTable = require('../network/process-table.cjs');
+    let table = null;
+    if (found.entries.some((e) => procTable.needsCommandLine(e.process))) {
+      const t = procTable.readProcessTable({});            // ~4.5s，30 秒缓存；只在需要消歧时查
+      if (t.ok) table = t.rows;
+    }
+    const detected = games.detectGames(found.entries, { limit: 6, processTable: table });
+    const primary = games.pickPrimaryGame(found.entries, { processTable: table });
     return {
       ok: true,
       reason: null,

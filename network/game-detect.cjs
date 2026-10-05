@@ -14,6 +14,31 @@
 // ============================================================================
 
 /** 游戏档案：进程名（小写，可多个）+ 默认端口 + 协议 + 好友端怎么连 */
+/** 命令行证据：进程名太泛（javaw.exe 等）时，用它确认到底是哪个游戏 */
+const CMD_HINTS = {
+  'minecraft-java': [/minecraft/i, /server\.jar/i, /\.minecraft/i, /net\.minecraft/i, /forge|fabric|paper|spigot|bukkit/i],
+  'minecraft-bedrock': [/minecraft.*bedrock|bedrock_server/i, /Minecraft\.Win10/i],
+  'terraria': [/terraria/i],
+  'valheim': [/valheim/i],
+  'palworld': [/palserver|palworld/i],
+  'dont-starve': [/dontstarve|dont_starve/i],
+  'ark': [/shootergame|arkascended/i],
+  'cs2': [/cs2|-game csgo/i],
+  'l4d2': [/left4dead2/i],
+  'rust': [/rustdedicated|\\rust\b/i],
+  'factorio': [/factorio/i],
+  '7dtd': [/7daystodie/i],
+  'zomboid': [/projectzomboid/i],
+  'starbound': [/starbound/i],
+  'satisfactory': [/factorygame/i],
+  'fivem': [/fivem/i],
+  'mta': [/mtasa|gta_sa/i],
+  'stardew': [/stardew/i],
+  'warcraft3': [/warcraft iii|war3|wc3/i],
+  'scpsl': [/scpsl/i],
+  'among-us': [/among us/i],
+};
+
 const PROFILES = [
   { id: 'minecraft-java', name: 'Minecraft Java 版', procs: ['javaw.exe', 'java.exe', 'minecraft.exe'], ports: [25565], protocol: 'TCP', join: '多人游戏 → 直接连接 → 输入 127.0.0.1:{{port}}' },
   { id: 'minecraft-bedrock', name: 'Minecraft 基岩版', procs: ['minecraft.win10.exe', 'minecraftlauncher.exe'], ports: [19132], protocol: 'UDP', join: '服务器 → 添加服务器 → 地址 127.0.0.1，端口 {{port}}' },
@@ -54,9 +79,14 @@ for (const p of PROFILES) {
  * @param {Array} entries listListeningPorts() 的 entries（含 process/port/protocol）
  * @returns {Array} [{ id, name, port, protocol, process, confidence, join }]
  */
-function detectGames(entries, { limit = 8 } = {}) {
+function detectGames(entries, { limit = 8, processTable = null } = {}) {
   const out = [];
   const seen = new Set();
+  const cmdOf = (pid) => {
+    if (!processTable || !Array.isArray(processTable)) return null;
+    const hit = processTable.find((r) => r && r.pid === Number(pid));
+    return hit ? String(hit.cmd || '') : null;
+  };
   for (const e of entries || []) {
     if (!e || !Number(e.port)) continue;
     const proc = String(e.process || '').toLowerCase();
@@ -66,10 +96,21 @@ function detectGames(entries, { limit = 8 } = {}) {
     const byPort = BY_PORT.get(Number(e.port)) || [];
     let profile = null;
     let confidence = null;
-    if (byProc && byPort.includes(byProc)) { profile = byProc; confidence = 'high'; }
-    else if (byProc) { profile = byProc; confidence = 'high'; }          // 自定义端口也能认出来
-    else if (byPort.length === 1) { profile = byPort[0]; confidence = 'medium'; }
-    else if (byPort.length > 1) { profile = byPort.find((p) => p.protocol === e.protocol) || byPort[0]; confidence = 'medium'; }
+    let evidence = null;
+    if (byProc && byPort.includes(byProc)) { profile = byProc; confidence = 'high'; evidence = '进程名与默认端口一致'; }
+    else if (byProc) { profile = byProc; confidence = 'high'; evidence = '进程名为 ' + e.process + '（端口非默认，已按真实监听端口处理）'; }
+    else if (byPort.length === 1) { profile = byPort[0]; confidence = 'medium'; evidence = '仅端口 ' + e.port + ' 命中默认端口'; }
+    else if (byPort.length > 1) { profile = byPort.find((p) => p.protocol === e.protocol) || byPort[0]; confidence = 'medium'; evidence = '端口 ' + e.port + ' 与多个档案重合'; }
+    if (!profile) {
+      // 没有档案命中：若进程名很泛（javaw.exe 等），用命令行反查是不是 Minecraft 这类游戏
+      const cmd = cmdOf(e.pid);
+      if (cmd) {
+        for (const p of PROFILES) {
+          const hints = CMD_HINTS[p.id];
+          if (hints && hints.some((re) => re.test(cmd))) { profile = p; confidence = 'high'; evidence = '命令行命中 ' + p.name; break; }
+        }
+      }
+    }
     if (!profile) continue;
     const key = profile.id + ':' + e.protocol;
     if (seen.has(key)) continue;
@@ -82,6 +123,7 @@ function detectGames(entries, { limit = 8 } = {}) {
       process: e.process || null,
       pid: e.pid,
       confidence,
+      evidence,
       isDefaultPort: profile.ports.includes(Number(e.port)),
       join: String(profile.join).replace('{{port}}', String(e.port)),
     });
@@ -93,9 +135,9 @@ function detectGames(entries, { limit = 8 } = {}) {
 }
 
 /** 一键联机时选哪一个：优先 high 置信度 + 默认端口 */
-function pickPrimaryGame(entries) {
-  const games = detectGames(entries);
+function pickPrimaryGame(entries, options) {
+  const games = detectGames(entries, options || {});
   return games.length ? games[0] : null;
 }
 
-module.exports = { PROFILES, detectGames, pickPrimaryGame };
+module.exports = { PROFILES, CMD_HINTS, detectGames, pickPrimaryGame };
