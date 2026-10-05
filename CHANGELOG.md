@@ -1,6 +1,6 @@
 # 更新日志
 
-## 未发布
+## v0.12.0（2026-10-05）
 
 网络
 - 新增 Provider 契约（start/stop/send/getStats/getCapabilities + 状态机 + 能力声明）
