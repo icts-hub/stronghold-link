@@ -699,6 +699,14 @@ function initRouteWatch(){
     api.routeWatch({action:running?'stop':'start'}).then(function(st){renderRouteWatch(st);if(st&&st.running&&!routeWatchTimer)routeWatchTimer=setInterval(pollRouteWatch,5000);if(st&&!st.running&&routeWatchTimer){clearInterval(routeWatchTimer);routeWatchTimer=null;}}).catch(function(e){if(out)out.textContent='操作失败 · '+String(e&&e.message||e);});
   });
 }
+function renderRoutePolicy(policy){
+  var el=$('routeDiag');if(!el||!policy)return;
+  var line=document.createElement('div');
+  line.className='tech';
+  line.style.display='block';
+  line.textContent='MULTI-CHANNEL  '+(policy.enabled?'已启用 · 备用模式 '+String(policy.standby||'none'):'未启用（默认）· 只建主通道，切换不会重建会话通道');
+  el.appendChild(line);
+}
 function renderRouteDiag(decision){
   var el=$('routeDiag');if(!el)return;
   if(!decision){el.textContent='路由诊断未测量 · 无候选数据';return;}
@@ -721,7 +729,7 @@ function refreshRouteCandidates(measure){
   var api=window.strongholdLink&&window.strongholdLink.network;
   if(!api||!api.routes)return;
   api.routes({measure:Boolean(measure)}).then(function(out){
-    if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);}
+    if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);renderRoutePolicy(out.routePolicy);}
   }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
 }
 function renderNatType(out){
