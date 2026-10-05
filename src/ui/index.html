@@ -225,35 +225,91 @@
 <section class="view" id="networkView">
 <div class="pagehead">
 <div>
-<div class="eyebrow">03 — Network Profile</div>
-<h1>Network <span class="accent">Parameters.</span></h1>
-<div class="sub">这些参数直接传给本地中继内核，Steam 通道不受影响。</div>
+<div class="eyebrow">03 / Network</div>
+<h1>Network Analysis</h1>
+<div class="sub">本机接口与中继参数为实测值；路径质量需要测量层，未实现的项如实标注。</div>
 </div>
 </div>
 
-<div class="grid-2">
-<div>
-<div class="sec"><span class="sec__idx">03.1</span><span class="sec__title">Transport</span><span class="sec__meta">Local relay</span></div>
+<div class="grid">
+<div class="c-7">
+
+<div class="step"><span class="step__idx">01</span><span class="step__title">Interface</span><span class="step__meta">Local</span></div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Local interface</span><span class="readout__v" id="netLocal" style="font-size:15px;font-weight:400">—</span></div>
+<div class="readout"><span class="readout__k">Public endpoint</span><span class="readout__v is-dim" id="netPublic" style="font-size:15px;font-weight:400">NOT IMPLEMENTED</span></div>
+<div class="readout"><span class="readout__k">NAT type</span><span class="readout__v is-dim" id="netNat" style="font-size:15px;font-weight:400">NOT MEASURED</span></div>
+</div>
+<p class="tech tech-dim" style="margin-top:8px">公网出口与 NAT 类型需要 STUN/打洞能力，属于网络层后续阶段</p>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">02</span><span class="step__title">Relay parameters</span><span class="step__meta">Local relay</span></div>
 <div class="spec">
 <div class="spec__row"><span class="spec__k">Listen address</span><span class="spec__v"><select class="sel" id="hostBindHost"><option value="0.0.0.0">0.0.0.0 / 所有网卡</option><option value="127.0.0.1">127.0.0.1 / 仅本机</option></select></span></div>
 <div class="spec__row"><span class="spec__k">Target host</span><span class="spec__v"><input class="inp mono" id="hostTargetHost" value="127.0.0.1"></span></div>
 <div class="spec__row"><span class="spec__k">Idle timeout</span><span class="spec__v"><div class="field-row"><input class="inp" id="idleTimeoutMs" type="number" min="0" max="3600000" step="1000" value="0"><span class="spec__note">ms · 0 = 不启用</span></div></span></div>
-<div class="spec__row"><span class="spec__k">Connect timeout</span><span class="spec__v"><div class="field-row"><input class="inp" id="connectTimeoutMs" type="number" min="500" max="60000" step="500" value="8000"><span class="spec__note">ms · 连不上目标时的等待上限</span></div></span></div>
-<div class="spec__row"><span class="spec__k">Max connections</span><span class="spec__v"><div class="field-row"><input class="inp" id="maxConnections" type="number" min="1" max="64" value="16"><span class="spec__note">条 · 房主最多接受的对端数</span></div></span></div>
+<div class="spec__row"><span class="spec__k">Connect timeout</span><span class="spec__v"><div class="field-row"><input class="inp" id="connectTimeoutMs" type="number" min="500" max="60000" step="500" value="8000"><span class="spec__note">ms</span></div></span></div>
+<div class="spec__row"><span class="spec__k">Max connections</span><span class="spec__v"><div class="field-row"><input class="inp" id="maxConnections" type="number" min="1" max="64" value="16"><span class="spec__note">条</span></div></span></div>
 </div>
-<p class="note" style="margin-top:16px">改完这里的值后，下一次「启动桥接」生效；运行中的会话不会被打断。</p>
+<p class="note" style="margin-top:var(--sp-4)">改完这里的值后，下一次启动桥接生效。</p>
 </div>
 
-<div class="side">
-<div>
-<div class="sec"><span class="sec__idx">03.2</span><span class="sec__title">Active Rules</span><span class="sec__meta">From profile</span></div>
+<div class="c-5">
+<div class="step"><span class="step__idx">03</span><span class="step__title">Current route</span><span class="step__meta" id="routeMode">NO SESSION</span></div>
+<div class="readout"><span class="readout__k">Route in use</span><span class="readout__v" id="routeCurrent" style="font-size:20px">—</span></div>
+<div class="route-wrap">
+<svg class="route" viewBox="0 0 320 150" role="img" aria-label="当前路径示意图" id="routeDiagram">
+<g id="routePathLocal">
+<line x1="30" y1="34" x2="160" y2="34"/><line x1="160" y1="34" x2="290" y2="34"/>
+</g>
+<g id="routePathSteam">
+<line x1="30" y1="104" x2="160" y2="104"/><line x1="160" y1="104" x2="290" y2="104"/>
+</g>
+<rect class="node" x="18" y="22" width="24" height="24"/>
+<rect class="node" x="148" y="22" width="24" height="24"/>
+<rect class="node" x="278" y="22" width="24" height="24"/>
+<rect class="node" x="18" y="92" width="24" height="24"/>
+<rect class="node" x="148" y="92" width="24" height="24"/>
+<rect class="node" x="278" y="92" width="24" height="24"/>
+<text x="18" y="14">Local</text>
+<text x="140" y="14">Relay</text>
+<text x="278" y="14">Peer</text>
+<text x="18" y="132">Local</text>
+<text x="132" y="132">Steam SDR</text>
+<text x="278" y="132">Peer</text>
+<text class="label-value" x="52" y="28" id="routeHopA">—</text>
+<text class="label-value" x="196" y="28" id="routeHopB">—</text>
+<text class="label-value" x="52" y="98" id="routeHopC">—</text>
+<text class="label-value" x="196" y="98" id="routeHopD">—</text>
+</svg>
+</div>
+<p class="tech tech-dim" style="margin-top:6px">实线 = 当前在用路径 · 虚线 = 备用路径 · 毫秒值需测量层，未实现时显示 —</p>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">04</span><span class="step__title">Route quality</span><span class="step__meta">Not measured</span></div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">RTT</span><span class="readout__v is-dim" id="netRtt">— ms</span></div>
+<div class="readout"><span class="readout__k">Jitter</span><span class="readout__v is-dim" id="netJitter">— ms</span></div>
+</div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Packet loss</span><span class="readout__v is-dim" id="netLoss">— %</span></div>
+<div class="readout"><span class="readout__k">Quality</span><span class="readout__v is-dim" id="netQuality">— / 100</span></div>
+</div>
+<p class="note warn" style="margin-top:var(--sp-4)">测量层尚未实现（网络层 PHASE 5–7）：这里不会显示估算值或示例数字。</p>
+</div>
+
+<div class="c-12">
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">05</span><span class="step__title">Available routes</span><span class="step__meta" id="routeCount">0 candidates</span></div>
+<div class="tlist" id="routeCandidates"></div>
+</div>
+
+<div class="c-7">
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">06</span><span class="step__title">Active rules</span><span class="step__meta">From profile</span></div>
 <div class="spec" id="netRules"></div>
-<p class="note" style="margin-top:14px">端口规则在 <b>SESSION</b> 页填写（房主与加入者的列含义不同），或在配置编辑器里保存到配置档。</p>
+<p class="note" style="margin-top:var(--sp-4)">端口规则在 SESSION 页填写（房主与加入者的列含义不同）。</p>
 </div>
-<div>
-<div class="sec"><span class="sec__idx">03.3</span><span class="sec__title">Notes</span><span class="sec__meta">Honest limits</span></div>
-<p class="note">中继只做字节原样转发，不解析应用协议。跨公网而不走 Steam 通道时，本工具不会穿透 NAT——那需要端口映射或 VPN。</p>
-</div>
+
+<div class="c-5">
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">07</span><span class="step__title">Network events</span><span class="step__meta">Real log</span></div>
+<div class="term" id="netEvents" style="height:170px"></div>
 </div>
 </div>
 </section>
@@ -262,22 +318,21 @@
 <section class="view" id="adaptersView">
 <div class="pagehead">
 <div>
-<div class="eyebrow">04 — Adapters</div>
-<h1>Transport <span class="accent">Adapters.</span></h1>
-<div class="sub">状态来自主进程真实探测。</div>
+<div class="eyebrow">04 / Adapters</div>
+<h1>Transport Adapters</h1>
+<div class="sub">状态来自主进程真实探测：就绪 / 运行中 / 未配置。</div>
 </div>
 </div>
 
-<div class="grid-2">
-<div>
-<div class="sec"><span class="sec__idx">04.1</span><span class="sec__title">Adapter Status</span><span class="sec__meta">Runtime</span></div>
+<div class="grid">
+<div class="c-7">
+<div class="step"><span class="step__idx">01</span><span class="step__title">Provider status</span><span class="step__meta" id="adapterCount">0 providers</span></div>
 <div class="adapters" id="adapterList"></div>
 </div>
-<div class="side">
-<div>
-<div class="sec"><span class="sec__idx">04.2</span><span class="sec__title">Connection Recipes</span><span class="sec__meta">4 methods</span></div>
+<div class="c-5">
+<div class="step"><span class="step__idx">02</span><span class="step__title">Connection recipes</span><span class="step__meta" id="recipeCount">0 recipes</span></div>
 <div class="adapters" id="recipeList"></div>
-</div>
+<p class="note" style="margin-top:var(--sp-4)">配方决定要填哪些参数；Provider 决定流量走哪条路。两者由 SESSION 页组合使用。</p>
 </div>
 </div>
 </section>
@@ -286,73 +341,63 @@
 <section class="view" id="friendsView">
 <div class="pagehead">
 <div>
-<div class="eyebrow">05 — Friends &amp; Lobby</div>
-<h1>Invite <span class="accent">Friends.</span></h1>
+<div class="eyebrow">05 / Friends</div>
+<h1>Lobby &amp; Invite</h1>
 <div class="sub">房主建房并邀请，好友在 Steam 里接受。同一账号自连无效。</div>
 </div>
-<div class="pagehead__actions">
-<button class="btn ghost" id="friendsReload">↻ REFRESH</button>
-</div>
+<div class="pagehead__actions"><button class="btn ghost" id="friendsReload">↻ Refresh</button></div>
 </div>
 
-<div class="note warn" id="lobbyPending" hidden style="margin-bottom:20px">
+<div class="note warn" id="lobbyPending" hidden style="margin-bottom:var(--sp-6)">
 <div class="grow">
 <strong id="lobbyPendingText">收到联机邀请</strong>
 <span class="tech" id="lobbyPendingMeta"></span>
 </div>
-<button class="btn primary sm" id="lobbyPendingAccept">JOIN LOBBY</button>
+<button class="btn primary sm" id="lobbyPendingAccept">Join lobby</button>
 </div>
 
-<div class="grid-2">
-<div>
-<div class="sec"><span class="sec__idx">05.1</span><span class="sec__title">Lobby</span><span class="sec__meta" id="lobbyState">NOT CONNECTED</span></div>
+<div class="grid">
+<div class="c-7">
+<div class="step"><span class="step__idx">01</span><span class="step__title">Lobby</span><span class="step__meta" id="lobbyState">NOT CONNECTED</span></div>
 <div class="lobby" id="lobbyPanel">
 <div class="row gap-3" style="align-items:baseline">
 <span class="tech">Lobby ID</span>
 <span class="lobby__id grow" id="lobbyIdText">—</span>
-<button class="cmd" id="copyLobbyId">COPY</button>
+<button class="cmd" id="copyLobbyId">Copy</button>
 </div>
 <div class="lobby__members" id="lobbyMemberList"></div>
-<div class="row gap-2" style="margin-top:16px">
-<button class="btn primary sm" id="lobbyCreate">CREATE LOBBY</button>
-<button class="btn sm" id="lobbyLeave" disabled>LEAVE</button>
+<div class="row gap-2" style="margin-top:var(--sp-5)">
+<button class="btn primary sm" id="lobbyCreate">Create lobby</button>
+<button class="btn sm" id="lobbyLeave" disabled>Leave</button>
 </div>
-<p class="tech tech-dim" style="margin-top:12px">房主启动 Steam 桥接时会自动建房并写入 SteamID 与端口；好友加入后即可读到。</p>
+<p class="tech tech-dim" style="margin-top:var(--sp-3)">房主启动 Steam 桥接时会自动建房并写入 SteamID 与端口。</p>
 </div>
 
-<div class="section">
-<div class="sec"><span class="sec__idx">05.2</span><span class="sec__title">Join by ID</span><span class="sec__meta">Fallback</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">02</span><span class="step__title">Join by ID</span><span class="step__meta">Fallback</span></div>
 <div class="field-row">
-<input class="inp mono" id="lobbyJoinInput" placeholder="粘贴大厅 ID（好友发来的一串数字）">
-<button class="btn" id="lobbyJoinBtn">JOIN</button>
+<input class="inp mono" id="lobbyJoinInput" placeholder="粘贴大厅 ID">
+<button class="btn" id="lobbyJoinBtn">Join</button>
 </div>
-<p class="tech tech-dim" style="margin-top:10px">Steam 客户端没能自动拉起本程序时，用这个入口手动加入。</p>
-</div>
+<p class="tech tech-dim" style="margin-top:8px">Steam 客户端没能自动拉起本程序时，用这个入口手动加入。</p>
 
-<div class="section">
-<div class="sec"><span class="sec__idx">05.3</span><span class="sec__title">Friends</span><span class="sec__meta" id="friendCount">0 ONLINE</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Friends</span><span class="step__meta" id="friendCount">0 ONLINE</span></div>
 <div class="friends" id="friendList"></div>
-<p class="note" id="friendsHint" style="margin-top:14px"></p>
-</div>
+<p class="note" id="friendsHint" style="margin-top:var(--sp-4)"></p>
 </div>
 
-<div class="side">
-<div>
-<div class="sec"><span class="sec__idx">05.4</span><span class="sec__title">Steam Identity</span><span class="sec__meta">Local account</span></div>
+<div class="c-5">
+<div class="step"><span class="step__idx">04</span><span class="step__title">Steam identity</span><span class="step__meta">Local account</span></div>
 <div class="spec">
 <div class="spec__row"><span class="spec__k">Persona</span><span class="spec__v mono" id="steamPersona">—</span></div>
 <div class="spec__row"><span class="spec__k">SteamID</span><span class="spec__v mono" id="steamOwnSteamId">—</span></div>
 <div class="spec__row"><span class="spec__k">AppID</span><span class="spec__v mono">480 · 测试用</span></div>
 </div>
-</div>
-<div>
-<div class="sec"><span class="sec__idx">05.5</span><span class="sec__title">Risk Notice</span><span class="sec__meta">Read first</span></div>
-<p class="note warn">用 Steam 通道联机属于风险行为：AppID 480 是 Valve 的测试 App，是否会被判定为滥用、会不会限制或封禁账号，目前没有明确说法。<b>请用小号，不要用主账号。</b>不想承担这点不确定性，就用本地中继或局域网直连——那两种方式完全不碰 Steam 账号。</p>
-</div>
-<div>
-<div class="sec"><span class="sec__idx">05.6</span><span class="sec__title">Lobby Log</span><span class="sec__meta">Events</span></div>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">05</span><span class="step__title">Lobby events</span><span class="step__meta">Real log</span></div>
 <div class="term" id="lobbyLog" style="height:150px"></div>
-</div>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">06</span><span class="step__title">Risk notice</span><span class="step__meta">Read first</span></div>
+<p class="note warn">用 Steam 通道联机属于风险行为：AppID 480 是 Valve 的测试 App，是否会被判定为滥用、会不会限制或封禁账号，目前没有明确说法。<b>请用小号，不要用主账号。</b>不想承担这点不确定性，就用本地中继或局域网直连——那两种方式完全不碰 Steam 账号。</p>
 </div>
 </div>
 </section>
@@ -361,39 +406,48 @@
 <section class="view" id="settingsView">
 <div class="pagehead">
 <div>
-<div class="eyebrow">06 — System</div>
-<h1>System <span class="accent">Preferences.</span></h1>
-<div class="sub">应用信息与配置数据管理。</div>
+<div class="eyebrow">06 / System</div>
+<h1>System</h1>
+<div class="sub">应用信息、界面偏好与配置数据管理。</div>
 </div>
 </div>
 
-<div class="settings">
-<div>
-<div class="sec"><span class="sec__idx">06.1</span><span class="sec__title">Application</span><span class="sec__meta">Runtime</span></div>
+<div class="grid">
+<div class="c-7">
+<div class="step"><span class="step__idx">01</span><span class="step__title">Application</span><span class="step__meta">Runtime</span></div>
 <div class="spec">
 <div class="spec__row"><span class="spec__k">Version</span><span class="spec__v mono" id="setVersion">—</span></div>
 <div class="spec__row"><span class="spec__k">Config file</span><span class="spec__v mono" id="setConfigPath">—</span></div>
 <div class="spec__row"><span class="spec__k">Runtime</span><span class="spec__v mono" id="setRuntime">—</span></div>
 <div class="spec__row"><span class="spec__k">Network engine</span><span class="spec__v mono" id="setNetwork">—</span></div>
 </div>
-<div class="actions" style="margin-top:18px">
-<button class="btn ghost sm" id="exportBtn">EXPORT JSON</button>
-<button class="btn ghost sm" id="importBtn">IMPORT JSON</button>
-<button class="btn ghost sm" id="revealConfig">OPEN CONFIG DIR</button>
-<input type="file" id="importFile" accept=".json,application/json" hidden>
-</div>
-<p class="dialoghint">导入配置前建议先导出备份。会话口令只用于本次会话，不会写入配置文件。</p>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">02</span><span class="step__title">Interface</span><span class="step__meta">Theme · Motion</span></div>
+<div class="spec">
+<div class="spec__row"><span class="spec__k">Color theme</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="界面配色">
+<button type="button" id="themeLightSettings" data-theme="light" aria-pressed="true">Light</button>
+<button type="button" id="themeDarkSettings" data-theme="dark" aria-pressed="false">Dark</button>
+</div></span></div>
+<div class="spec__row"><span class="spec__k">Motion</span><span class="spec__v mono" id="setMotion">—</span></div>
 </div>
 
-<div class="side">
-<div>
-<div class="sec"><span class="sec__idx">06.2</span><span class="sec__title">Boundaries</span><span class="sec__meta">What is not verified</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Configuration data</span><span class="step__meta">JSON</span></div>
+<div class="actions">
+<button class="btn ghost sm" id="exportBtn">Export</button>
+<button class="btn ghost sm" id="importBtn">Import</button>
+<button class="btn ghost sm" id="revealConfig">Open config folder</button>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+</div>
+<p class="note" style="margin-top:var(--sp-4)">导入前建议先导出备份。会话口令只用于本次会话，不会写入配置文件。</p>
+</div>
+
+<div class="c-5">
+<div class="step"><span class="step__idx">04</span><span class="step__title">Boundaries</span><span class="step__meta">Not verified</span></div>
 <p class="note">跨两台机器的真实数据往返未在本机实测；Steam 通道的自动化测试使用注入的假 SDK。NSIS 安装包未在开发机产出，便携版可直接使用。</p>
-</div>
-<div>
-<div class="sec"><span class="sec__idx">06.3</span><span class="sec__title">License</span><span class="sec__meta">GPL-3.0-or-later</span></div>
-<p class="note">源码：github.com/icts-hub/stronghold-link。发行包不含 Valve 的 Steamworks SDK。Steam 与 Steamworks 是 Valve Corporation 的商标，本项目与其无隶属关系。</p>
-</div>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">05</span><span class="step__title">License</span><span class="step__meta">GPL-3.0-or-later</span></div>
+<p class="note">源码：github.com/icts-hub/stronghold-link。发行包不含 Valve 的 Steamworks SDK。字体：MiSans（免费商用）+ Inter / IBM Plex Mono（OFL）。Steam 与 Steamworks 是 Valve Corporation 的商标，本项目与其无隶属关系。</p>
 </div>
 </div>
 </section>
@@ -467,6 +521,11 @@ function applyTheme(name,remember){
  const light=$('themeLight'),dark=$('themeDark');
  if(light&&light.setAttribute)light.setAttribute('aria-pressed',String(theme==='light'));
  if(dark&&dark.setAttribute)dark.setAttribute('aria-pressed',String(theme==='dark'));
+ const light2=$('themeLightSettings'),dark2=$('themeDarkSettings');
+ if(light2&&light2.setAttribute)light2.setAttribute('aria-pressed',String(theme==='light'));
+ if(dark2&&dark2.setAttribute)dark2.setAttribute('aria-pressed',String(theme==='dark'));
+ /* 动效状态文案不在 applyTheme 里更新：canMotion() 定义在脚本后部，
+    脚本顶部执行 applyTheme 时会命中暂时性死区；改由 renderNetworkPage() 负责。 */
  if(remember){try{localStorage.setItem(THEME_KEY,theme)}catch(e){/* 隐私模式等场景忽略 */}}
 }
 applyTheme(readTheme(),false);
@@ -558,6 +617,66 @@ function renderNetSummary(){
   <span class="spec__k">Rule ${String(i+1).padStart(2,'0')}</span>
   <span class="spec__v"><span class="mono">${esc(r.protocol)} · local ${esc(r.localPort)} → relay ${esc(r.remotePort)}</span></span></div>`).join('');
 }
+
+/* ---- 03 Network：路径与诊断（只显示真实值；未实现的显式标注，不编造数字）---- */
+let lastAdapterList=[];
+function currentRouteInfo(){
+ const s=sessionSnapshot||{};
+ const cfg=s.config||{};
+ const running=s.state==='running';
+ if(!running)return{id:'none',label:'—',mode:'NO SESSION',hops:['—','—'],active:'none'};
+ if(cfg.adapter==='steam')return{id:'steam',label:'STEAM P2P',mode:'STEAM P2P',hops:['—','—'],active:'steam'};
+ if(cfg.adapter==='none')return{id:'none',label:'NO RELAY',mode:'DIRECT / LAN',hops:['—','—'],active:'none'};
+ const rules=cfg.rules||[];
+ const protos=[...new Set(rules.map(r=>r.protocol))].join(' / ')||'TCP / UDP';
+ return{id:'local',label:'STRONGHOLD LOCAL RELAY',mode:protos+' LOCAL RELAY',hops:['—','—'],active:'local'};
+}
+function renderRoute(){
+ const info=currentRouteInfo();
+ const cur=$('routeCurrent');if(cur)cur.textContent=info.label;
+ const mode=$('routeMode');if(mode)mode.textContent=info.mode;
+ // 实线 = 当前在用路径；另一条置灰（CSS 用 .route__active 表达）
+ const local=$('routePathLocal'),steam=$('routePathSteam');
+ const setCls=(el,cls)=>{if(el&&el.setAttribute)el.setAttribute('class',cls)};
+ setCls(local,info.active==='local'?'route__active':'route__dash');
+ setCls(steam,info.active==='steam'?'route__active':'route__dash');
+ // 毫秒值需要测量层：未实现时保持 —，绝不填示例数字
+ ['routeHopA','routeHopB','routeHopC','routeHopD'].forEach(id=>{const el=$(id);if(el)el.textContent='—'});
+ // 候选路径：真实状态来自 adapters:list（本地中继 / Steam / 不转发）
+ const box=$('routeCandidates');if(box){
+  const rows=[
+   {name:'Direct UDP',tag:'P2P',status:'not-implemented',detail:'需要打洞/NAT 穿透，尚未实现'},
+   {name:'Steam P2P',tag:'SDR',status:(lastAdapterList.find(a=>a.id==='steam-p2p')||{}).status||'unknown',detail:'Steam 传输层负责穿透与加密'},
+   {name:'Stronghold Relay',tag:'UDP',status:'not-deployed',detail:'服务端已规划，尚未部署公网实例'},
+  ];
+  const word=(st)=>st==='running'?{cls:'is-online',text:'ACTIVE'}:st==='ready'?{cls:'',text:'STANDBY'}:st==='not-configured'?{cls:'is-warn',text:'NOT CONFIGURED'}:st==='not-implemented'?{cls:'is-warn',text:'NOT IMPLEMENTED'}:st==='not-deployed'?{cls:'is-warn',text:'NOT DEPLOYED'}:{cls:'',text:String(st).toUpperCase()};
+  box.innerHTML=rows.map((r,i)=>{const w=word(r.status);
+   const active=info.id==='steam'&&r.name==='Steam P2P'||info.id==='local'&&r.name==='Stronghold Relay';
+   return `<div class="trow" style="cursor:default">
+   <span class="trow__idx">${String(i+1).padStart(2,'0')}</span>
+   <div class="trow__main">
+    <div class="trow__title">${esc(r.name)} ${active?'<span class="t-invert" style="margin-left:8px">IN USE</span>':''}</div>
+    <div class="trow__desc">${esc(r.detail)}</div>
+    <div class="trow__facts"><span class="trow__fact"><b>Transport</b><span>${esc(r.tag)}</span></span></div>
+   </div>
+   <div class="trow__side"><span class="status ${w.cls}" data-status="${esc(r.status)}"><i class="status__dot"></i>${esc(w.text)}</span></div>
+  </div>`}).join('');
+  const count=$('routeCount');if(count)count.textContent=rows.length+' candidates';
+ }
+}
+/* 网络事件：直接复用真实会话日志（它们是真实的网络事件，不做二次编造） */
+function renderNetEvents(){
+ const box=$('netEvents');if(!box)return;
+ const logs=(sessionSnapshot&&sessionSnapshot.logs)||[];
+ box.innerHTML=logs.length?logs.slice(-12).map(l=>`<div class="${l.level==='warn'?'logwarn':l.level==='error'?'logerror':l.level==='ok'?'logok':''}"><span class="t">${fmtTime(l.ts)}</span>${esc(l.text)}</div>`).join(''):'<div class="faint">尚无网络事件。启动会话后这里会显示真实日志。</div>';
+}
+function renderNetworkPage(){
+ const info=window.__appInfo||{};
+ const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
+ const motion=$('setMotion');
+ if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
+ renderRoute();renderNetEvents();
+}
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
    对 DOM 桩（测试环境）无害：浏览器 API 一律先探测再用。 */
@@ -644,7 +763,10 @@ async function runBoot(){
 }
 function initBoot(){
  const screen=$('bootScreen');
- if(isCapture()){if(screen&&screen.style)screen.style.display='none';return}
+ if(!screen)return;
+ // DOM 桩（单元测试）没有 body：不启动序列，避免测试结束后仍有异步活动
+ if(typeof document==='undefined'||!document.body)return;
+ if(isCapture()){if(screen.style)screen.style.display='none';return}
  const fire=()=>{
   const p=runBoot();if(p&&p.catch)p.catch(()=>dismissBoot());
   const skip=()=>dismissBoot();
@@ -666,7 +788,9 @@ function closeOverlays(){document.querySelectorAll('.overlay').forEach(x=>x.clas
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeOverlays);document.querySelectorAll('.overlay').forEach(x=>x.addEventListener('click',e=>{if(e.target===x)closeOverlays()}));document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlays()});
 $('addGame').onclick=()=>openEditor();
 $('themeLight').onclick=()=>applyTheme('light',true);
-$('themeDark').onclick=()=>applyTheme('dark',true);$('saveProfile').onclick=async()=>{
+$('themeDark').onclick=()=>applyTheme('dark',true);
+$('themeLightSettings').onclick=()=>applyTheme('light',true);
+$('themeDarkSettings').onclick=()=>applyTheme('dark',true);$('saveProfile').onclick=async()=>{
  const name=$('fName').value.trim(),rawRules=$('fPort').value.trim().split(/\r?\n/).filter(Boolean),remote=$('fRemote').value.trim();
  const ports=[];
  for(const line of rawRules){const parts=line.split(',').map(s=>s.trim());if(parts.length<2||parts.length>3){toast('端口规则格式：协议,本地端口,远端端口');return}const protocol=parts[0].toUpperCase(),localPort=Number(parts[1]),remotePort=Number(parts[2]||parts[1]);if(!['TCP','UDP'].includes(protocol)||![localPort,remotePort].every(n=>Number.isInteger(n)&&n>=1&&n<=65535)){toast('请检查协议与端口范围');return}ports.push({protocol,localPort,remotePort})}
@@ -687,6 +811,7 @@ function fmtTime(ts){if(!ts)return '—';return new Date(ts).toLocaleTimeString(
 async function bootAppInfo(){
  try{
   const info=await window.strongholdLink.app.info();
+  window.__appInfo=info;
   $('appVersion').textContent=info.version;
   if($('footBuild'))$('footBuild').textContent=info.version;
   if($('topNode'))$('topNode').textContent=info.localNode||'127.0.0.1';
@@ -694,10 +819,12 @@ async function bootAppInfo(){
   $('setConfigPath').textContent=info.configPath;
   $('setRuntime').textContent='Node '+info.node+' / '+info.platform+' '+info.arch;
   const adapters=await window.strongholdLink.adapters.list();
-  adaptersCache=adapters;
+  adaptersCache=adapters;lastAdapterList=adapters;
+  const ac=$('adapterCount');if(ac)ac.textContent=adapters.length+' providers';
   const tcp=adapters.find(a=>a.id==='tcp-relay')||{};
   $('setNetwork').textContent=(tcp.status||'—')+' / TCP';
   renderAdapters();
+  renderNetworkPage();
  }catch(e){toast('读取应用信息失败：'+(e.message||e))}
  await loadRecipes();
  applyRole();
@@ -777,6 +904,7 @@ async function loadRecipes(){
   select.innerHTML=recipes.map(r=>`<option value="${esc(r.id)}"${r.available?'':' disabled'}>${esc(r.name)}${r.available?'':'（不可用）'}</option>`).join('');
   const preferred=recipes.find(r=>r.id===old&&r.available)||recipes.find(r=>r.id==='local-ports')||recipes[0];
   if(preferred)select.value=preferred.id;
+  const rc=$('recipeCount');if(rc)rc.textContent=recipes.length+' recipes';
   renderRecipes();
  }catch(e){toast('读取连接方式失败：'+(e.message||e))}
 }
@@ -943,6 +1071,7 @@ function renderSession(){
  const view=$('sessionView');
  if(view&&view.classList){view.classList.remove('state-running','state-error','state-busy');view.classList.add(state==='running'?'state-running':state==='error'?'state-error':busy?'state-busy':'state-idle')}
  if($('statusDot'))$('statusDot').style.background=state==='running'?'var(--state-online)':state==='error'?'var(--state-error)':'var(--state-warn)';
+ renderRoute();renderNetEvents();
  void cfg;
 }
 

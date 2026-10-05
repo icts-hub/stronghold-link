@@ -16,6 +16,29 @@
 - 对比度实测并定档：亮色次文字 5.19:1、三级 3.49:1、琥珀文字 5.45:1；
   暗色 13.83 / 8.09 / 5.04 / 9.26。琥珀当文字时使用专用档，线/方块仍用原档。
 
+### 页面重构收尾（PHASE 4 完成）
+
+四页改用同一套「编号 + 步骤 + 读数 + 折叠」结构，全部读真实数据：
+
+- **03 NETWORK → 网络分析终端**：LOCAL INTERFACE（实测局域网地址）、PUBLIC ENDPOINT / NAT TYPE
+  （明确 NOT IMPLEMENTED / NOT MEASURED）、中继参数规格表、**CURRENT ROUTE + 路径图**
+  （SVG 细线 + 方块节点：实线=在用路径、虚线=备用路径、跳数毫秒值未测量时显示 —）、
+  ROUTE QUALITY（RTT/JITTER/LOSS/QUALITY 全部 NOT MEASURED）、AVAILABLE ROUTES 候选表
+  （Direct UDP=NOT IMPLEMENTED、Steam P2P=真实状态、Stronghold Relay=NOT DEPLOYED）、
+  ACTIVE RULES、NETWORK EVENTS（真实会话日志）。
+- **04 ADAPTERS → 模块注册表**：Provider 状态与连接配方分列，带真实计数。
+- **05 FRIENDS**：01 LOBBY / 02 JOIN BY ID / 03 FRIENDS + 右列身份 / 大厅事件 / 风险提示。
+- **06 SYSTEM**：新增 02 INTERFACE 段（主题切换 + 动效状态实测显示 FULL / REDUCED）、
+  配置数据与边界声明分列。
+
+### 修复
+
+- `applyTheme()` 在脚本顶部访问了后面才定义的 `canMotion`，命中暂时性死区；
+  动效状态文案改由 `renderNetworkPage()` 更新。
+- 启动序列在 DOM 桩（单元测试）里也会运行，导致测试结束后仍有异步活动；
+  `initBoot()` 现在检测 `document.body`，桩环境直接跳过。
+- SVG 的 class 必须用 `setAttribute`，对桩环境加保护。
+
 ### 完整 Motion Design（PHASE 5 完成）
 
 把"动效"做成一套持续运行的视觉系统，分 9 层，全部可用数据验证：
