@@ -12,6 +12,7 @@ const { app, BrowserWindow, dialog, ipcMain, shell, Menu } = require('electron')
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const nodeFs = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const net = require('node:net');
 const { SessionManager, inviteText, parseInvite } = require('../network/session.cjs');
 const { createTcpJoiner } = require('../network/tcp-relay.cjs');
@@ -21,6 +22,21 @@ const { createLobbyManager } = require('../network/steam-lobby.cjs');
 
 const APP_DIR = path.resolve(__dirname, '..');
 const appIdFromEnv = () => (process.env.SH_LINK_STEAM_APP_ID ? Number(process.env.SH_LINK_STEAM_APP_ID) : null);
+/** 本机对外可用的局域网 IPv4：取「默认路由所在网卡」，避免挑到移动热点/虚拟网卡（实测会挑到 192.168.137.1）。缓存 30 秒。 */
+let lanCache = { at: 0, value: null };
+function lanAddressFromRoute() {
+  const now = Date.now();
+  if (lanCache.value && now - lanCache.at < 30000) return lanCache.value;
+  try {
+    const script = "\$r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1; " +
+      "if (\$r) { (Get-NetIPAddress -InterfaceIndex \$r.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
+      "Where-Object { \$_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress }";
+    const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, timeout: 8000 }).trim();
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(out)) { lanCache = { at: now, value: out }; return out; }
+  } catch (err) { /* 退回启发式 */ }
+  return null;
+}
+
 const localAddress = () => require('../network/session.cjs').localIPv4();
 
 const APP_VERSION = '0.12.0';
