@@ -1679,7 +1679,9 @@ if (!gotLock) {
 try { Menu.setApplicationMenu(null); } catch (err) { /* 忽略 */ }
 
 // 内存硬护栏 1／2：给 V8 设堆上限，避免 JS 堆无界增长导致进程被系统杀掉（闪退）
-try { app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256'); } catch (err) { /* 忽略 */ }
+// 注：曾试过 --low-mem（关闭 GPU 加速）以降内存，实测反而从 ~400MB 升到 ~515MB（软件合成更耗内存），故移除。
+try { app.commandLine.appendSwitch('js-flags', '--max-old-space-size=192'); } catch (err) { /* 忽略 */ }
+
 
 // 内存硬护栏 2／2：总 Working Set 看护（超阈值先降级视觉，再超阈值重载界面回收内存）
 const MEM_WARN_MB = Number(process.env.SHL_MEM_WARN_MB || 300);
