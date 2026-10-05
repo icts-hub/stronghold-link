@@ -18,6 +18,7 @@ const DATA_KEYS = {
   game: 'shl_game',        // 备注名
   version: 'shl_version',  // 程序版本，用于提示版本不一致
   proto: 'shl_proto',      // 协议标记，避免有人误加入别的大厅
+  room: 'shl_room',    // 游戏内房间号（好友点开即进房）
 };
 const PROTO_TAG = 'stronghold-link/1';
 
@@ -119,6 +120,7 @@ function createLobbyManager({
       return {
         lobbyId,
         hostSteamId: String(host),
+    room: matchmaking.getLobbyData(lobbyId, DATA_KEYS.room) || '',
         hostName: memberName(host),
         port: Number(matchmaking.getLobbyData(lobbyId, DATA_KEYS.port)) || null,
         game: matchmaking.getLobbyData(lobbyId, DATA_KEYS.game) || '',
@@ -208,7 +210,7 @@ function createLobbyManager({
   }
 
   /** 建房：把连接信息写进大厅数据，好友加入后就能读到。 */
-  async function create({ maxMembers = 4, type = 'friends', hostSteamId = null, port = null, game = '', version = '' } = {}) {
+  async function create({ maxMembers = 4, type = 'friends', hostSteamId = null, port = null, game = '', room = '', version = '' } = {}) {
     await attach();
     if (lobbyId) return { ok: true, lobbyId, alreadyOpen: true };
 
@@ -230,6 +232,7 @@ function createLobbyManager({
     const values = {
       [DATA_KEYS.proto]: PROTO_TAG,
       [DATA_KEYS.host]: String(hostSteamId || own.steamId || ''),
+      [DATA_KEYS.room]: String(room || '').slice(0, 16),
       [DATA_KEYS.version]: String(version || ''),
       [DATA_KEYS.game]: String(game || ''),
     };
@@ -291,6 +294,19 @@ function createLobbyManager({
   }
 
   /** 一键邀请：把好友拉进当前大厅，Steam 会给他弹邀请。 */
+  /** 建房后房主把游戏内房间号写进大厅，好友那边据此生成"点开即进房"的地址 */
+  function setRoom(room) {
+    const code = String(room || '').trim().toUpperCase().slice(0, 16);
+    if (!lobbyId) return { ok: false, reason: '还没有大厅' };
+    try {
+      matchmaking.setLobbyData(lobbyId, DATA_KEYS.room, code);
+      emit('room-set', { lobbyId, room: code });
+      return { ok: true, room: code };
+    } catch (err) {
+      return { ok: false, reason: err && err.message ? err.message : String(err) };
+    }
+  }
+
   function invite(steamId) {
     const target = String(steamId || '').trim();
     if (!target) return { ok: false, reason: '缺少 SteamID' };
@@ -410,6 +426,7 @@ function createLobbyManager({
     join,
     leave,
     invite,
+    setRoom,
     listFriends,
     connectLobbyFromCommandLine,
     takePendingJoin,

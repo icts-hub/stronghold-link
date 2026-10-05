@@ -429,6 +429,12 @@
     <span class="tech" id="lobbyPortOut">房主：选一个进程 → 自动配好隧道与大厅 → 好友只需点接受</span>
   </div>
   <div class="spec" id="lobbyPortBody" style="margin-top:8px"></div>
+  <div class="row" style="margin-top:10px;gap:10px;align-items:center;flex-wrap:wrap">
+    <span class="tech">房主：游戏内建好房间后，把房间号（或游戏给的邀请链接）粘到这里</span>
+    <input class="inp mono" id="roomCodeInput" placeholder="例如 ABCD 或 http://…/?room=ABCD" style="max-width:320px">
+    <button class="btn btn--sm is-primary" id="roomCodeBtn" type="button">写入大厅</button>
+    <span class="tech" id="roomCodeOut"></span>
+  </div>
   <div class="spec" id="roomSteps" style="margin-top:10px"></div>
 </div>
 <div class="friends" id="friendList"></div>
@@ -767,6 +773,19 @@ function refreshRouteCandidates(measure){
     if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);renderRoutePolicy(out.routePolicy);}
   }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
 }
+function initRoomCode(){
+  var btn=$('roomCodeBtn'),inp=$('roomCodeInput'),out=$('roomCodeOut');
+  if(!btn||!inp)return;
+  btn.addEventListener('click',async function(){
+    var api=window.strongholdLink&&window.strongholdLink.lobby;
+    if(!api||!api.setRoom){if(out)out.textContent='此环境未提供写入接口';return;}
+    var v=inp.value.trim();
+    if(!v){if(out)out.textContent='请先填房间号';return;}
+    var r=await api.setRoom(v);
+    if(r&&r.ok){if(out)out.textContent='已写入：'+r.room+' · 好友点「打开游戏并进入房间」即可';lobbyLog('房间号 '+r.room+' 已写入大厅','ok');toast('房间号已写入大厅');}
+    else{if(out)out.textContent='写入失败：'+((r&&r.reason)||'');}
+  });
+}
 function renderRoomSteps(s){
   var box=$('roomSteps');if(!box)return;
   s=s||{};
@@ -785,14 +804,27 @@ function renderRoomSteps(s){
       + '</div>';
   }).join('');
   if(s.entryUrl){
-    box.innerHTML='<div class="tech" style="display:block;margin-bottom:8px">好友端：先打开游戏连上房主的服务器，等房主建房后进入房间</div>'
-      + '<div style="margin-bottom:8px"><button class="cmd is-accent" type="button" data-open-url="'+s.entryUrl+'">复制游戏地址 '+s.entryUrl+'</button></div>'
+    var full=s.room?(s.entryUrl+'/?room='+encodeURIComponent(s.room)):s.entryUrl;
+    box.innerHTML='<div class="tech" style="display:block;margin-bottom:8px">好友端：点下面的按钮自动用浏览器打开房主的服务器'
+      + (s.room?('，并直接进入房间 '+s.room):'（等房主建房后进入房间）')
+      + (s.ownConflict?('<br><b>注意：你本机也在运行同一个服务（占用 '+s.ownConflict+'）——不要手动打开 127.0.0.1:'+s.ownConflict+'，那会连到你自己那边。</b>'):'')
+      + '</div>'
+      + '<div style="margin-bottom:8px"><button class="cmd is-accent" type="button" data-open-live="'+full+'">打开游戏'+(s.room?'并进入房间':'')+'</button> '
+      + '<button class="cmd" type="button" data-open-url="'+full+'">复制地址</button></div>'
       + box.innerHTML;
   }
   if(s.gameUrl){
     box.innerHTML+='<div style="margin-top:8px"><button class="cmd" type="button" data-open-url="'+s.gameUrl+'">复制本机游戏地址 '+s.gameUrl+'</button></div>';
   }
   box.onclick=function(e){
+    var live=e.target&&e.target.closest?e.target.closest('[data-open-live]'):null;
+    if(live){
+      var u2=live.getAttribute('data-open-live');
+      var api2=window.strongholdLink&&window.strongholdLink.network;
+      if(api2&&api2.openUrl){api2.openUrl(u2).then(function(r){toast(r&&r.ok?('已用浏览器打开 '+u2):('打开失败：'+((r&&r.reason)||'')));});}
+      else{try{if(navigator.clipboard)navigator.clipboard.writeText(u2)}catch(_){}toast('已复制 '+u2+' · 请用浏览器打开');}
+      return;
+    }
     var b=e.target&&e.target.closest?e.target.closest('[data-open-url]'):null;if(!b)return;
     var u=b.getAttribute('data-open-url');
     try{if(navigator.clipboard)navigator.clipboard.writeText(u)}catch(_){}
@@ -1046,7 +1078,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();renderRoomSteps({});pollRouteWatch();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();initRoomCode();renderRoomSteps({});pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
@@ -1554,7 +1586,26 @@ async function lobbyConnect(){
    if(r&&r.ok){
     lobbyLog('已通过大厅建立隧道：'+(r.reason||''),'ok');
     if(r.entryHint)lobbyLog(r.entryHint,'ok');
-    if(r.entryUrl)renderRoomSteps({entryUrl:r.entryUrl});
+    if(r.entryUrl){
+      var rs={entryUrl:r.entryUrl,room:r.room||null};
+      renderRoomSteps(rs);
+      // 检测：本机若也在房主的游戏端口上监听，浏览器打开那个端口就会连到他自己那边
+      try{
+        var net=window.strongholdLink&&window.strongholdLink.network;
+        if(net&&net.processList&&r.hostPort){
+          net.processList({}).then(function(list){
+            var hit=null;
+            (list&&list.rows||[]).forEach(function(row){
+              (row.ports||[]).forEach(function(p){ if(Number(p.port)===Number(r.hostPort)) hit={port:p.port,name:row.name}; });
+            });
+            if(hit){
+              renderRoomSteps({entryUrl:r.entryUrl,room:r.room||null,ownConflict:hit.port});
+              lobbyLog('注意：你本机 ' + hit.port + ' 端口上也在运行服务（' + (hit.name||'未知') + '）。请不要手动打开 127.0.0.1:' + hit.port + '，那会连到你自己那边；点「打开游戏」按钮用我们给的地址。','error');
+            }
+          }).catch(function(){});
+        }
+      }catch(_){}
+    }
     (r.notes||[]).forEach(x=>lobbyLog(x,''));
     toast(r.entryHint?('隧道已建立 · '+r.entryHint):'隧道已建立');
     await refreshLobby();

@@ -688,6 +688,7 @@ ipcMain.handle('steam:diagnose', () => {
         hostSteamId: input.hostSteamId ? String(input.hostSteamId).slice(0, 32) : null,
         port: resolveLobbyPort(input, config),
         game: resolveLobbyGame(input, config),
+      room: String(input.room || '').slice(0, 16),
         version: APP_VERSION,
       });
       return { ...result, status: manager.snapshot() };
@@ -717,7 +718,45 @@ ipcMain.handle('steam:diagnose', () => {
     const result = getLobby().invite(steamId);
     return result;
   });
-  ipcMain.handle('lobby:prepare', async (_event, raw) => {
+  ipcMain.handle('app:open-url', async (_event, raw) => {
+  // 好友端"打开游戏"：避免他手输地址连到自己的服务器。只允许 http/https，且只允许本机/内网地址。
+  try {
+    const url = String((raw && raw.url) || '').trim();
+    if (!/^https?:\/\//i.test(url)) return { ok: false, reason: '只允许 http/https 地址' };
+    let host = '';
+    try { host = new URL(url).hostname; } catch (err) { return { ok: false, reason: '地址格式无效' }; }
+    const localish = host === 'localhost' || host === '127.0.0.1' || host === '::1' || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+    if (!localish) return { ok: false, reason: '只允许打开本机或内网地址：' + host };
+    await shell.openExternal(url);
+    logLine('已用默认浏览器打开 ' + url);
+    return { ok: true, url };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err) };
+  }
+});
+
+ipcMain.handle('lobby:set-room', async (_event, raw) => {
+  // 房主在游戏里建好房后，把房间号（或整条邀请链接）写进大厅，好友点开即进房
+  try {
+    const input = raw && typeof raw === 'object' ? raw : {};
+    let code = String(input.room || '').trim();
+    const m = code.match(/[?&]room=([A-Za-z0-9]+)/);      // 支持直接粘贴游戏的邀请链接
+    if (m) code = m[1];
+    code = code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    if (!code) return { ok: false, reason: '请填写房间号（或粘贴游戏里的邀请链接）' };
+    const manager = getLobby();
+    const r = manager.setRoom ? manager.setRoom(code) : { ok: false, reason: '当前大厅管理器不支持写入房间号' };
+    if (r && r.ok) {
+      lastLobbyHostInfo = Object.assign({}, lastLobbyHostInfo || {}, { room: code, port: preferredGamePort });
+      logLine('已把房间号 ' + code + ' 写入大厅：好友点「打开游戏并进入房间」即可直接进房');
+    }
+    return r;
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err) };
+  }
+});
+
+ipcMain.handle('lobby:prepare', async (_event, raw) => {
   // FRIENDS 页选完端口后的一键配置：记住端口 -> 必要时启动房主会话 -> 建/更新大厅
   // 之后好友只需要点「接受邀请」，其余全自动
   try {
@@ -810,6 +849,8 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
     return {
       ok: true, action: 'start', reason: plan.reason, notes: plan.notes,
       entryPort: entry,
+      room: (info && info.room) || (snap && snap.room) || '',
+      hostPort: Number(info && info.port) > 0 ? Number(info.port) : (Number(snap && snap.port) > 0 ? Number(snap.port) : null),
       entryUrl: plan.options.role === 'joiner' && entry ? ('http://127.0.0.1:' + entry) : null,
       entryHint: plan.options.role === 'joiner' && entry
         ? ('用浏览器打开 http://127.0.0.1:' + entry + ' —— 这个入口端口和房主的游戏端口无关，也不需要和房主填一样的数字；房主在游戏里建好房间后把房间码发给你即可')

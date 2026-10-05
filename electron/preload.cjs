@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     routeWatch: (input) => ipcRenderer.invoke('network:route-watch', input || {}),
     natType: () => ipcRenderer.invoke('network:nat-type'),
     listeningPorts: () => ipcRenderer.invoke('network:listening-ports'),
+    openUrl: (url) => ipcRenderer.invoke('app:open-url', { url }),
     processList: (input) => ipcRenderer.invoke('network:process-list', input || {}),
     processDetail: (pid) => ipcRenderer.invoke('network:process-detail', { pid }),
   },
@@ -41,6 +42,7 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     invite: (steamId) => ipcRenderer.invoke('lobby:invite', { steamId }),
     connect: (input) => ipcRenderer.invoke('lobby:connect', input || {}),
     prepare: (input) => ipcRenderer.invoke('lobby:prepare', input || {}),
+    setRoom: (room) => ipcRenderer.invoke('lobby:set-room', { room }),
     stop: () => ipcRenderer.invoke('lobby:stop'),
     /** 订阅大厅事件（成员变化、邀请结果、有人邀请你等） */
     onEvent: (handler) => {
