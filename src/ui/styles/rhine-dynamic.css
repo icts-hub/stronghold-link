@@ -1392,3 +1392,62 @@ html:not(.has-3d) .ribbon-wrap { opacity: 0.86; }
 
 /* 带内同心线为连续线（虚线+圆头会变成椭圆点链，实测如此） */
 .ribbon-band-line { stroke-linecap: butt; }
+
+/* ==========================================================================
+   PORT FROM Index-Main-Web (ZuoDev1) —— 学它的显示字体、强调色与字距规范
+   来源：src/styles/base.css
+     --font-display: "Bahnschrift"（DIN 风格，Win10+ 自带）
+     --color-accent: #ff8c00 亮橙 + rgba(255,140,0,.24) 橙色辉光
+     --ease-standard: cubic-bezier(0.4, 0, 0.2, 1)
+     标签字距 0.16~0.3em，强调字重 700
+   ========================================================================== */
+:root {
+  --font-display: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --accent: #ff8c00;
+  --accent-rgb: 255, 140, 0;
+  --accent-ink: #8a4a00;                    /* 橙作文字时用加深版，保证 >= 4.5:1 */
+  --accent-glow: rgba(255, 140, 0, 0.24);
+  --accent-glow-soft: rgba(255, 140, 0, 0.08);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+[data-theme='dark'] {
+  --accent: #ffa333;
+  --accent-rgb: 255, 163, 51;
+  --accent-ink: #ffb14d;
+  --accent-glow: rgba(255, 163, 51, 0.26);
+  --accent-glow-soft: rgba(255, 163, 51, 0.10);
+}
+
+/* 1) 显示字体：标题 / 品牌 / 数值 / 标签全部走 Bahnschrift（技术感来源） */
+h1, h2, h3, h4, .h1, .h2,
+.pagehead h1, .pagehead .h1,
+.brand, .top .brand,
+.readout__v, .step__idx, .tech, .readout__k,
+.status, .rail .nav button,
+button, .btn, .cmd {
+  font-family: var(--font-display);
+}
+
+/* 2) 字距规范：大标题收紧、标签放开（参考仓库 0.16~0.3em） */
+.pagehead h1, .pagehead .h1 { letter-spacing: 0.004em; font-weight: 600; }
+.tech, .readout__k, .step__idx, .status { letter-spacing: 0.18em; }
+.rail .nav button { letter-spacing: 0.12em; }
+.readout__v { letter-spacing: -0.01em; font-weight: 600; }
+.trow .tech { letter-spacing: 0.14em; }
+
+/* 3) 强调色升为亮橙：实心块/下划线/竖条用它，文字用加深版 */
+.status.is-online { border-bottom-color: var(--accent); }
+.status.is-warn { background: #2a1c08; border-bottom-color: var(--accent); }
+.status.is-online .status__dot, .status.is-warn .status__dot { background: var(--accent); }
+.t-invert { background: var(--accent) !important; color: #1a1206 !important; }
+.rail .nav button.active { border-left-color: var(--accent); background: var(--plate-ink); }
+[data-theme='dark'] .rail .nav button.active { border-left-color: var(--accent); }
+.btn.is-primary, .cmd.is-accent { border-bottom: 2px solid var(--accent); }
+.trow:hover { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* 4) 橙色辉光：只用在焦点元素，避免到处发亮 */
+.panel:hover, .lobby:hover { box-shadow: 0 1px 0 rgba(var(--ink-rgb), 0.05), 0 18px 46px -34px rgba(var(--ink-rgb), 0.5), 0 0 0 1px var(--accent-glow-soft); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 5) 缓动统一到参考仓库的 standard 曲线 */
+:root { --ease-smooth: var(--ease-standard); }
