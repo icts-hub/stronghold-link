@@ -900,7 +900,9 @@ ipcMain.handle('lobby:selftest', async () => {
     } else if (entry) {
       const url = 'http://127.0.0.1:' + entry + '/';
       const r = await httpProbe(url);
-      add('隧道转发 HTTP（决定性）', r.ok,
+      const gameName = String((info && info.game) || '');
+      const httpish = !/minecraft|java 版|基岩|terraria|泰拉|幻兽|帕鲁|英灵|valheim|rust|cs2|factorio/i.test(gameName);
+      add(httpish ? '隧道转发 HTTP（仅浏览器类游戏有意义）' : '隧道转发 HTTP（对 ' + (gameName || '本游戏') + ' 无意义，超时属正常）', r.ok || !httpish,
         r.ok ? ('GET ' + url + ' → HTTP ' + r.status + (r.looksLikeGame ? ' · 内容是网页（说明数据真的从房主那边过来了）' : ' · 但内容不像游戏页面'))
              : ('GET ' + url + ' 失败：' + r.reason + ' → 隧道没起作用'));
       const samePort = Number(port) === Number(e3);
@@ -927,10 +929,12 @@ ipcMain.handle('lobby:selftest', async () => {
           const e3 = snap3.channels && snap3.channels[0] && snap3.channels[0].listen ? snap3.channels[0].listen.port : null;
           if (e3) {
             const url3 = 'http://127.0.0.1:' + e3 + '/';
+          const addr4 = '127.0.0.1:' + e3;
             const r3 = await httpProbe(url3);
             add('隧道入口', true, '已自动建立：' + url3 + '（入口端口与房主服务端口同号）');
             add('隧道转发 HTTP（决定性）', r3.ok, r3.ok ? ('GET ' + url3 + ' → HTTP ' + r3.status + (r3.looksLikeGame ? ' · 内容是网页（数据确实来自房主）' : ' · 内容不像游戏页面')) : ('GET ' + url3 + ' 失败：' + r3.reason + ' → 隧道没把数据送过来'));
             add('浏览器该打开的地址', true, url3);
+            add('本游戏请这样测隧道', true, '打开 Minecraft → 多人游戏 → 直接连接 → 填 ' + addr4 + '（Minecraft 走二进制协议，HTTP 探测本来就会超时）');
           } else {
             add('隧道入口', false, '会话起来了但没有入口端口（异常，请把此文件发我）');
           }
