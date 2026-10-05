@@ -918,6 +918,7 @@ function renderRoomSteps(s){
           var u5=r5.room?(r5.entryUrl+'/?room='+encodeURIComponent(r5.room)):r5.entryUrl;
           lobbyLog('隧道已建立：'+u5,'ok');
           renderRoomSteps({entryUrl:r5.entryUrl,room:r5.room||null});
+          if(r5.entryPort)logConnectionAddresses(Number(r5.entryPort),'joiner');
           var apiO=window.strongholdLink&&window.strongholdLink.network;
           if(apiO&&apiO.openUrl)apiO.openUrl(u5).then(function(){toast('已用浏览器打开 '+u5);});
           else toast('已就绪：'+u5);
@@ -1030,6 +1031,7 @@ function initLobbyPort(){
       if(r&&r.ok){
         lobbyLog('已选定端口 '+port+(r.lobbyOk?(' · 大厅已就绪 '+(r.lobbyId||'')):(' · 大厅创建失败：'+(r.lobbyReason||''))),r.lobbyOk?'ok':'error');
         if(out)out.textContent='已就绪：本机服务端口 '+port+' · 好友点「接受邀请」即可加入';
+        logConnectionAddresses(Number(port),'host');
         toast(r.lobbyOk?('已配好 · 端口 '+port+' · 可以去邀请好友了'):('隧道已起，但大厅创建失败：'+(r.lobbyReason||'')));
         renderRoomSteps({
           port:Number(port),
@@ -1728,6 +1730,17 @@ $('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=asyn
 
 /* ---- 05 Friends & Lobby（Steam 大厅）---- */
 let lobbySnapshot=null,lobbyLogLines=[];
+function logConnectionAddresses(port, role){
+  if(!port)return;
+  var ip=(($('topNode')&&$('topNode').textContent)||'').trim();
+  var hasIp=/^\d+\.\d+\.\d+\.\d+$/.test(ip);
+  lobbyLog('—— 连接地址 · 端口 ' + port + ' ——','');
+  lobbyLog('本机自己（房主）：127.0.0.1:' + port,'');
+  if(hasIp)lobbyLog('局域网同网好友：' + ip + ':' + port + '（同一路由器/同网段时用这个）','');
+  lobbyLog('跨网好友（Steam 隧道）：他那台机器填 127.0.0.1:' + port + '　※ 入口端口已强制与房主同号','ok');
+  if(role==='joiner')lobbyLog('你在 Minecraft 里填：127.0.0.1:' + port + '（不要填房主的局域网/公网 IP）','ok');
+  else lobbyLog('Minecraft Java 版：房主自己在"直接连接"里填 127.0.0.1:' + port,'');
+}
 function lobbyLog(text,level){
  lobbyLogLines.push({t:new Date().toLocaleTimeString('zh-CN',{hour12:false}),text:String(text),level:level||''});
  if(lobbyLogLines.length>40)lobbyLogLines.splice(0,lobbyLogLines.length-40);
