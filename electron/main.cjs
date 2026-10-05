@@ -804,7 +804,11 @@ async function runProbe(dir) {
       status: (document.getElementById('bootStatus')||{}).textContent,
       three: (typeof window.THREE !== 'undefined') ? ('r' + window.THREE.REVISION) : 'MISSING',
       webgl: (function(){ try { var c=document.createElement('canvas'); var g=c.getContext('webgl2')||c.getContext('webgl'); return g ? 'yes' : 'no'; } catch(e){ return 'throw:'+e.message; } })(),
-      stage: (function(){ var c=document.querySelector('.stage-canvas'); if(!c) return 'missing'; return c.width+'x'+c.height; })()
+      stage: (function(){ var c=document.querySelector('.stage-canvas'); if(!c) return 'missing'; return c.width+'x'+c.height; })(),
+      fxOwner: (typeof window.__rhineFxOwner !== 'undefined'),
+      fxPointer: (getComputedStyle(document.documentElement).getPropertyValue('--fx-pointer-x') || '').trim().slice(0, 6),
+      fxInteractive: document.querySelectorAll('.fx-interactive').length,
+      fxGlass: (function(){ var el=document.querySelector('.panel')||document.querySelector('.top')||document.body; var v=getComputedStyle(el).backdropFilter||getComputedStyle(el).webkitBackdropFilter; return v||'none'; })()
     })`);
     await fs.writeFile(path.join(dir, 'boot-mid.png'), (await win.webContents.capturePage()).toPNG());
     // 2) 等启动序列结束
@@ -820,7 +824,8 @@ async function runProbe(dir) {
     await new Promise((r) => setTimeout(r, 420));
     const active = await win.webContents.executeJavaScript("(function(){var v=document.querySelector('.view.active');return {id:v?v.id:null,nav:document.querySelector('[data-view].active').dataset.view}})()");
     await fs.writeFile(path.join(dir, 'after-transition.png'), (await win.webContents.capturePage()).toPNG());
-    console.log('[probe] 启动序列进行中 = ' + boot.open + '  计数 = ' + boot.count + '  Three = ' + boot.three + '  WebGL = ' + boot.webgl + '  舞台画布 = ' + boot.stage);
+    console.log('[probe] 启动序列进行中 = ' + boot.open + '  Three = ' + boot.three + '  WebGL = ' + boot.webgl + '  舞台 = ' + boot.stage);
+  console.log('[probe] 动态层 = owner:' + boot.fxOwner + ' pointerX:' + boot.fxPointer + ' interactive:' + boot.fxInteractive + ' glass:' + boot.fxGlass);
     for (const row of boot.rows) console.log('         ' + row);
     console.log('[probe] 启动结束后 className = "' + afterBoot + '"（应不含 open）');
     console.log('[probe] 视差 --px = ' + String(parallax.px).trim() + '  --py = ' + String(parallax.py).trim() + '  远层 transform = ' + parallax.far);

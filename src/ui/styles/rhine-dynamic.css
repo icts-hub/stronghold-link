@@ -1,0 +1,414 @@
+/*
+ * Stronghold Link — RhineLab-inspired dynamic UI layer
+ * -----------------------------------------------------
+ * This file intentionally sits on top of the existing UI system. It adds:
+ * - atmospheric glass surfaces
+ * - pointer-reactive light / parallax
+ * - subtle reflection and grain
+ * - richer hover / focus / page transitions
+ * - dynamic status pulses
+ * - low-contrast ambient geometry
+ *
+ * It does NOT change application data flow or element IDs.
+ */
+
+:root {
+  --fx-pointer-x: 0.5;
+  --fx-pointer-y: 0.5;
+  --fx-pointer-x-px: 50vw;
+  --fx-pointer-y-px: 50vh;
+  --fx-light-a: rgba(var(--accent-rgb), 0.085);
+  --fx-light-b: rgba(var(--ink-rgb), 0.035);
+  --fx-glass-alpha: 0.56;
+  --fx-glass-alpha-strong: 0.68;
+  --fx-glass-edge: rgba(var(--ink-rgb), 0.14);
+  --fx-glass-inner: rgba(255, 255, 255, 0.11);
+  --fx-noise-opacity: 0.025;
+  --fx-hover-lift: -1px;
+  --fx-sheen-duration: 1.6s;
+}
+
+/* -------------------- Ambient canvas -------------------- */
+.bg::before,
+.bg::after {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+}
+
+/* Soft, pointer-aware illumination. The movement is deliberately tiny. */
+.bg::before {
+  z-index: 2;
+  background:
+    radial-gradient(
+      40rem 30rem at var(--fx-pointer-x-px) var(--fx-pointer-y-px),
+      var(--fx-light-a),
+      transparent 68%
+    ),
+    radial-gradient(
+      26rem 22rem at 16% 18%,
+      rgba(var(--accent-rgb), 0.035),
+      transparent 72%
+    );
+  opacity: 1;
+  mix-blend-mode: normal;
+  transition: opacity 420ms var(--ease-smooth);
+}
+
+/* Ultra-light digital grain. Avoids a flat browser-rendered color field. */
+.bg::after {
+  z-index: 3;
+  opacity: var(--fx-noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: multiply;
+  animation: sl-fx-grain 2.4s steps(2, end) infinite;
+}
+
+/* -------------------- Glass system -------------------- */
+.rail,
+.top,
+.foot,
+.panel,
+.lobby,
+.terminal-modal,
+.chanlist,
+.term,
+.invite,
+.dialog,
+.overlay .dialog {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Keep content above decorative pseudo layers. */
+.rail > *,
+.top > *,
+.foot > *,
+.panel > *,
+.lobby > *,
+.terminal-modal > *,
+.chanlist > *,
+.term > *,
+.invite > *,
+.dialog > * {
+  position: relative;
+  z-index: 2;
+}
+
+.rail,
+.top,
+.foot {
+  background:
+    linear-gradient(180deg, rgba(var(--paper-rgb), 0.77), rgba(var(--paper-rgb), 0.58));
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.92)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.92)) saturate(var(--glass-saturate));
+}
+
+.panel,
+.lobby,
+.terminal-modal,
+.chanlist,
+.term,
+.invite {
+  background:
+    linear-gradient(155deg, rgba(var(--surface-rgb), var(--fx-glass-alpha-strong)), rgba(var(--surface-rgb), var(--fx-glass-alpha))),
+    rgba(var(--surface-rgb), var(--fx-glass-alpha));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.075),
+    inset 0 -1px 0 rgba(0,0,0,0.035);
+}
+
+.dialog {
+  background:
+    linear-gradient(150deg, rgba(var(--surface-rgb), 0.88), rgba(var(--surface-rgb), 0.72));
+  backdrop-filter: blur(var(--depth-modal-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--depth-modal-blur)) saturate(var(--glass-saturate));
+  box-shadow:
+    0 22px 70px rgba(0,0,0,0.32),
+    inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+/* Pointer-aware glass sheen. It follows the cursor without changing layout. */
+.panel::before,
+.lobby::before,
+.terminal-modal::before,
+.chanlist::before,
+.term::before,
+.invite::before,
+.dialog::before,
+.top::before,
+.rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      21rem 14rem at var(--fx-local-x, 50%) var(--fx-local-y, 50%),
+      rgba(255,255,255,0.085),
+      transparent 66%
+    ),
+    linear-gradient(135deg, rgba(255,255,255,0.035), transparent 32%, transparent 72%, rgba(255,255,255,0.018));
+  opacity: 0.9;
+}
+
+/* Very small reflection sweep on interactive surfaces. */
+.panel::after,
+.lobby::after,
+.terminal-modal::after,
+.dialog::after {
+  content: "";
+  position: absolute;
+  top: -35%;
+  bottom: -35%;
+  left: -24%;
+  width: 18%;
+  z-index: 1;
+  pointer-events: none;
+  transform: skewX(-16deg) translateX(-220%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.13), transparent);
+  opacity: 0;
+}
+
+.panel:hover::after,
+.lobby:hover::after,
+.terminal-modal:hover::after,
+.dialog:hover::after {
+  opacity: 1;
+  animation: sl-fx-sheen var(--fx-sheen-duration) var(--ease-line) both;
+}
+
+/* -------------------- Navigation / toolbar -------------------- */
+.nav button,
+.theme-switch,
+.btn,
+.close,
+.cmd,
+.trow {
+  position: relative;
+  overflow: hidden;
+}
+
+.nav button::after,
+.btn::after,
+.close::after,
+.theme-switch button::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: var(--accent-line);
+  transition: transform var(--mo-fast) var(--ease-line), opacity var(--mo-fast) var(--ease-smooth);
+  opacity: 0.88;
+}
+
+.nav button:hover::after,
+.nav button.active::after,
+.btn:hover::after,
+.close:hover::after,
+.theme-switch button:hover::after {
+  transform: scaleX(1);
+}
+
+.nav button:hover {
+  transform: translateX(2px);
+}
+
+.btn:hover,
+.close:hover,
+.theme-switch button:hover,
+.trow:hover {
+  transform: translateY(var(--fx-hover-lift));
+}
+
+.btn:active,
+.close:active,
+.theme-switch button:active {
+  transform: translateY(1px);
+  transition-duration: 90ms;
+}
+
+/* Primary button: preserve the existing black/amber system, add depth only. */
+.btn.primary {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025), 0 3px 16px rgba(0,0,0,0.08);
+}
+
+.btn.primary:hover {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 6px 22px rgba(0,0,0,0.12);
+}
+
+/* -------------------- Inputs -------------------- */
+.inp,
+.sel,
+.ta {
+  transition:
+    color var(--mo-base) var(--ease-smooth),
+    border-color var(--mo-base) var(--ease-smooth),
+    background-color var(--mo-base) var(--ease-smooth),
+    background-size var(--mo-base) var(--ease-line),
+    box-shadow var(--mo-base) var(--ease-smooth);
+}
+
+.inp:hover,
+.sel:hover,
+.ta:hover {
+  box-shadow: 0 6px 18px rgba(0,0,0,0.025);
+}
+
+.inp:focus,
+.sel:focus,
+.ta:focus {
+  background-color: rgba(var(--accent-rgb), 0.018);
+  box-shadow: 0 8px 24px rgba(var(--accent-rgb), 0.035);
+}
+
+/* -------------------- Lists / data surfaces -------------------- */
+.trow {
+  transition:
+    background-color var(--mo-base) var(--ease-smooth),
+    border-color var(--mo-base) var(--ease-smooth),
+    transform var(--mo-base) var(--ease-smooth),
+    color var(--mo-base) var(--ease-smooth);
+}
+
+.trow::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: scaleY(0);
+  transform-origin: center;
+  background: var(--accent-line);
+  transition: transform var(--mo-base) var(--ease-line);
+}
+
+.trow:hover::after,
+.trow:focus-within::after {
+  transform: scaleY(1);
+}
+
+.trow:hover {
+  background: rgba(var(--ink-rgb), 0.025);
+}
+
+/* -------------------- Status / live signal -------------------- */
+.status__dot,
+.pill,
+.state-idle,
+.state-starting,
+.state-running,
+.state-stopping,
+.state-error {
+  transition: background-color var(--mo-base) var(--ease-smooth), color var(--mo-base) var(--ease-smooth), border-color var(--mo-base) var(--ease-smooth);
+}
+
+.status .status__dot,
+.pill.state-running,
+.status.is-online .status__dot {
+  animation: sl-fx-breathe var(--mo-breathe) var(--ease-smooth) infinite;
+}
+
+/* -------------------- Page entrance -------------------- */
+.view.active > * {
+  animation-duration: 520ms;
+}
+
+.view.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 1px;
+  width: 0;
+  background: var(--accent-line);
+  opacity: 0.7;
+  animation: sl-fx-line-in 520ms var(--ease-line) both;
+  pointer-events: none;
+}
+
+/* -------------------- Modal -------------------- */
+.overlay.open {
+  background:
+    radial-gradient(circle at calc(var(--fx-pointer-x) * 100%) calc(var(--fx-pointer-y) * 100%), rgba(var(--accent-rgb), 0.05), transparent 40%),
+    rgba(var(--scrim-rgb), 0.42);
+  backdrop-filter: blur(5px) saturate(90%);
+  -webkit-backdrop-filter: blur(5px) saturate(90%);
+}
+
+.dialog__head {
+  position: relative;
+}
+
+.dialog__head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 34%;
+  height: 1px;
+  background: var(--accent-line);
+  transform-origin: left;
+  animation: sl-fx-line-in 480ms var(--ease-line) both;
+}
+
+/* -------------------- Boot screen -------------------- */
+.boot {
+  backdrop-filter: blur(14px) saturate(85%);
+  -webkit-backdrop-filter: blur(14px) saturate(85%);
+}
+
+.boot__body,
+.boot__row {
+  transition: color var(--mo-base) var(--ease-smooth), opacity var(--mo-base) var(--ease-smooth);
+}
+
+/* -------------------- Reduced motion -------------------- */
+@media (prefers-reduced-motion: reduce) {
+  html:not(.force-motion) .bg::after,
+  html:not(.force-motion) .panel:hover::after,
+  html:not(.force-motion) .lobby:hover::after,
+  html:not(.force-motion) .dialog:hover::after,
+  html:not(.force-motion) .status .status__dot,
+  html:not(.force-motion) .pill.state-running { animation: none !important; }
+
+  html:not(.force-motion) .nav button:hover,
+  html:not(.force-motion) .btn:hover,
+  html:not(.force-motion) .close:hover,
+  html:not(.force-motion) .theme-switch button:hover,
+  html:not(.force-motion) .trow:hover { transform: none !important; }
+}
+
+/* -------------------- Keyframes -------------------- */
+@keyframes sl-fx-sheen {
+  0% { transform: skewX(-16deg) translateX(-220%); }
+  100% { transform: skewX(-16deg) translateX(820%); }
+}
+
+@keyframes sl-fx-breathe {
+  0%, 100% { opacity: 0.46; box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
+  50% { opacity: 1; box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.045); }
+}
+
+@keyframes sl-fx-line-in {
+  0% { transform: scaleX(0); opacity: 0; }
+  100% { transform: scaleX(1); opacity: 0.85; }
+}
+
+@keyframes sl-fx-grain {
+  0% { transform: translate(0,0); }
+  25% { transform: translate(-2px,1px); }
+  50% { transform: translate(1px,-1px); }
+  75% { transform: translate(2px,2px); }
+  100% { transform: translate(0,0); }
+}

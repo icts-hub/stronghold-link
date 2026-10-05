@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/components.css">
 <link rel="stylesheet" href="styles/views.css">
+<link rel="stylesheet" href="styles/rhine-dynamic.css">
 </head>
 <body>
 <!-- L1 · 背景运动层：远层网格漂移 + 扫描带 + 亮度渐隐（纯装饰，不参与交互） -->
@@ -833,7 +834,7 @@ function initParallax(){
  const step=()=>{queued=0;rx+=(tx-rx)*0.12;ry+=(ty-ry)*0.12;
   root.style.setProperty('--px',rx.toFixed(3));root.style.setProperty('--py',ry.toFixed(3));
   if(Math.abs(tx-rx)>0.002||Math.abs(ty-ry)>0.002)queued=requestAnimationFrame(step)};
- const onMove=(e)=>{if(!e)return;const w=(typeof window!=='undefined'&&window.innerWidth)||1,h=(typeof window!=='undefined'&&window.innerHeight)||1;
+ const onMove=(e)=>{if(!e||(typeof window!=="undefined"&&window.__rhineFxOwner))return;const w=(typeof window!=='undefined'&&window.innerWidth)||1,h=(typeof window!=='undefined'&&window.innerHeight)||1;
   tx=Math.max(-1,Math.min(1,(e.clientX/w)*2-1));ty=Math.max(-1,Math.min(1,(e.clientY/h)*2-1));
   if(!queued)queued=requestAnimationFrame(step)};
  try{window.addEventListener('pointermove',onMove,{passive:true})}catch(e){}
@@ -1404,4 +1405,5 @@ initParallax();   // L4 视差（减少动效/触屏环境自动跳过）
 initBoot();       // L9 启动序列（截图模式与减少动效下直接跳过）
 </script>
 <script src="stage.js"></script>
+<script src="rhine-effects.js"></script>
 </body></html>
