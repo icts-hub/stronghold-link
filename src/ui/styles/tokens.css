@@ -1,0 +1,163 @@
+/* ============================================================================
+   Stronghold Link — Design Tokens
+   颜色 / 字体 / 间距 / 边框 / 圆角 / 阴影 / 动效 / 网格
+   所有视觉值只在这里定义，其它文件不允许出现硬编码色值。
+   ========================================================================= */
+
+/* --- 字体：本地内置（latin 子集），中文交给系统 CJK 回退 --------------------- */
+@font-face {
+  font-family: "SL Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/inter-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/plex-mono-500.woff2") format("woff2");
+}
+
+:root {
+  /* --- 字体族 ------------------------------------------------------------ */
+  --font-ui: "SL Inter", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI",
+             "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "SL Plex Mono", ui-monospace, "Cascadia Mono", "Consolas",
+               "SFMono-Regular", "Microsoft YaHei UI", monospace;
+
+  /* --- 字号 / 字重 / 字距 ------------------------------------------------ */
+  --fs-display: clamp(46px, 5.2vw, 72px);
+  --fs-h1: clamp(28px, 3vw, 42px);
+  --fs-h2: 20px;
+  --fs-h3: 14px;
+  --fs-body: 13.5px;
+  --fs-sm: 12px;
+  --fs-tech: 10.5px;
+  --fs-micro: 9.5px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  --lh-tight: 1.05;
+  --lh-snug: 1.32;
+  --lh-body: 1.62;
+
+  --ls-display: -0.022em;
+  --ls-h1: -0.014em;
+  --ls-body: 0;
+  --ls-tech: 0.13em;
+  --ls-micro: 0.16em;
+
+  /* --- 颜色：背景层级 ---------------------------------------------------- */
+  --bg-void: #05070a;
+  --bg-base: #080b10;
+  --bg-panel: #0c1016;
+  --bg-raise: #10151c;
+  --bg-inset: #0a0e13;
+  --bg-hover: rgba(61, 169, 255, 0.05);
+  --bg-active: rgba(61, 169, 255, 0.09);
+  --bg-scrim: rgba(4, 6, 9, 0.82);
+
+  /* --- 颜色：文字 -------------------------------------------------------- */
+  --fg: #e8edf2;
+  --fg-2: #89939f;
+  --fg-3: #4e5965;
+  --fg-accent: #68c7ff;
+
+  /* --- 颜色：线 ---------------------------------------------------------- */
+  --line: rgba(126, 146, 170, 0.13);
+  --line-2: rgba(126, 146, 170, 0.22);
+  --line-strong: rgba(126, 146, 170, 0.34);
+  --line-accent: rgba(61, 169, 255, 0.55);
+
+  /* --- 颜色：强调与状态 -------------------------------------------------- */
+  --accent: #3da9ff;
+  --accent-2: #4aa8ff;
+  --accent-3: #68c7ff;
+  --accent-dim: rgba(61, 169, 255, 0.16);
+  --state-online: #4aa8ff;
+  --state-warn: #d8a657;
+  --state-error: #e06c75;
+  --state-idle: #5a6470;
+
+  /* --- 间距（4 的倍数）--------------------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 56px;
+  --sp-10: 72px;
+
+  /* --- 边框 / 圆角 -------------------------------------------------------- */
+  --bw: 1px;
+  --bw-thick: 2px;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-pill: 999px;
+
+  /* --- 阴影（克制：只用来压暗，不做发光）-------------------------------- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 24px 70px rgba(0, 0, 0, 0.7);
+  --glow-accent: 0 0 0 1px rgba(61, 169, 255, 0.35);
+
+  /* --- 动效 -------------------------------------------------------------- */
+  --mo-fast: 110ms;
+  --mo: 200ms;
+  --mo-slow: 420ms;
+  --mo-enter: 520ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- 结构尺寸 ---------------------------------------------------------- */
+  --rail-w: 92px;
+  --header-h: 56px;
+  --footer-h: 34px;
+  --work-max: 1440px;
+  --grid-cell: 40px;
+
+  /* --- 层叠 -------------------------------------------------------------- */
+  --z-base: 1;
+  --z-sticky: 5;
+  --z-modal: 40;
+  --z-toast: 60;
+
+  /* --- 背景网格与光晕（很弱，不影响阅读）-------------------------------- */
+  --grid-line: rgba(126, 146, 170, 0.045);
+  --grid-line-strong: rgba(126, 146, 170, 0.075);
+  --halo: radial-gradient(
+    120% 90% at 12% -10%,
+    rgba(61, 169, 255, 0.07) 0%,
+    rgba(61, 169, 255, 0.02) 38%,
+    transparent 68%
+  );
+}

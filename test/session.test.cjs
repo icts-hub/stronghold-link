@@ -620,3 +620,44 @@ test('输入校验：角色、端口、地址非法时直接拒绝', async () =>
     await echo.close();
   }
 });
+test('网络参数：可配置空闲/连接超时，并在快照里给出真实速率采样', async () => {
+  const { SessionManager: SM } = require('../network/session.cjs');
+  const echo = await h.startEchoServer();
+  const relayPort = await h.freePort();
+  const manager = new SM({ onEvent: () => {} });
+  let client;
+  try {
+    const snapshot = await manager.start({
+      role: 'host', bindHost: '127.0.0.1', targetHost: '127.0.0.1', targetPort: echo.port,
+      relayPort, authToken: '', idleTimeoutMs: 30000, connectTimeoutMs: 5000,
+    });
+    assert.equal(snapshot.security.mode, 'plain', '空口令时应为明文模式（本用例要测吞吐）');
+    assert.equal(snapshot.config.idleTimeoutMs, 30000);
+    assert.equal(snapshot.config.connectTimeoutMs, 5000);
+    assert.equal(Array.isArray(snapshot.metrics.samples), true, '快照应带采样序列');
+
+    // 真实收发一批数据，再取两次快照，速率应体现真实字节数
+    client = await h.connect(relayPort);
+    client.write(Buffer.alloc(64 * 1024, 7));
+    assert.ok(await h.waitFor(() => manager.getSnapshot().bytesFromPeer >= 64 * 1024, { timeoutMs: 4000 }), '应统计到真实字节');
+    await new Promise((r) => setTimeout(r, 350));
+    const after = manager.getSnapshot();
+    assert.ok(after.metrics.samples.length >= 2, '应有至少两个采样点');
+    assert.ok(after.metrics.rateFromPeer > 0, `下行速率应大于 0，实际 ${after.metrics.rateFromPeer}`);
+    const lastSample = after.metrics.samples[after.metrics.samples.length - 1];
+    assert.equal(typeof lastSample.t, 'number');
+    assert.ok(lastSample.totalDown >= 64 * 1024, '采样点里保存的是真实累计值');
+
+    // 非法超时值要被拦下（先停掉当前会话，否则报的是“已在运行”）
+    client.destroy();
+    client = null;
+    await manager.stop();
+    await assert.rejects(manager.start({ role: 'host', bindHost: '127.0.0.1', targetHost: '127.0.0.1', targetPort: echo.port, relayPort: await h.freePort(), idleTimeoutMs: -5 }), /空闲超时/);
+    await assert.rejects(manager.start({ role: 'host', bindHost: '127.0.0.1', targetHost: '127.0.0.1', targetPort: echo.port, relayPort: await h.freePort(), connectTimeoutMs: 10 }), /连接超时/);
+  } finally {
+    client?.destroy();
+    await manager.stop();
+    manager.shutdown();
+    await echo.close();
+  }
+});

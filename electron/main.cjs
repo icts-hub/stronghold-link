@@ -17,16 +17,24 @@ const { SessionManager, inviteText, parseInvite } = require('../network/session.
 const { createTcpJoiner } = require('../network/tcp-relay.cjs');
 const { diagnoseSteam } = require('../network/steam-env.cjs');
 const { describeAdapters, describeRecipes, describeHints } = require('../network/adapters.cjs');
+const { createLobbyManager } = require('../network/steam-lobby.cjs');
 
 const APP_DIR = path.resolve(__dirname, '..');
 const appIdFromEnv = () => (process.env.SH_LINK_STEAM_APP_ID ? Number(process.env.SH_LINK_STEAM_APP_ID) : null);
 const localAddress = () => require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.9.1';
+const APP_VERSION = '0.10.0';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
 const IS_SMOKE = process.argv.includes('--smoke');
+// 视觉验证用：--capture=<目录> 打开不可见窗口，逐个视图截图后退出（开发期用，不进打包产物）
+const CAPTURE_DIR = (() => {
+  const hit = process.argv.find((arg) => arg.startsWith('--capture='));
+  return hit ? hit.slice('--capture='.length) : null;
+})();
+const CAPTURE_SESSION = process.argv.includes('--capture-session');
+const CAPTURE_VIEWS = ['library', 'session', 'network', 'adapters', 'friends', 'settings'];
 
 // ---------------------------------------------------------------------------
 // 启动日志：解决「双击后闪退、什么都看不到」的问题
@@ -147,8 +155,75 @@ const session = new SessionManager({
   },
 });
 
-const SESSION_KEYS = ['role', 'relayPort', 'targetPort', 'targetHost', 'bindHost', 'authToken', 'maxConnections', 'localPort', 'remoteHost', 'remotePort', 'game', 'rules', 'protocol', 'adapter', 'gamePort', 'hostSteamId', 'appId', 'recipe'];
-const NUMERIC_KEYS = ['relayPort', 'targetPort', 'localPort', 'remotePort', 'maxConnections', 'gamePort', 'appId'];
+// ---------------------------------------------------------------------------
+// Steam 大厅与好友：邀请好友联机
+//   房主启动 Steam 桥接 -> 自动建大厅并把 SteamID/端口写进大厅数据
+//   好友点「加入游戏」或在大厅里点加入 -> 我们进大厅读数据 -> 界面上一键启动加入者桥接
+// 测试钩子：测试进程可以用 globalThis.__SHL_TEST_STEAM_SDK__ 注入假 SDK，避免真的初始化 Steam。
+// ---------------------------------------------------------------------------
+
+let lobbyManager = null;
+let lastLobbyEvent = null;
+
+function sendLobbyEvent(type, payload) {
+  lastLobbyEvent = { type, payload, at: Date.now() };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lobby:event', lastLobbyEvent);
+}
+
+function getLobby() {
+  if (!lobbyManager) {
+    lobbyManager = createLobbyManager({
+      appDir: APP_DIR,
+      appId: appIdFromEnv() || 480,
+      sdk: (typeof globalThis !== 'undefined' && globalThis.__SHL_TEST_STEAM_SDK__) || null,
+      onEvent: (type, payload) => {
+        sendLobbyEvent(type, payload);
+        if (type === 'join-requested') {
+          // 好友点了「加入游戏」：我们先进大厅，把房主的连接信息读出来，再让界面一键启动
+          handleJoinRequest(payload).catch((err) => logLine('处理加入请求失败', String(err && err.message ? err.message : err)));
+        }
+      },
+    });
+  }
+  return lobbyManager;
+}
+
+/** 好友触发加入：进大厅 -> 读房主信息 -> 推给界面。 */
+async function handleJoinRequest({ lobbyId, friendSteamId, friendName }) {
+  if (!lobbyId) return;
+  const manager = getLobby();
+  logLine(`收到联机邀请：大厅 ${lobbyId}（来自 ${friendName || friendSteamId || '好友'}）`);
+  const joined = await manager.join(lobbyId);
+  sendLobbyEvent('join-result', {
+    ok: joined.ok,
+    reason: joined.reason || null,
+    lobbyId,
+    host: joined.host || null,
+    from: friendName || friendSteamId || null,
+  });
+}
+
+/** 房主启动 Steam 桥接后自动建房，把连接信息写进大厅数据。 */
+async function openLobbyForSession(snapshot) {
+  const config = (snapshot && snapshot.config) || {};
+  if (config.adapter !== 'steam' || snapshot.role !== 'host') return;
+  const manager = getLobby();
+  try {
+    const result = await manager.create({
+      maxMembers: Number(config.maxConnections) > 0 ? Math.min(Number(config.maxConnections) + 1, 64) : 4,
+      hostSteamId: (snapshot.channels && snapshot.channels[0] && snapshot.channels[0].steamId) || null,
+      port: Number(config.targetPort) || null,
+      game: String(config.game || ''),
+      version: APP_VERSION,
+    });
+    logLine(result.ok ? `已创建 Steam 大厅 ${result.lobbyId}，可在「好友」页一键邀请` : `创建 Steam 大厅失败：${result.reason}`);
+  } catch (err) {
+    logLine(`创建 Steam 大厅失败：${err && err.message ? err.message : err}`);
+  }
+}
+
+const SESSION_KEYS = ['role', 'relayPort', 'targetPort', 'targetHost', 'bindHost', 'authToken', 'maxConnections', 'idleTimeoutMs', 'connectTimeoutMs', 'localPort', 'remoteHost', 'remotePort', 'game', 'rules', 'protocol', 'adapter', 'gamePort', 'hostSteamId', 'appId', 'recipe'];
+const NUMERIC_KEYS = ['relayPort', 'targetPort', 'localPort', 'remotePort', 'maxConnections', 'gamePort', 'appId', 'idleTimeoutMs', 'connectTimeoutMs'];
 const MAX_RULES = 16;
 
 /** 只接受白名单字段，避免渲染进程往主进程塞任意对象。 */
@@ -192,7 +267,16 @@ function registerIpc() {
       ? session.channels.map((channel) => `${channel.rule.protocol}:${channel.listen.port}`).join('、')
       : '';
     const steamDiagnosis = diagnoseSteam({ appDir: APP_DIR, appId: appIdFromEnv() });
-    return describeAdapters({ steamDiagnosis, running, role: session.role, channelSummary });
+    // 把「本次会话实际用的是哪个适配器、哪些规则」传下去：只有真正在用的那个才算 running
+    const config = (session.getSnapshot().config) || {};
+    return describeAdapters({
+      steamDiagnosis,
+      running,
+      role: session.role,
+      adapter: config.adapter || (running ? 'local' : null),
+      rules: config.rules || [],
+      channelSummary,
+    });
   });
 
   // 连接配方（阶段 5）：把「不同游戏的联机方式」做成可选列表
@@ -222,6 +306,8 @@ function registerIpc() {
     try {
       const input = sanitizeSessionInput(raw);
       const snapshot = await session.start(input);
+      // 房主的 Steam 桥接起来后自动开大厅，好友那边就能一键邀请/加入
+      openLobbyForSession(snapshot).catch(() => { /* 建房失败只记日志，不影响桥接本身 */ });
       return { ...snapshot, inviteText: snapshot.invite ? inviteText(snapshot.invite) : '' };
     } catch (err) {
       throw toIpcError(err);
@@ -229,7 +315,13 @@ function registerIpc() {
   });
   ipcMain.handle('session:stop', async () => {
     try {
-      return await session.stop();
+      const snapshot = await session.stop();
+      // 桥接停了，大厅里已经没有可加入的东西，收掉
+      if (lobbyManager && lobbyManager.lobbyId && lobbyManager.isOwner) {
+        lobbyManager.leave();
+        sendLobbyEvent('lobby-left', { lobbyId: null, reason: '会话已停止' });
+      }
+      return snapshot;
     } catch (err) {
       throw toIpcError(err);
     }
@@ -260,6 +352,70 @@ function registerIpc() {
       throw toIpcError(err);
     }
   });
+
+  // ---- Steam 大厅 / 好友 ----
+  ipcMain.handle('lobby:status', () => {
+    const manager = getLobby();
+    const snapshot = manager.snapshot();
+    return {
+      ...snapshot,
+      // Steam 用 +connect_lobby 启动我们时，界面据此显示「有人邀请你」
+      commandLineLobbyId: manager.connectLobbyFromCommandLine(),
+      lastEvent: lastLobbyEvent,
+    };
+  });
+  ipcMain.handle('lobby:friends', async () => {
+    try {
+      return await getLobby().listFriends();
+    } catch (err) {
+      throw toIpcError(err);
+    }
+  });
+  ipcMain.handle('lobby:create', async (_event, raw) => {
+    try {
+      const input = raw && typeof raw === 'object' ? raw : {};
+      const current = session.getSnapshot();
+      const config = current.config || {};
+      const manager = getLobby();
+      const result = await manager.create({
+        maxMembers: Number(input.maxMembers) > 0 ? Number(input.maxMembers) : 4,
+        hostSteamId: input.hostSteamId ? String(input.hostSteamId).slice(0, 32) : null,
+        port: Number(input.port) > 0 ? Number(input.port) : Number(config.targetPort) || null,
+        game: input.game ? String(input.game).slice(0, 64) : String(config.game || ''),
+        version: APP_VERSION,
+      });
+      return { ...result, status: manager.snapshot() };
+    } catch (err) {
+      throw toIpcError(err);
+    }
+  });
+  ipcMain.handle('lobby:join', async (_event, raw) => {
+    try {
+      const lobbyId = raw && raw.lobbyId ? String(raw.lobbyId).trim().slice(0, 32) : '';
+      if (!lobbyId) throw Object.assign(new Error('请填写大厅 ID'), { code: 'EINVALIDLOBBY' });
+      const manager = getLobby();
+      const result = await manager.join(lobbyId);
+      return { ...result, status: manager.snapshot() };
+    } catch (err) {
+      throw toIpcError(err);
+    }
+  });
+  ipcMain.handle('lobby:leave', () => {
+    const manager = getLobby();
+    const result = manager.leave();
+    return { ...result, status: manager.snapshot() };
+  });
+  ipcMain.handle('lobby:invite', (_event, raw) => {
+    const steamId = raw && raw.steamId ? String(raw.steamId).trim().slice(0, 32) : '';
+    const result = getLobby().invite(steamId);
+    return result;
+  });
+  ipcMain.handle('lobby:stop', async () => {
+    if (!lobbyManager) return { ok: true, stopped: false };
+    await lobbyManager.stop();
+    lobbyManager = null;
+    return { ok: true, stopped: true };
+  });
   ipcMain.handle('app:info', () => ({
     name: 'Stronghold Link',
     version: APP_VERSION,
@@ -271,6 +427,7 @@ function registerIpc() {
     chrome: process.versions.chrome,
     node: process.versions.node,
     smoke: IS_SMOKE,
+    localNode: localAddress(),
   }));
   ipcMain.handle('app:reveal-config', async () => {
     await fs.mkdir(path.dirname(CONFIG_PATH()), { recursive: true });
@@ -297,6 +454,9 @@ function createWindow({ show = true } = {}) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 窗口最小化/被遮挡时不要节流：会话状态轮询与日志推送要继续跑，
+      // 否则回到前台会看到一段「时间静止」的旧数据。
+      backgroundThrottling: false,
     },
   });
   win.loadFile(path.join(__dirname, '../src/ui/index.html'));
@@ -332,6 +492,88 @@ function reachable(port, host = '127.0.0.1', timeoutMs = 800) {
     socket.once('connect', () => finish(true));
     socket.once('error', () => finish(false));
   });
+}
+
+/**
+ * 视觉验证（开发期）：--capture=<目录> [--capture-session]
+ * 打开不可见窗口，逐个视图截图，同时记录渲染进程控制台错误与横向溢出情况。
+ * 这是给 UI 改动做验收用的工具，正常启动路径不会走到这里。
+ */
+async function runCapture(dir) {
+  await fs.mkdir(dir, { recursive: true });
+  const consoleIssues = [];
+  let echo;
+  let relayPort;
+  try {
+    if (CAPTURE_SESSION) {
+      echo = net.createServer((socket) => { socket.on('error', () => {}); socket.on('data', (d) => socket.write(d)); });
+      const echoPort = await new Promise((resolve) => echo.listen(0, '127.0.0.1', () => resolve(echo.address().port)));
+      relayPort = await freePort();
+      await session.start({ role: 'host', relayPort, targetHost: '127.0.0.1', targetPort: echoPort, authToken: '', game: 'capture' });
+      // 灌一点真实流量，让遥测/波形/日志有东西可看
+      const client = net.createConnection({ host: '127.0.0.1', port: relayPort });
+      await new Promise((resolve) => client.once('connect', resolve));
+      for (let i = 0; i < 6; i += 1) {
+        client.write(Buffer.alloc(8 * 1024, 65 + i));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      client.destroy();
+      logLine('[capture] 已启动真实会话并灌入流量', `relayPort=${relayPort}`);
+    }
+
+    // 不可见窗口的合成器不会重绘，capturePage 会拿到过期帧 —— 所以截图用可见窗口
+    const win = createWindow({ show: true });
+    mainWindow = win;
+    win.setContentSize(1440, 900);
+    win.setPosition(24, 24);
+    win.setAlwaysOnTop(true); // 仅截图期间，防止被遮挡后合成器不刷新
+    win.webContents.on('console-message', (_e, level, message, line, source) => {
+      if (level >= 2) consoleIssues.push(`${source}:${line} ${message}`);
+    });
+    await new Promise((resolve, reject) => {
+      win.webContents.once('did-finish-load', resolve);
+      win.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`渲染进程加载失败 ${code} ${desc}`)));
+    });
+
+    for (let index = 0; index < CAPTURE_VIEWS.length; index += 1) {
+      const view = CAPTURE_VIEWS[index];
+      // 切换视图（渲染进程里的 showView 是全局函数）
+      await win.webContents.executeJavaScript("showView('" + view + "')");
+      // 等两帧（带兜底超时：窗口被遮挡时 rAF 可能被节流，不能无限等）
+      await Promise.race([
+        win.webContents.executeJavaScript('new Promise((r)=>requestAnimationFrame(()=>requestAnimationFrame(()=>r(true))))'),
+        new Promise((r) => setTimeout(r, 1500)),
+      ]);
+      await new Promise((r) => setTimeout(r, 700));
+      const metrics = await win.webContents.executeJavaScript(`({
+        view: '${view}',
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        bodyHeight: document.body.scrollHeight,
+        navActive: (document.querySelector('[data-view].active') || {}).dataset ? document.querySelector('[data-view].active').dataset.view : null,
+        title: document.title
+      })`);
+      const file = path.join(dir, `${String(index + 1).padStart(2, '0')}-${view}.png`);
+      const image = await win.webContents.capturePage();
+      await fs.writeFile(file, image.toPNG());
+      const overflow = metrics.scrollWidth - metrics.clientWidth;
+      console.log(`[capture] ${view} -> ${file}  横向溢出=${overflow}px  导航高亮=${metrics.navActive}  内容高=${metrics.bodyHeight}`);
+      if (overflow > 0) console.log(`[capture] !! ${view} 出现横向滚动 ${overflow}px`);
+    }
+
+    if (consoleIssues.length) {
+      console.log('[capture] 渲染进程控制台问题：');
+      for (const line of consoleIssues.slice(0, 20)) console.log(`  ${line}`);
+    } else {
+      console.log('[capture] 渲染进程控制台无错误/警告');
+    }
+  } catch (err) {
+    console.error('[capture] failed', err);
+  } finally {
+    try { if (echo) await new Promise((r) => echo.close(() => r())); } catch { /* ignore */ }
+    try { await session.stop(); } catch { /* ignore */ }
+    app.exit(0);
+  }
 }
 
 async function runSmoke() {
@@ -449,6 +691,11 @@ if (!gotLock) {
     if (IS_SMOKE) {
       const ok = await runSmoke();
       app.exit(ok ? 0 : 1);
+      return;
+    }
+    if (CAPTURE_DIR) {
+      logLine('截图模式', CAPTURE_DIR, CAPTURE_SESSION ? '(含真实会话)' : '');
+      await runCapture(CAPTURE_DIR);
       return;
     }
     mainWindow = createWindow();

@@ -1,6 +1,6 @@
 {
   "name": "stronghold-link",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Stronghold Link — 通用内网穿透工具（本地 TCP/UDP 中继 + Steam P2P 隧道 + 端到端加密）",
   "private": true,
   "main": "electron/main.cjs",
@@ -8,8 +8,8 @@
     "start": "electron .",
     "smoke": "electron . --smoke",
     "smoke:restricted": "electron . --smoke --no-sandbox",
-    "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
-    "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
+    "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
+    "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs",
     "build": "electron-builder --win nsis",
     "build:dir": "electron-builder --win --dir"
   },

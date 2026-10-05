@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // Stronghold Link — 适配器与「连接方式」注册表。
 //
 // 解决的问题：不同类型的服务，跨网络访问方式差别很大——
@@ -91,41 +91,66 @@ function describeRecipes({ steamAvailable = false } = {}) {
 }
 
 /** 适配器列表（供 IPC/界面显示）。 */
-function describeAdapters({ steamDiagnosis = null, running = false, role = null, channelSummary = '' } = {}) {
+/**
+ * 适配器真实状态。
+ * 关键点：**只有当前会话真正在用的那个适配器才是 running**，
+ * 其余可用适配器是 ready（可用但空闲）。之前只要有任何会话就把四个都标成
+ * running，等于在界面上说假话——这里按会话的 adapter 与端口规则区分。
+ */
+function describeAdapters({ steamDiagnosis = null, running = false, role = null, adapter = null, rules = [], channelSummary = '' } = {}) {
   const steamReady = Boolean(steamDiagnosis?.available);
-  const suffix = running ? `会话进行中（${role === 'host' ? '房主' : '加入者'}）：${channelSummary || '—'}` : null;
+  const active = Boolean(running && role);
+  const ruleList = Array.isArray(rules) ? rules : [];
+  const hasTcp = ruleList.some((r) => String(r.protocol).toUpperCase() === 'TCP');
+  const hasUdp = ruleList.some((r) => String(r.protocol).toUpperCase() === 'UDP');
+  const suffix = active ? `会话进行中（${role === 'host' ? '房主' : '加入者'}）：${channelSummary || '—'}` : null;
+  // 没告诉我们是哪个适配器时，按默认的本地中继处理；
+  // 但绝不会因为「有会话在跑」就把 Steam / 不转发也标成 running。
+  const effectiveAdapter = adapter || (active ? 'local' : null);
+  const localActive = active && effectiveAdapter === 'local';
+  const tcpRunning = localActive && (hasTcp || !ruleList.length);
+  const udpRunning = localActive && (hasUdp || !ruleList.length);
+  const steamRunning = active && effectiveAdapter === 'steam';
+  const guidanceRunning = active && effectiveAdapter === 'none';
+
   return [
     {
       id: 'tcp-relay',
       name: '本地 TCP 中继（加密）',
-      status: running && role ? 'running' : 'ready',
+      status: tcpRunning ? 'running' : 'ready',
       supported: ['TCP'],
-      description: suffix
+      description: tcpRunning
         ? `${suffix}${suffix.includes('明文') ? '' : ' · 加密会话'}`
-        : '已接入：多端口规则、AES-256-GCM 加密会话（口令可选）、连接数与流量统计。',
+        : (active ? '空闲：本次会话没有 TCP 规则在转发。' : '已接入：多端口规则、AES-256-GCM 加密会话（口令可选）、连接数与流量统计。'),
     },
     {
       id: 'udp-relay',
       name: '本地 UDP 转发（加密）',
-      status: running && role ? 'running' : 'ready',
+      status: udpRunning ? 'running' : 'ready',
       supported: ['UDP'],
-      description: suffix || '已接入：按对端会话做地址映射的数据报转发，逐包加密 + 重放窗口，空闲 60 秒回收。',
+      description: udpRunning
+        ? suffix
+        : (active ? '空闲：本次会话没有 UDP 规则在转发。' : '已接入：按对端会话做地址映射的数据报转发，逐包加密 + 重放窗口，空闲 60 秒回收。'),
     },
     {
       id: 'steam-p2p',
       name: 'Steam P2P（Networking Sockets）',
-      status: steamReady ? (running ? 'running' : 'ready') : 'not-configured',
+      status: !steamReady ? 'not-configured' : (steamRunning ? 'running' : 'ready'),
       supported: ['reliable'],
-      description: steamReady
-        ? '已就绪：房主创建 Steam P2P 监听，加入者用房主 SteamID 直连；加密与身份认证由 Steam 传输层负责。'
-        : `未就绪：${steamDiagnosis?.blockers?.[0] || '缺少 Steamworks SDK'}。设置步骤见 docs/PHASE4-STEAM.md；界面「Steam 环境自检」可看清单。`,
+      description: steamRunning
+        ? `${suffix}加密与身份认证由 Steam 传输层负责。`
+        : (steamReady
+          ? '已就绪：房主创建 Steam P2P 监听，加入者用房主 SteamID 直连；加密与身份认证由 Steam 传输层负责。'
+          : `未就绪：${steamDiagnosis?.blockers?.[0] || '缺少 Steamworks SDK'}。设置步骤见 docs/PHASE4-STEAM.md；界面「Steam 环境自检」可看清单。`),
     },
     {
       id: 'guidance-only',
       name: '不做转发（仅连接说明）',
-      status: running ? 'running' : 'ready',
+      status: guidanceRunning ? 'running' : 'ready',
       supported: [],
-      description: '局域网直连时使用：本工具不建立隧道，只把房主地址与端口整理好，状态里会明确显示「未转发任何流量」。',
+      description: guidanceRunning
+        ? `${suffix}本工具没有建立任何隧道。`
+        : '局域网直连时使用：本工具不建立隧道，只把房主地址与端口整理好，状态里会明确显示「未转发任何流量」。',
     },
   ];
 }

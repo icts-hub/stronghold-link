@@ -11,6 +11,10 @@ RELEASE-NOTES.md
 # 测试与运行产物
 test-out/
 *.log
+*.err
+ui-shot*/
+smoke-*.json
+ui-shot-data/
 smoke-*.json
 *-result.json
 packaged-userdata/

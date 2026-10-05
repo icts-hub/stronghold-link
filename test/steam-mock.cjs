@@ -64,6 +64,109 @@ function createMockSdk({ identity = HOST_STEAM_ID } = {}) {
     getStatus: () => ({ steamId: identity }),
   };
   state.emitState = (change) => { for (const handler of handlers) handler(change); };
+
+  // ---- 大厅（matchmaking）与好友（friends）：给 network/steam-lobby.cjs 的测试用 ----
+  const lobbies = new Map(); // lobbyId -> { owner, members: [], data: Map, max, joinable }
+  let nextLobbyId = 109775242000000001n;
+  const lobby = {
+    lobbies,
+    created: [],
+    joined: [],
+    left: [],
+    invited: [],
+    dataWrites: [],
+    inviteResult: true,
+    joinResult: true,
+    createResult: true,
+    cmdLobbyId: null,
+    joinRequestHandlers: [],
+  };
+  const findLobby = (id) => lobbies.get(String(id)) || null;
+
+  sdk.matchmaking = {
+    createLobby: async (type, maxMembers) => {
+      lobby.created.push({ type, maxMembers });
+      if (!lobby.createResult) return { success: false, response: 3 };
+      const id = String(nextLobbyId);
+      nextLobbyId += 1n;
+      lobbies.set(id, { owner: identity, members: [identity], data: new Map(), max: maxMembers, joinable: true });
+      return { success: true, lobbyId: id, response: 1 };
+    },
+    joinLobby: async (id) => {
+      lobby.joined.push(String(id));
+      const target = findLobby(id);
+      if (!lobby.joinResult || !target) return { success: false, response: 2 };
+      if (!target.members.includes(identity)) target.members.push(identity);
+      return { success: true, response: 1 };
+    },
+    leaveLobby: (id) => {
+      lobby.left.push(String(id));
+      const target = findLobby(id);
+      if (target) target.members = target.members.filter((m) => m !== identity);
+    },
+    inviteUserToLobby: (id, steamId) => {
+      lobby.invited.push({ lobbyId: String(id), steamId: String(steamId) });
+      return lobby.inviteResult;
+    },
+    onGameLobbyJoinRequested: (handler) => {
+      lobby.joinRequestHandlers.push(handler);
+      return () => { lobby.joinRequestHandlers = lobby.joinRequestHandlers.filter((h) => h !== handler); };
+    },
+    getConnectLobbyIdFromCommandLine: () => lobby.cmdLobbyId,
+    setLobbyData: (id, key, value) => {
+      lobby.dataWrites.push({ lobbyId: String(id), key, value: String(value) });
+      const target = findLobby(id);
+      if (target) target.data.set(key, String(value));
+      return true;
+    },
+    getLobbyData: (id, key) => { const target = findLobby(id); return target ? (target.data.get(key) || '') : ''; },
+    getAllLobbyData: (id) => { const target = findLobby(id); return target ? Object.fromEntries(target.data) : {}; },
+    getLobbyDataCount: (id) => { const target = findLobby(id); return target ? target.data.size : 0; },
+    getLobbyMembers: (id) => { const target = findLobby(id); return target ? [...target.members] : []; },
+    getNumLobbyMembers: (id) => { const target = findLobby(id); return target ? target.members.length : 0; },
+    getLobbyOwner: (id) => { const target = findLobby(id); return target ? target.owner : ''; },
+    getLobbyMemberLimit: (id) => { const target = findLobby(id); return target ? target.max : 0; },
+    setLobbyJoinable: (id, joinable) => { const target = findLobby(id); if (target) target.joinable = joinable; return true; },
+    requestLobbyData: () => true,
+    pollChatMessages: () => 0,
+    onChatMessage: () => () => {},
+    getPendingChatMessages: () => [],
+  };
+
+  const friendList = [];
+  const friendGames = new Map();
+  sdk.friends = {
+    getPersonaName: () => '测试用户',
+    getPersonaState: () => 1,
+    getAllFriends: () => friendList.map((f) => ({ ...f })),
+    getFriendPersonaName: (steamId) => {
+      const hit = friendList.find((f) => f.steamId === String(steamId));
+      return hit ? hit.personaName : '[unknown]';
+    },
+    getFriendGamePlayed: (steamId) => friendGames.get(String(steamId)) || null,
+  };
+
+  state.lobby = lobby;
+  state.friendList = friendList;
+  state.friendGames = friendGames;
+  /** 往好友列表里塞一个人。 */
+  state.addFriend = (steamId, personaName, personaState = 1, relationship = 3) => {
+    friendList.push({ steamId: String(steamId), personaName, personaState, relationship });
+  };
+  /** 让某个好友处于某个大厅（用于 inOurLobby 判断）。 */
+  state.setFriendLobby = (steamId, lobbyId) => {
+    friendGames.set(String(steamId), { gameId: '480', gameIP: 0, gamePort: 0, queryPort: 0, steamIDLobby: String(lobbyId) });
+  };
+  /** 往大厅里加一个成员（模拟好友进房）。 */
+  state.addLobbyMember = (lobbyId, steamId) => {
+    const target = findLobby(lobbyId);
+    if (target && !target.members.includes(String(steamId))) target.members.push(String(steamId));
+  };
+  /** 触发「好友点了加入游戏」。 */
+  state.emitJoinRequested = ({ lobbyId, friendSteamId }) => {
+    for (const handler of lobby.joinRequestHandlers) handler({ lobbyId: String(lobbyId), friendSteamId: String(friendSteamId) });
+  };
+
   /** 向某个 Steam 连接「投递」一条来自对端的消息。 */
   state.pushToClient = (connection, data) => {
     const queue = clientQueues.get(connection) || [];

@@ -5,13 +5,15 @@
 
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-![tests](https://img.shields.io/badge/tests-124%20passing-brightgreen)
-![version](https://img.shields.io/badge/version-0.9.0-informational)
+![tests](https://img.shields.io/badge/tests-140%20passing-brightgreen)
+![version](https://img.shields.io/badge/version-0.10.0-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密（X25519 + AES-256-GCM）
 - **Steam P2P 隧道**：基于 Steam Networking Sockets，跨网络无需端口转发（需自备 Steamworks SDK）
 - 四种「连接方式」：端口转发 / 浏览器应用隧道 / Steam 隧道 / 局域网直连（明确不转发）
 - 界面所有状态都来自真实中继进程：连接数、字节数、数据报数、拒绝与失败计数、逐条日志
+- 六页控制终端界面：服务库 / 会话 / 网络 / 适配器 / 好友 / 系统，编号导航、等宽数据、真实遥测波形
+- **Steam 好友与大厅**：一键邀请好友入房，好友接受后自动读到房主 SteamID 与端口
 
 > **本项目与 Valve / Steam 无隶属关系。** Steamworks SDK 的 redistributable 受 Valve 授权限制，
 > 仓库不含这些文件，需使用者自行放入：见 [steamworks_sdk/README.md](steamworks_sdk/README.md)。
@@ -37,7 +39,7 @@ git clone https://github.com/icts-hub/stronghold-link.git
 cd stronghold-link
 npm install                # 需要 Node.js 20+；会装 electron 与可选依赖 steamworks-ffi-node
 npm start                  # 启动图形界面
-npm test                   # 124 个测试用例
+npm test                   # 140 个测试用例
 ```
 
 想用 Steam 隧道：把 SDK 的 `steam_api64.dll` 放到 `steamworks_sdk/redistributable_bin/win64/`
@@ -122,10 +124,13 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 │  ├─ adapters.cjs        适配器与「连接方式」注册表（四种配方 + 两端连接说明）
 │  ├─ steam-env.cjs       Steam 环境诊断（模块 / FFI / SDK / AppID / 客户端）
 │  ├─ steam-adapter.cjs   Steam P2P ↔ 本地 TCP 端口桥接（每条本机连接一条 Steam 连接）
+│  ├─ steam-lobby.cjs     Steam 大厅与好友：邀请、成员、房主信息交换
 │  └─ session.cjs         会话控制器：多通道状态机、端口预检、邀请码、批量启动与回滚
-├─ src/ui/index.html      界面（服务库 / 会话 / 设置，单文件）
+├─ src/ui/index.html      界面外壳与全部视图（单文件 + 单块内联脚本，便于 DOM 桩测试）
+├─ src/ui/styles/         设计系统：tokens / base / components / views 四个 CSS
+├─ src/ui/fonts/          内置字体子集（Inter + IBM Plex Mono，OFL 许可，见同目录 LICENSE）
 ├─ test/                  node:test 测试（124 例）
-├─ tools/                 开发用探针脚本（真实 Steam 初始化 / P2P 回环 / 适配器细粒度诊断）
+├─ tools/                 开发工具：Steam 探针、CI 测试运行器、便携版打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告（PHASE1 ~ PHASE6 + 排错与 Steam 步骤）
 ```
 
@@ -157,8 +162,8 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 
 ## 测试
 
-`npm test` 覆盖 **124 个用例**（适配器 7 + 加密原语 7 + TCP 安全通道 13 + UDP 安全通道 12 + Steam 环境 10 +
-Steam 适配器 11 + TCP 中继 10 + UDP 中继 10 + 会话控制器 20 + 主进程 IPC 13 + UI 逻辑 11），
+`npm test` 覆盖 **140 个用例**（适配器 8 + 加密原语 7 + TCP 安全通道 13 + UDP 安全通道 12 + Steam 环境 10 +
+Steam 适配器 11 + Steam 大厅 13 + TCP 中继 11 + UDP 中继 10 + 会话控制器 21 + 主进程 IPC 13 + UI 逻辑 11），
 全部使用本机回环真实端口与真实数据往返；包括**链路抓包无明文**、**跨会话重放被拒**、**伪造认证标签被拒**、
 **旧协议明确拒绝**、**端口冲突带占用者提示**、**SDK 目录名容错**等实测项。
 Steam 传输层逻辑用注入的假 SDK 测试（测试文件内明确标注），真实 Steam 的验证情况见下一节。

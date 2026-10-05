@@ -48,7 +48,33 @@ test('适配器列表：反映 Steam 真实诊断结果与运行状态', () => {
   });
   assert.equal(running.find((a) => a.id === 'tcp-relay').status, 'running');
   assert.match(running.find((a) => a.id === 'tcp-relay').description, /TCP:2301/);
-  assert.equal(running.find((a) => a.id === 'steam-p2p').status, 'running');
+  // 本次会话用的是本地中继，Steam 只是「就绪但空闲」——以前这里会谎报 running
+  assert.equal(running.find((a) => a.id === 'steam-p2p').status, 'ready');
+  assert.match(running.find((a) => a.id === 'steam-p2p').description, /已就绪/);
+});
+
+test('适配器状态只说真话：只有本次会话真正在用的适配器才是 running', () => {
+  const base = { steamDiagnosis: { available: true, blockers: [] }, running: true, role: 'host', channelSummary: 'TCP:3001' };
+
+  const localTcp = A.describeAdapters({ ...base, adapter: 'local', rules: [{ protocol: 'TCP' }] });
+  assert.equal(localTcp.find((a) => a.id === 'tcp-relay').status, 'running');
+  assert.equal(localTcp.find((a) => a.id === 'udp-relay').status, 'ready', '没有 UDP 规则就不该是 running');
+  assert.match(localTcp.find((a) => a.id === 'udp-relay').description, /空闲/);
+  assert.equal(localTcp.find((a) => a.id === 'steam-p2p').status, 'ready');
+  assert.equal(localTcp.find((a) => a.id === 'guidance-only').status, 'ready');
+
+  const localUdp = A.describeAdapters({ ...base, adapter: 'local', rules: [{ protocol: 'UDP' }] });
+  assert.equal(localUdp.find((a) => a.id === 'udp-relay').status, 'running');
+  assert.equal(localUdp.find((a) => a.id === 'tcp-relay').status, 'ready');
+
+  const steam = A.describeAdapters({ ...base, adapter: 'steam', rules: [] });
+  assert.equal(steam.find((a) => a.id === 'steam-p2p').status, 'running');
+  assert.equal(steam.find((a) => a.id === 'tcp-relay').status, 'ready');
+  assert.match(steam.find((a) => a.id === 'steam-p2p').description, /会话进行中/);
+
+  const none = A.describeAdapters({ ...base, adapter: 'none', rules: [] });
+  assert.equal(none.find((a) => a.id === 'guidance-only').status, 'running');
+  assert.match(none.find((a) => a.id === 'guidance-only').description, /没有建立任何隧道/);
 });
 
 test('组装启动参数：本地配方产出 adapter=local + rules，且房主/加入者字段不同', () => {

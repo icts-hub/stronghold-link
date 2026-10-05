@@ -338,6 +338,8 @@ class SessionManager {
     this.steamModule = steamModule;
     this.state = STATES.IDLE;
     this.role = null;
+    /** 真实计数的采样序列（最多 60 点），停止时清空 */
+    this.samples = [];
     this.channels = [];
     this.relay = null; // 兼容字段：第一个通道
     this.config = null;
@@ -345,6 +347,7 @@ class SessionManager {
     this.security = securityProfile(false);
     this.lastError = null;
     this.warnings = [];
+    this.samples = [];
     this.logs = [];
     this.startedAt = null;
     this._pending = null;
@@ -386,7 +389,9 @@ class SessionManager {
 
   getSnapshot() {
     const totals = this._aggregate();
+    const metrics = this.state === STATES.RUNNING ? this._sampleMetrics(totals) : { rateToPeer: 0, rateFromPeer: 0, samples: this.samples.slice(-60) };
     return {
+      metrics,
       state: this.state,
       role: this.role,
       startedAt: this.startedAt,
@@ -558,7 +563,33 @@ class SessionManager {
         ? (role === 'host' ? newToken() : '')
         : String(input.authToken).trim(),
       maxConnections: intInRange(input.maxConnections ?? 16, 1, 64, '最大连接数'),
+      // 真实可调的超时（0 = 不启用空闲超时）；透传给 tcp/udp 中继
+      idleTimeoutMs: intInRange(input.idleTimeoutMs ?? 0, 0, 3600000, '空闲超时(ms)'),
+      connectTimeoutMs: intInRange(input.connectTimeoutMs ?? 8000, 500, 60000, '连接超时(ms)'),
     };
+  }
+
+  /**
+   * 采样真实计数的历史序列（供界面画速率曲线）。
+   * 数据只来自中继的真实累计计数，按调用时刻取差分得到 B/s；不做任何平滑或伪造。
+   * 最多保留 60 个点，只在会话运行期间累积。
+   */
+  _sampleMetrics(totals) {
+    const now = Date.now();
+    const last = this.samples.length ? this.samples[this.samples.length - 1] : null;
+    if (last && now - last.t < 200) {
+      return { rateToPeer: last.up, rateFromPeer: last.down, samples: this.samples.slice(-60) };
+    }
+    let up = 0;
+    let down = 0;
+    if (last) {
+      const seconds = Math.max(0.05, (now - last.t) / 1000);
+      up = Math.max(0, Math.round(((totals.bytesToPeer - last.totalUp) || 0) / seconds));
+      down = Math.max(0, Math.round(((totals.bytesFromPeer - last.totalDown) || 0) / seconds));
+    }
+    this.samples.push({ t: now, up, down, conns: totals.connections || 0, totalUp: totals.bytesToPeer || 0, totalDown: totals.bytesFromPeer || 0 });
+    if (this.samples.length > 60) this.samples.splice(0, this.samples.length - 60);
+    return { rateToPeer: up, rateFromPeer: down, samples: this.samples.slice(-60) };
   }
 
   async _preflight(rules, role, bindHost) {
@@ -569,7 +600,7 @@ class SessionManager {
     }
   }
 
-  async _openChannels(input, role, rules, bindHost, authToken, maxConnections) {
+  async _openChannels(input, role, rules, bindHost, authToken, maxConnections, timeouts = {}) {
     const targetHost = role === 'host' ? cleanString(input.targetHost || '127.0.0.1', '本地服务地址', 255) : null;
     const remoteHost = role === 'host' ? null : cleanString(input.remoteHost, '房主地址', 255);
     if (role === 'joiner' && remoteHost === '0.0.0.0') fail('EINVALIDHOST', '房主地址不能是 0.0.0.0，请填写房主的局域网 IP 或邀请码');
@@ -608,11 +639,11 @@ class SessionManager {
 
         channel.relay = role === 'host'
           ? (rule.protocol === 'UDP'
-            ? createUdpHost({ bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxClients: maxConnections, onEvent })
-            : createTcpHost({ bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxConnections, onEvent }))
+            ? createUdpHost({ bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxClients: maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, onEvent })
+            : createTcpHost({ bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, connectTimeoutMs: timeouts.connectTimeoutMs, onEvent }))
           : (rule.protocol === 'UDP'
-            ? createUdpJoiner({ bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxClients: maxConnections, onEvent })
-            : createTcpJoiner({ bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxConnections, onEvent }));
+            ? createUdpJoiner({ bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxClients: maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, onEvent })
+            : createTcpJoiner({ bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, connectTimeoutMs: timeouts.connectTimeoutMs, onEvent }));
 
         channels.push(channel);
         this.channels = channels; // 让 _teardownChannels 能回收已建立的通道
@@ -755,7 +786,7 @@ class SessionManager {
   async _startHost(input) {
     const base = this._channelOptions(input, 'host');
     const rules = normalizeRules(input, 'host');
-    const channels = await this._openChannels(input, 'host', rules, base.bindHost, base.authToken, base.maxConnections);
+    const channels = await this._openChannels(input, 'host', rules, base.bindHost, base.authToken, base.maxConnections, base);
 
     this.role = 'host';
     this.startedAt = Date.now();
@@ -766,6 +797,8 @@ class SessionManager {
       bindHost: base.bindHost,
       rules: rules.map((rule) => ({ ...rule })),
       maxConnections: base.maxConnections,
+      idleTimeoutMs: base.idleTimeoutMs,
+      connectTimeoutMs: base.connectTimeoutMs,
       hasToken: Boolean(base.authToken),
       // 单通道时保留旧的扁平字段，兼容既有界面与调用
       relayPort: rules[0].remotePort,
@@ -799,7 +832,7 @@ class SessionManager {
     const base = this._channelOptions(input, 'joiner');
     const rules = normalizeRules(input, 'joiner');
     const remoteHost = cleanString(input.remoteHost, '房主地址', 255);
-    const channels = await this._openChannels(input, 'joiner', rules, base.bindHost, base.authToken, base.maxConnections);
+    const channels = await this._openChannels(input, 'joiner', rules, base.bindHost, base.authToken, base.maxConnections, base);
 
     this.role = 'joiner';
     this.startedAt = Date.now();
@@ -808,6 +841,8 @@ class SessionManager {
       bindHost: base.bindHost,
       rules: rules.map((rule) => ({ ...rule })),
       maxConnections: base.maxConnections,
+      idleTimeoutMs: base.idleTimeoutMs,
+      connectTimeoutMs: base.connectTimeoutMs,
       hasToken: Boolean(base.authToken),
       localPort: rules[0].localPort,
       remoteHost,
