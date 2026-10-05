@@ -363,7 +363,34 @@ function registerIpc() {
       throw toIpcError(err);
     }
   });
-  ipcMain.handle('network:routes', async (event, input) => {
+  let routeWatch = null;
+ipcMain.handle('network:route-watch', async (event, input) => {
+  // 路由监看：按需启动/停止，状态由界面轮询读取（不新增事件通道）
+  const action = (input && input.action) || 'state';
+  try {
+    if (action === 'start') {
+      if (!routeWatch) {
+        const { createRelayRouteWatch } = require('../network/route/watch.cjs');
+        routeWatch = createRelayRouteWatch({
+          intervalMs: Number(input && input.intervalMs) || 15000,
+          pings: 4,
+          onRouteChanged: (ev) => console.log('[route] NETWORK_ROUTE_CHANGED ' + JSON.stringify(ev)),
+        });
+      }
+      routeWatch.start();
+      return { ok: true, ...routeWatch.snapshot() };
+    }
+    if (action === 'stop') {
+      if (routeWatch) routeWatch.stop();
+      return { ok: true, running: false, ...(routeWatch ? routeWatch.snapshot() : {}) };
+    }
+    return { ok: true, running: Boolean(routeWatch && routeWatch.running), ...(routeWatch ? routeWatch.snapshot() : {}) };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err), running: false };
+  }
+});
+
+ipcMain.handle('network:routes', async (event, input) => {
   // 返回候选路径清单：能力来自 Provider 注册表，分数来自真实测量（没有测量就是未测量）
   try {
     const registry = require('../network/providers/registry.cjs').createRegistry();
@@ -717,6 +744,11 @@ async function runProbe(dir) {
     await new Promise((r) => setTimeout(r, 1500));
     const routes = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routes({ measure: true }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
     console.log('[probe] 候选清单（真实测量） = ' + JSON.stringify((routes.candidates || []).map((c) => ({ id: c.id, display: c.display, measured: c.measured, reason: c.unmeasuredReason }))));
+    const watchStart = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'start', intervalMs: 3000 }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
+    await new Promise((r) => setTimeout(r, 4000));
+    const watchState = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'state' }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
+    const watchStop = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routeWatch({ action: 'stop' }); } catch (e) { return { ok: false }; } })()");
+    console.log('[probe] 路由监看（真实） = ' + JSON.stringify({ started: watchStart.running, polls: watchState.polls, current: watchState.current, score: watchState.currentScore, routeChanges: watchState.routeChanges, failures: watchState.measurement && watchState.measurement.failures, lastRtt: watchState.measurement && watchState.measurement.last && watchState.measurement.last.rtt, stopped: watchStop.running }));
     const diag = await win.webContents.executeJavaScript("(async () => { try { const r = await window.strongholdLink.network.routes({ measure: true }); return r.decision; } catch (e) { return { error: String(e && e.message || e) }; } })()");
     console.log('[probe] 路由决策（真实测量） = ' + JSON.stringify({ state: diag.state, current: diag.current, currentScore: diag.currentScore, routeChanges: diag.routeChanges, lastAction: diag.lastAction, lastReason: diag.lastReason, logCount: (diag.log || []).length, policy: diag.policy }));
     const relay = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.relaySelfTest(); } catch (e) { return { measured: false, reason: String(e && e.message || e) }; } })()");

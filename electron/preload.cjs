@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('strongholdLink', {
   network: {
     relaySelfTest: () => ipcRenderer.invoke('network:relay-selftest'),
     routes: (input) => ipcRenderer.invoke('network:routes', input || {}),
+    routeWatch: (input) => ipcRenderer.invoke('network:route-watch', input || {}),
   },
   steam: {
     diagnose: () => ipcRenderer.invoke('steam:diagnose'),

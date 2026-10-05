@@ -306,6 +306,10 @@
               <span class="tech" id="relaySelfTestOut">未测量 · 点上方按钮本机实测</span>
             </div>
             <div class="spec" id="routeDiag" style="margin-top:10px"></div>
+            <div class="row" style="margin-top:10px;gap:10px;align-items:center">
+              <button class="btn btn--sm" id="routeWatchBtn" type="button">START ROUTE WATCH</button>
+              <span class="tech" id="routeWatchOut">未运行 · 开启后每 15 秒真实测量一次中继并据此刻画选路</span>
+            </div>
 </div>
 
 <div class="c-7">
@@ -666,6 +670,31 @@ function renderRouteCandidates(list){
      +'</div>';
   }).join('');
 }
+var routeWatchTimer=null;
+function renderRouteWatch(st){
+  var el=$('routeWatchOut');var btn=$('routeWatchBtn');if(!el)return;
+  if(!st||!st.ok){el.textContent='监看不可用'+(st&&st.reason?' · '+st.reason:'');return;}
+  if(btn)btn.textContent=st.running?'STOP ROUTE WATCH':'START ROUTE WATCH';
+  if(!st.running){el.textContent='未运行 · 已探测 '+String(st.polls||0)+' 轮，切换 '+String(st.routeChanges||0)+' 次';return;}
+  var m=st.measurement||{};
+  var last=m.last?('RTT '+m.last.rtt+'ms · 抖动 '+m.last.jitter+'ms · 丢包 '+(m.last.packetLoss*100).toFixed(1)+'%'):'等待首个样本';
+  el.textContent='监看中 · 第 '+String(st.polls||0)+' 轮 · 当前 '+(st.current||'—')+'（'+String(st.currentScore===null||st.currentScore===undefined?'未测量':st.currentScore+' 分')+'）· 切换 '+String(st.routeChanges||0)+' 次 · 失败 '+String((m.failures||0))+' · '+last+' · 本机回环';
+}
+function pollRouteWatch(){
+  var api=window.strongholdLink&&window.strongholdLink.network;
+  if(!api||!api.routeWatch)return;
+  api.routeWatch({action:'state'}).then(function(st){renderRouteWatch(st);if(st&&st.running&&!routeWatchTimer){routeWatchTimer=setInterval(pollRouteWatch,5000);}if(st&&!st.running&&routeWatchTimer){clearInterval(routeWatchTimer);routeWatchTimer=null;}}).catch(function(){});
+}
+function initRouteWatch(){
+  var btn=$('routeWatchBtn');if(!btn)return;
+  btn.addEventListener('click',function(){
+    var api=window.strongholdLink&&window.strongholdLink.network;
+    if(!api||!api.routeWatch){var el=$('routeWatchOut');if(el)el.textContent='此环境未提供监看接口';return;}
+    var running=btn.textContent.indexOf('STOP')===0;
+    var out=$('routeWatchOut');if(out)out.textContent=running?'正在停止…':'正在启动（首次测量需要一点时间）…';
+    api.routeWatch({action:running?'stop':'start'}).then(function(st){renderRouteWatch(st);if(st&&st.running&&!routeWatchTimer)routeWatchTimer=setInterval(pollRouteWatch,5000);if(st&&!st.running&&routeWatchTimer){clearInterval(routeWatchTimer);routeWatchTimer=null;}}).catch(function(e){if(out)out.textContent='操作失败 · '+String(e&&e.message||e);});
+  });
+}
 function renderRouteDiag(decision){
   var el=$('routeDiag');if(!el)return;
   if(!decision){el.textContent='路由诊断未测量 · 无候选数据';return;}
@@ -751,7 +780,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
