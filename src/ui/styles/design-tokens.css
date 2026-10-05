@@ -139,9 +139,9 @@
   --parallax-far: 0.25;    /* 远层（背景网格）位移系数 */
   --parallax-mid: 0.5;     /* 中层（分区线/次要装饰） */
   --parallax-px: 6px;      /* 视差最大位移 */
-  --glass-blur: 8px;
-  --glass-saturate: 115%;
-  --depth-modal-blur: 14px;
+  --glass-blur: 13px;        /* 与线上一致：更厚的磨砂 */
+  --glass-saturate: 80%;     /* 线上是去饱和（.8），不是加饱和 */
+  --depth-modal-blur: 18px;
 
   --ease-smooth: cubic-bezier(0.6, 0.05, 0.2, 1);  /* smootherstep 近似，无回弹 */
   --ease-line: cubic-bezier(0.2, 0, 0, 1);         /* 线条生长 / 扫过 */

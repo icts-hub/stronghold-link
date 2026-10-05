@@ -820,6 +820,15 @@
 /* 大号读数：遥测里的关键数字用展示级字重与字距（瑞士风格的数字层级） */
 .readout { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3) 0; border-top: var(--bw) solid var(--hair); }
 .readout__k { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: var(--ls-micro); text-transform: uppercase; color: var(--ink-faint); }
-.readout__v { font-family: var(--font-mono); font-size: 26px; font-weight: var(--fw-light); line-height: 1.1; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.readout__v {
+  font-family: var(--font-mono);
+  font-size: clamp(30px, 3.1vw, 44px);
+  font-weight: var(--fw-light);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
 .readout__u { font-family: var(--font-latin); font-size: var(--fs-label); color: var(--ink-muted); margin-left: 6px; }
 .readout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 var(--sp-6); }

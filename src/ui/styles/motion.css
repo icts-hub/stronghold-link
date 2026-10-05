@@ -41,13 +41,20 @@
   will-change: transform;
 }
 /* 三维舞台画布：铺满窗口，位于内容之下（WebGL 不可用时元素不存在，自动退回上面的 CSS 网格） */
+.stage-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(var(--paper-rgb), 0.4), rgba(var(--paper-rgb), 0.56));
+  pointer-events: none;
+}
+
 .stage-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
-  opacity: 0.5;
+  opacity: 0.72;
 }
 
 /* 扫描带：1px 细线自上而下横穿，12s 一次，亮暗各一档亮度 */

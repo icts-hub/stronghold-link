@@ -53,6 +53,10 @@
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   host.insertBefore(canvas, host.firstChild);
+  // 画布之上压一层极薄纸色：正文始终落在安静的底上（舞台仍然可见）
+  var scrim = document.createElement('div');
+  scrim.className = 'stage-scrim';
+  host.insertBefore(scrim, canvas.nextSibling);
 
   var scene = new THREE.Scene();
   var camera = new THREE.PerspectiveCamera(38, 1, 1, 400);
@@ -119,7 +123,9 @@
     var line = rgb('--line-rgb', '170, 165, 154');
     scene.fog = new THREE.Fog(new THREE.Color(color(paper, 1)), 40, 150);
     material.color.set(color(ink, 1));
-    material.opacity = 0.13;
+    // 按底色亮度决定节点强度：浅底需要更实的深色方柱，深底需要更虚的浅色方柱
+    var luma = (paper[0] * 0.299 + paper[1] * 0.587 + paper[2] * 0.114) / 255;
+    material.opacity = luma > 0.5 ? 0.2 : 0.14;
     buildRoutes(accent, line);
     scan.material.color.set(color(accent, 1));
   }
