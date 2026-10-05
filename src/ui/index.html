@@ -864,6 +864,30 @@ function renderRoomSteps(s){
       + box.innerHTML;
   }
   if(!s.entryUrl&&!s.port){box.innerHTML='<div class="tech" style="display:block">房主：点「选择要转发的进程」选端口开局 → 邀请好友　|　加入者：点接受邀请 → 点「打开游戏」</div>'+box.innerHTML;}
+  // ---- 主操作按钮：按角色给出唯一明确的下一步 ----
+  try{
+    var roleNow=(lobbySnapshot&&lobbySnapshot.role)||null;
+    var hi=(lobbySnapshot&&lobbySnapshot.hostInfo)||null;
+    var portNow=s.port||s.hostPort||(lobbySnapshot&&lobbySnapshot.port)||(hi&&hi.port)||null;
+    var mainBtn='';
+    if(s.entryUrl){
+      var fullU=s.room?(s.entryUrl+'/?room='+encodeURIComponent(s.room)):s.entryUrl;
+      mainBtn='<button class="cmd is-accent" style="font-size:15px;padding:8px 14px" type="button" data-open-live="'+fullU+'">打开游戏'+(s.room?'并进入房间（'+s.room+'）':'')+'</button>';
+    }else if(roleNow==='joiner'){
+      mainBtn='<button class="cmd is-accent" style="font-size:15px;padding:8px 14px" type="button" data-connect-open="1">连接房主并打开游戏</button>';
+    }else if(portNow){
+      mainBtn='<button class="cmd is-accent" style="font-size:15px;padding:8px 14px" type="button" data-open-live="http://127.0.0.1:'+portNow+'/">打开本机游戏（房主建房）</button>';
+    }
+    if(mainBtn){
+      box.innerHTML='<div style="margin-bottom:8px">'+mainBtn+'</div>'
+        + '<div class="tech" style="display:block;margin-bottom:8px">'
+        + (roleNow==='joiner'
+            ? '好友：点上面的按钮即可（会自动建好隧道并打开游戏）。不要在本机启动游戏。'
+            : '房主：点上面的按钮打开游戏建房，然后把房间号写进大厅、点好友的 INVITE。')
+        + '</div>'
+        + box.innerHTML;
+    }
+  }catch(_){}
   if(s.entryUrl){
     var full=s.room?(s.entryUrl+'/?room='+encodeURIComponent(s.room)):s.entryUrl;
     box.innerHTML='<div class="tech" style="display:block;margin-bottom:8px">好友端：点下面的按钮自动用浏览器打开房主的服务器'
@@ -882,6 +906,27 @@ function renderRoomSteps(s){
       + '<div class="tech" style="display:block;margin-top:4px">'+s.inviteLine+'</div>';
   }
   box.onclick=function(e){
+    var co=e.target&&e.target.closest?e.target.closest('[data-connect-open]'):null;
+    if(co){
+      var apiC=window.strongholdLink&&window.strongholdLink.lobby;
+      if(!apiC||!apiC.connect){toast('此环境未提供连接接口');return;}
+      toast('正在连接房主…（若本机有旧会话会自动停掉）');
+      apiC.connect({fix:true}).then(function(r5){
+        if(r5&&r5.ok&&r5.entryUrl){
+          var u5=r5.room?(r5.entryUrl+'/?room='+encodeURIComponent(r5.room)):r5.entryUrl;
+          lobbyLog('隧道已建立：'+u5,'ok');
+          renderRoomSteps({entryUrl:r5.entryUrl,room:r5.room||null});
+          var apiO=window.strongholdLink&&window.strongholdLink.network;
+          if(apiO&&apiO.openUrl)apiO.openUrl(u5).then(function(){toast('已用浏览器打开 '+u5);});
+          else toast('已就绪：'+u5);
+        }else{
+          lobbyLog('连接失败：'+((r5&&r5.reason)||''),'error');
+          toast('连接失败：'+((r5&&r5.reason)||''));
+          renderRoomSteps({manualPrompt:true});
+        }
+      }).catch(function(e5){toast('连接出错：'+(e5.message||e5));});
+      return;
+    }
     var mj=e.target&&e.target.closest?e.target.closest('[data-manual-join]'):null;
     if(mj){
       var hid=($('manualHostId')||{}).value||'', mp=($('manualPort')||{}).value||'';
