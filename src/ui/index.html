@@ -637,6 +637,41 @@ function currentRouteInfo(){
  const protos=[...new Set(rules.map(r=>r.protocol))].join(' / ')||'TCP / UDP';
  return{id:'local',label:'STRONGHOLD LOCAL RELAY',mode:protos+' LOCAL RELAY',hops:['—','—'],active:'local'};
 }
+function renderRouteCandidates(list){
+  var box=$('routeCandidates');if(!box||!list||!list.length)return;
+  var info=currentRouteInfo();
+  box.innerHTML=list.map(function(c,i){
+    var tag=(c.capabilities&&c.capabilities.transports||[]).join(' / ')||'—';
+    var flags=[];
+    if(c.capabilities&&c.capabilities.unreliable)flags.push('不可靠');
+    if(c.capabilities&&c.capabilities.reliable)flags.push('可靠');
+    if(c.capabilities&&c.capabilities.p2p)flags.push('点对点');
+    if(c.capabilities&&c.capabilities.encryption==='none')flags.push('载荷未加密');
+    else if(c.capabilities&&c.capabilities.encryption==='steam-transport')flags.push('Steam 传输层加密');
+    else if(c.capabilities&&c.capabilities.encryption==='psk-aead')flags.push('会话口令加密');
+    var inUse=(info.id==='local'&&c.kind==='relay')||(info.id==='steam'&&c.kind==='steam');
+    var measured=Boolean(c.measured);
+    return '<div class="trow" style="cursor:default">'
+     +'<span class="trow__idx">'+String(i+1).padStart(2,'0')+'</span>'
+     +'<div class="trow__main">'
+     +'<div class="trow__title">'+esc(c.name)+(inUse?' <span class="t-invert" style="margin-left:8px">IN USE</span>':'')+'</div>'
+     +'<div class="trow__desc">'+esc(measured?(c.reasons||[]).join(' · '):(c.unmeasuredReason||'本机无法测量'))+'</div>'
+     +'<div class="trow__facts">'
+     +'<span class="trow__fact"><b>Transport</b><span>'+esc(tag)+'</span></span>'
+     +'<span class="trow__fact"><b>Profile</b><span>'+esc(flags.join(' / ')||'—')+'</span></span>'
+     +'</div></div>'
+     +'<div class="trow__side"><span class="status '+(measured?'is-online':'is-warn')+'" data-status="'+(measured?'measured':'unmeasured')+'">'
+     +'<i class="status__dot"></i>'+esc(measured?(c.score+' 分'):'未测量')+'</span></div>'
+     +'</div>';
+  }).join('');
+}
+function refreshRouteCandidates(measure){
+  var api=window.strongholdLink&&window.strongholdLink.network;
+  if(!api||!api.routes)return;
+  api.routes({measure:Boolean(measure)}).then(function(out){
+    if(out&&out.ok)renderRouteCandidates(out.candidates);
+  }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
+}
 function renderRelaySelfTest(out){
   var el=$('relaySelfTestOut');if(!el)return;
   if(!out){el.textContent='未测量 · 点上方按钮本机实测';return;}
@@ -650,7 +685,7 @@ function initRelaySelfTest(){
     var out=$('relaySelfTestOut');
     if(!api||!api.relaySelfTest){if(out)out.textContent='此环境未提供自检接口';return;}
     if(out)out.textContent='测量中…';
-    api.relaySelfTest().then(function(r){renderRelaySelfTest(r);}).catch(function(e){renderRelaySelfTest({measured:false,reason:String(e&&e.message||e)});});
+    api.relaySelfTest().then(function(r){renderRelaySelfTest(r);refreshRouteCandidates(true);}).catch(function(e){renderRelaySelfTest({measured:false,reason:String(e&&e.message||e)});});
   });
 }
 function renderRoute(){
@@ -697,7 +732,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();
+ renderRoute();renderNetEvents();initRelaySelfTest();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。

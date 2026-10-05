@@ -363,7 +363,33 @@ function registerIpc() {
       throw toIpcError(err);
     }
   });
-  ipcMain.handle('network:relay-selftest', async () => {
+  ipcMain.handle('network:routes', async (event, input) => {
+  // 返回候选路径清单：能力来自 Provider 注册表，分数来自真实测量（没有测量就是未测量）
+  try {
+    const registry = require('../network/providers/registry.cjs').createRegistry();
+    require('../network/providers/local-relay.cjs').registerLocalRelayProviders(registry);
+    require('../network/providers/steam-p2p.cjs').registerSteamProvider(registry);
+    require('../network/providers/direct-udp.cjs').registerDirectUDPProvider(registry);
+    require('../network/providers/sl-relay.cjs').registerSlRelayProvider(registry);
+    const providers = registry.describeAll ? registry.describeAll() : registry.list();
+    const qualityById = {};
+    if (input && input.measure) {
+      const { runRelaySelfTest } = require('../network/relay/selftest.cjs');
+      const measured = await runRelaySelfTest({ pings: 6 });
+      if (measured && measured.measured) {
+        for (const id of ['sl-relay-host', 'sl-relay-joiner']) {
+          qualityById[id] = { rtt: measured.rtt, packetLoss: measured.packetLoss, jitter: measured.jitter, measured: true, samples: measured.samples };
+        }
+      }
+    }
+    const { describeRouteCandidates } = require('../network/routes.cjs');
+    return { ok: true, ...describeRouteCandidates({ providers, qualityById }) };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err), candidates: [], measuredCount: 0, total: 0 };
+  }
+});
+
+ipcMain.handle('network:relay-selftest', async () => {
   // 本机真实测量：起临时中继服务端 + 两个客户端，测 RTT/抖动/丢包后全部关停
   try {
     const { runRelaySelfTest } = require('../network/relay/selftest.cjs');
@@ -679,6 +705,8 @@ async function runProbe(dir) {
   try {
     // 1) 启动序列：截到中途，并读出真实步骤文本
     await new Promise((r) => setTimeout(r, 1500));
+    const routes = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routes({ measure: true }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
+    console.log('[probe] 候选清单（真实测量） = ' + JSON.stringify((routes.candidates || []).map((c) => ({ id: c.id, display: c.display, measured: c.measured, reason: c.unmeasuredReason }))));
     const relay = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.relaySelfTest(); } catch (e) { return { measured: false, reason: String(e && e.message || e) }; } })()");
     console.log('[probe] 中继自检（真实测量） = ' + JSON.stringify({ measured: relay.measured, rtt: relay.rtt, jitter: relay.jitter, packetLoss: relay.packetLoss, samples: relay.samples, delivered: relay.delivered, scope: relay.scope, reason: relay.reason }));
     const boot = await win.webContents.executeJavaScript(`({
