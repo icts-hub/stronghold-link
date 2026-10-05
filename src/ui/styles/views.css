@@ -81,7 +81,7 @@
   padding: 0 var(--gutter);
   border-bottom: var(--bw) solid var(--hair);
   background: rgba(var(--paper-rgb), 0.9);
-  backdrop-filter: blur(6px) saturate(115%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 .brand {
   display: flex;
@@ -133,7 +133,7 @@
   padding: 0 var(--gutter);
   border-top: var(--bw) solid var(--hair);
   background: rgba(var(--paper-rgb), 0.9);
-  backdrop-filter: blur(6px) saturate(115%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   font-family: var(--font-latin);
   font-size: var(--fs-micro);
   letter-spacing: var(--ls-micro);

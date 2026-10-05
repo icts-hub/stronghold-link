@@ -276,3 +276,40 @@ body.is-hidden .bg__scan { animation-play-state: paused; }
   html:not(.force-motion) .view.is-leaving { display: none !important; }
   html:not(.force-motion) .wave__cursor { transition: none !important; }
 }
+
+/* L8+ · 解密揭示（DECRYPT REVEAL）
+   新页不是"淡入"，而是从模糊到清晰、同时一条斜向合拢线扫过，像解密完成。
+   一次转场只播一次；跟随系统"减少动态效果"（在文件末尾的统一兜底里也会关掉）。 */
+@keyframes sl-decrypt-in {
+  from { opacity: 0; filter: blur(11px); transform: translateY(7px); }
+  60%  { opacity: 1; filter: blur(2.5px); }
+  to   { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes sl-decrypt-out {
+  from { opacity: 1; filter: blur(0); }
+  to   { opacity: 0; filter: blur(7px); }
+}
+@keyframes sl-scan-wipe {
+  from { transform: translateX(-38%) skewX(-14deg); opacity: 0; }
+  22%  { opacity: .85; }
+  to   { transform: translateX(38%) skewX(-14deg); opacity: 0; }
+}
+.view.active { animation: sl-decrypt-in var(--mo-enter) var(--ease-smooth) both; }
+.view.is-leaving { animation: sl-decrypt-out var(--mo-swap) var(--ease-smooth) both; }
+.view.active::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(102deg,
+    transparent 44%,
+    rgba(var(--accent-rgb), 0.30) 49%,
+    rgba(var(--paper-rgb), 0.55) 51%,
+    transparent 56%);
+  animation: sl-scan-wipe var(--mo-enter) var(--ease-smooth) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .view.active, .view.is-leaving { animation: none; }
+  .view.active::after { display: none; }
+}
