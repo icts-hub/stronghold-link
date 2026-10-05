@@ -19,9 +19,9 @@ const dgram = require('node:dgram');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { withPortOwner, describeError } = require('./errors.cjs');
-const { createTcpHost, createTcpJoiner } = require('./tcp-relay.cjs');
-const { createUdpHost, createUdpJoiner } = require('./udp-relay.cjs');
-const { createSteamHost, createSteamJoiner, STEAM_ID_PATTERN } = require('./steam-adapter.cjs');
+const { createLocalRelayProvider } = require('./providers/local-relay.cjs');
+const { createSteamP2PProvider } = require('./providers/steam-p2p.cjs');
+const { STEAM_ID_PATTERN } = require('./steam-adapter.cjs');
 const { diagnoseSteam } = require('./steam-env.cjs');
 const { describeHints, getRecipe } = require('./adapters.cjs');
 
@@ -312,6 +312,36 @@ function probeUdpPort(host, port) {
   return checkUdpPortFree(port, host).then((result) => !result.free);
 }
 
+/**
+ * 通道统计：统一从 Provider 取。
+ * Provider 内部镜像内核的计数（network/stats.cjs），所以这里读到的仍是内核的真实数字；
+ * 字段名与重构前保持一致，界面与 RouteManager 不需要跟着改。
+ */
+function channelStats(channel) {
+  const empty = {
+    connections: 0, totalConnections: 0, rejected: 0, failed: 0,
+    bytesToPeer: 0, bytesFromPeer: 0, packetsToPeer: 0, packetsFromPeer: 0,
+    encrypted: false, sessionId: null, totalPeers: 0, rateToPeer: 0, rateFromPeer: 0,
+  };
+  if (!channel || !channel.provider || typeof channel.provider.getStats !== 'function') return empty;
+  const s = channel.provider.getStats() || {};
+  return {
+    connections: s.connections || 0,
+    totalConnections: s.totalConnections || 0,
+    rejected: s.rejected || 0,
+    failed: s.failed || 0,
+    bytesToPeer: s.bytesToPeer || 0,
+    bytesFromPeer: s.bytesFromPeer || 0,
+    packetsToPeer: s.packetsToPeer || 0,
+    packetsFromPeer: s.packetsFromPeer || 0,
+    encrypted: Boolean(s.encrypted),
+    sessionId: s.sessionId || null,
+    totalPeers: s.totalPeers || 0,
+    rateToPeer: s.rateToPeer || 0,
+    rateFromPeer: s.rateFromPeer || 0,
+  };
+}
+
 function newStats() {
   return { connections: 0, totalConnections: 0, rejected: 0, failed: 0, bytesToPeer: 0, bytesFromPeer: 0, packetsToPeer: 0, packetsFromPeer: 0 };
 }
@@ -341,7 +371,7 @@ class SessionManager {
     /** 真实计数的采样序列（最多 60 点），停止时清空 */
     this.samples = [];
     this.channels = [];
-    this.relay = null; // 兼容字段：第一个通道
+    this.relay = null; // 兼容字段：第一个通道的 Provider（P3 起 relay 即 provider）
     this.config = null;
     this.invite = null;
     this.security = securityProfile(false);
@@ -374,7 +404,7 @@ class SessionManager {
   _aggregate() {
     const total = newStats();
     for (const channel of this.channels) {
-      const s = channel.relay.stats;
+      const s = channelStats(channel);
       total.connections += s.connections || 0;
       total.totalConnections += s.totalConnections || 0;
       total.rejected += s.rejected || 0;
@@ -406,18 +436,8 @@ class SessionManager {
         listen: channel.listen,
         peer: channel.peer,
         steamId: channel.steamId || null,
-        stats: {
-          connections: channel.relay.stats.connections || 0,
-          totalConnections: channel.relay.stats.totalConnections || 0,
-          rejected: channel.relay.stats.rejected || 0,
-          failed: channel.relay.stats.failed || 0,
-          bytesToPeer: channel.relay.stats.bytesToPeer || 0,
-          bytesFromPeer: channel.relay.stats.bytesFromPeer || 0,
-          packetsToPeer: channel.relay.stats.packetsToPeer || 0,
-          packetsFromPeer: channel.relay.stats.packetsFromPeer || 0,
-          encrypted: Boolean(channel.relay.stats.encrypted),
-          sessionId: channel.relay.stats.sessionId || null,
-        },
+        provider: channel.provider ? channel.provider.id : null,
+        stats: channelStats(channel),
       })),
       ...totals,
       logs: this.logs.slice(-40),
@@ -634,20 +654,23 @@ class SessionManager {
         const peerPort = role === 'host' ? rule.localPort : rule.remotePort;
         const peerHost = role === 'host' ? targetHost : remoteHost;
         // 先建通道占位，再创建中继，这样事件回调能带上通道上下文（日志里显示协议与端口）。
-        const channel = { rule, listen: { host: bindHost, port: listenPort }, peer: { host: peerHost, port: peerPort }, relay: null };
-        const onEvent = (type, payload) => this._handleRelayEvent(type, payload, channel);
+        const channel = { rule, listen: { host: bindHost, port: listenPort }, peer: { host: peerHost, port: peerPort }, provider: null };
 
-        channel.relay = role === 'host'
+        // 统一走 Provider：session 不再关心底层是 TCP/UDP/Steam 内核
+        const relayOptions = role === 'host'
           ? (rule.protocol === 'UDP'
-            ? createUdpHost({ bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxClients: maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, onEvent })
-            : createTcpHost({ bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, connectTimeoutMs: timeouts.connectTimeoutMs, onEvent }))
+            ? { bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxClients: maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs }
+            : { bindHost, relayPort: listenPort, targetHost, targetPort: rule.localPort, authToken, maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, connectTimeoutMs: timeouts.connectTimeoutMs })
           : (rule.protocol === 'UDP'
-            ? createUdpJoiner({ bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxClients: maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, onEvent })
-            : createTcpJoiner({ bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, connectTimeoutMs: timeouts.connectTimeoutMs, onEvent }));
+            ? { bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxClients: maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs }
+            : { bindHost, localPort: listenPort, host: remoteHost, relayPort: rule.remotePort, authToken, maxConnections, idleTimeoutMs: timeouts.idleTimeoutMs, connectTimeoutMs: timeouts.connectTimeoutMs });
+        channel.provider = createLocalRelayProvider({ role, protocol: rule.protocol, options: relayOptions });
+        channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));
 
         channels.push(channel);
         this.channels = channels; // 让 _teardownChannels 能回收已建立的通道
-        await this._awaitReady(channel.relay, { host: bindHost, port: listenPort, protocol: rule.protocol });
+        await channel.provider.start({});
+        await this._awaitReady(channel.provider, { host: bindHost, port: listenPort, protocol: rule.protocol });
         this.log(`${this._label(channel)} 通道就绪`, 'ok');
       }
     } catch (err) {
@@ -677,21 +700,25 @@ class SessionManager {
         rule: { protocol: 'STEAM', localPort: gamePort, remotePort: 0 },
         listen: { host: 'steam', port: 0 },
         peer: { host: gameHost, port: gamePort },
-        relay: null,
+        provider: null,
         steamId: null,
       };
       this.channels = [channel];
-      channel.relay = createSteamHost({
-        appDir: this.appDir,
-        appId,
-        sdk: this.steamSdk,
-        steamModule: this.steamModule,
-        gameHost,
-        gamePort,
-        maxPeers: base.maxConnections,
-        onEvent: (type, payload) => this._handleRelayEvent(type, payload, channel),
+      channel.provider = createSteamP2PProvider({
+        role: 'host',
+        options: {
+          appDir: this.appDir,
+          appId,
+          sdk: this.steamSdk,
+          steamModule: this.steamModule,
+          gameHost,
+          gamePort,
+          maxPeers: base.maxConnections,
+        },
       });
-      const info = await this._awaitReady(channel.relay, { host: 'steam', port: 0, protocol: 'STEAM' });
+      channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));
+      await channel.provider.start({});
+      const info = await this._awaitReady(channel.provider, { host: 'steam', port: 0, protocol: 'STEAM' });
       channel.steamId = info.steamId || null;
 
       this.role = 'host';
@@ -724,21 +751,25 @@ class SessionManager {
       rule: { protocol: 'STEAM', localPort, remotePort: 0 },
       listen: { host: base.bindHost, port: localPort },
       peer: { host: hostSteamId, port: 0 },
-      relay: null,
+      provider: null,
       steamId: hostSteamId,
     };
     this.channels = [channel];
-    channel.relay = createSteamJoiner({
-      appDir: this.appDir,
-      appId,
-      sdk: this.steamSdk,
-      steamModule: this.steamModule,
-      bindHost: base.bindHost,
-      localPort,
-      hostSteamId,
-      onEvent: (type, payload) => this._handleRelayEvent(type, payload, channel),
+    channel.provider = createSteamP2PProvider({
+      role: 'joiner',
+      options: {
+        appDir: this.appDir,
+        appId,
+        sdk: this.steamSdk,
+        steamModule: this.steamModule,
+        bindHost: base.bindHost,
+        localPort,
+        hostSteamId,
+      },
     });
-    await this._awaitReady(channel.relay, { host: base.bindHost, port: localPort, protocol: 'STEAM' });
+    channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));
+    await channel.provider.start({});
+    await this._awaitReady(channel.provider, { host: base.bindHost, port: localPort, protocol: 'STEAM' });
 
     this.role = 'joiner';
     this.startedAt = Date.now();
@@ -883,8 +914,8 @@ class SessionManager {
     this.channels = [];
     this.relay = null;
     for (const channel of channels) {
-      if (!channel.relay) continue;
-      try { await channel.relay.stop(); } catch { /* 停止失败不阻断状态复位 */ }
+      if (!channel.provider) continue;
+      try { await channel.provider.stop(); } catch { /* 停止失败不阻断状态复位 */ }
     }
   }
 
@@ -919,7 +950,7 @@ class SessionManager {
     this.config = null;
     this.invite = null;
     for (const channel of channels) {
-      try { if (channel.relay) channel.relay.stop(); } catch { /* 退出路径，忽略 */ }
+      try { if (channel.provider) channel.provider.stop(); } catch { /* 退出路径，忽略 */ }
     }
   }
 }

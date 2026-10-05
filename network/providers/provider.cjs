@@ -149,6 +149,11 @@ function createProvider({ id, name, capabilities, implementation = {} }) {
     try {
       const result = typeof implementation.start === 'function' ? await implementation.start(input) : { transport: null };
       startedAt = Date.now();
+      if (implementation.deferReady === true) {
+        // 就绪由实现驱动（例如内核的 ready promise）：包装层不抢跑，
+        // 免得端口还没监听就对外宣称 READY。
+        return result;
+      }
       setState(PROVIDER_STATES.READY);
       emit('ready', { result });
       return result;
@@ -240,6 +245,14 @@ function createProvider({ id, name, capabilities, implementation = {} }) {
     return own;
   }
 
+  /** 由实现调用：确认真正就绪（配合 implementation.deferReady）。 */
+  function markReady(result) {
+    startedAt = startedAt || Date.now();
+    setState(PROVIDER_STATES.READY);
+    emit('ready', { result });
+    return true;
+  }
+
   const provider = {
     id,
     name: name || id,
@@ -259,6 +272,7 @@ function createProvider({ id, name, capabilities, implementation = {} }) {
     _quality: quality,
     _emit: emit,
     _fail: fail,
+    _markReady: markReady,
   };
 
   // 允许实现通过 implementation.attach(provider) 拿到包装后的对象（用于反向接线）
