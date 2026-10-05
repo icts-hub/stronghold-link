@@ -383,7 +383,17 @@ function registerIpc() {
       }
     }
     const { describeRouteCandidates } = require('../network/routes.cjs');
-    return { ok: true, ...describeRouteCandidates({ providers, qualityById }) };
+    const described = describeRouteCandidates({ providers, qualityById });
+
+    // 用同一份候选跑一次决策：让界面能看到"现在选哪条、为什么、策略是什么"
+    const { createRouteManager } = require('../network/route/manager.cjs');
+    const manager = createRouteManager({ now: Date.now });
+    manager.setCandidates(described.candidates.map((c) => ({ id: c.id, name: c.name })));
+    for (const c of described.candidates) {
+      if (c.measured && c.quality) manager.update(c.id, c.quality);
+    }
+    const decision = manager.tick();
+    return { ok: true, ...described, decision: { ...manager.snapshot(), lastAction: decision.action, lastReason: decision.reason } };
   } catch (err) {
     return { ok: false, reason: String(err && err.message ? err.message : err), candidates: [], measuredCount: 0, total: 0 };
   }
@@ -707,6 +717,8 @@ async function runProbe(dir) {
     await new Promise((r) => setTimeout(r, 1500));
     const routes = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.routes({ measure: true }); } catch (e) { return { ok: false, reason: String(e && e.message || e) }; } })()");
     console.log('[probe] 候选清单（真实测量） = ' + JSON.stringify((routes.candidates || []).map((c) => ({ id: c.id, display: c.display, measured: c.measured, reason: c.unmeasuredReason }))));
+    const diag = await win.webContents.executeJavaScript("(async () => { try { const r = await window.strongholdLink.network.routes({ measure: true }); return r.decision; } catch (e) { return { error: String(e && e.message || e) }; } })()");
+    console.log('[probe] 路由决策（真实测量） = ' + JSON.stringify({ state: diag.state, current: diag.current, currentScore: diag.currentScore, routeChanges: diag.routeChanges, lastAction: diag.lastAction, lastReason: diag.lastReason, logCount: (diag.log || []).length, policy: diag.policy }));
     const relay = await win.webContents.executeJavaScript("(async () => { try { return await window.strongholdLink.network.relaySelfTest(); } catch (e) { return { measured: false, reason: String(e && e.message || e) }; } })()");
     console.log('[probe] 中继自检（真实测量） = ' + JSON.stringify({ measured: relay.measured, rtt: relay.rtt, jitter: relay.jitter, packetLoss: relay.packetLoss, samples: relay.samples, delivered: relay.delivered, scope: relay.scope, reason: relay.reason }));
     const boot = await win.webContents.executeJavaScript(`({

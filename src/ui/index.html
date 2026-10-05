@@ -305,6 +305,7 @@
               <button class="btn btn--sm" id="relaySelfTestBtn" type="button">RUN RELAY SELF-TEST</button>
               <span class="tech" id="relaySelfTestOut">未测量 · 点上方按钮本机实测</span>
             </div>
+            <div class="spec" id="routeDiag" style="margin-top:10px"></div>
 </div>
 
 <div class="c-7">
@@ -665,11 +666,29 @@ function renderRouteCandidates(list){
      +'</div>';
   }).join('');
 }
+function renderRouteDiag(decision){
+  var el=$('routeDiag');if(!el)return;
+  if(!decision){el.textContent='路由诊断未测量 · 无候选数据';return;}
+  var p=decision.policy||{};
+  var ranked=(decision.ranking||[]).map(function(r){return r.name+' '+r.score;}).join(' · ')||'（没有已测量的候选）';
+  var log=(decision.log||[]).slice(-3).map(function(e){
+    var t=new Date(e.at||Date.now());var hh=('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);
+    return hh+' '+(e.type||'')+(e.reason?' · '+e.reason:'');
+  });
+  var lines=[
+    'STATE  '+String(decision.state||'—').toUpperCase()+'   ·   CURRENT  '+(decision.current||'—')+'   ·   切换次数 '+String(decision.routeChanges||0),
+    'RANKING  '+ranked,
+    'POLICY  阈值 '+p.degradeBelow+' 分 · 滞回 '+p.switchMargin+' 分 · 观察窗 '+Math.round((p.minObservationMs||0)/1000)+'s · 冷却 '+Math.round((p.cooldownMs||0)/1000)+'s',
+    'DECISION  '+String(decision.lastAction||'—').toUpperCase()+' · '+(decision.lastReason||'—')
+  ];
+  log.forEach(function(l){lines.push('LOG  '+l);});
+  el.innerHTML=lines.map(function(l){return '<div class="tech" style="display:block">'+esc(l)+'</div>';}).join('');
+}
 function refreshRouteCandidates(measure){
   var api=window.strongholdLink&&window.strongholdLink.network;
   if(!api||!api.routes)return;
   api.routes({measure:Boolean(measure)}).then(function(out){
-    if(out&&out.ok)renderRouteCandidates(out.candidates);
+    if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);}
   }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
 }
 function renderRelaySelfTest(out){
