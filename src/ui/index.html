@@ -845,6 +845,7 @@ function renderRoomSteps(s){
       + (x.ok?'<span class="t-invert">就绪</span>':'<span class="tech">待办</span>')
       + '</div>';
   }).join('');
+  box.innerHTML='<div class="tech" style="display:block;margin-bottom:6px">好友端：<b>不要在本机启动游戏</b>（那会跑你自己的服务器、也抢 3000 端口）。只用浏览器打开我们给的地址即可，游戏由房主那边提供。</div>'+box.innerHTML;
   if(s.manualPrompt===undefined&&!s.entryUrl&&!s.port){
     // 加入者默认也给直连通道：不依赖大厅，等价于 SESSION 页手动配置
     s.manualPrompt=true;

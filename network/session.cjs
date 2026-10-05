@@ -642,8 +642,13 @@ class SessionManager {
       const result = await this.checkPort({ port: listenPort, host: bindHost, protocol: rule.protocol });
       if (!result.free) {
         const base = `${rule.protocol} 端口 ${listenPort} 无法使用：${result.friendly}`;
+        const owner = String(result.owner || result.friendly || '');
+        const isGameLike = /node\.exe|stronghold|卫戍/i.test(owner);
         const hint = role === 'joiner'
-          ? '。入口端口随便换一个即可（例如 8080）：它只是你本机的入口，和房主的游戏端口不需要相同，也不用和房主填一样的数字。'
+          ? (isGameLike
+              // 好友本机跑了游戏服务：这是联机失败的经典原因，必须说清而不是让他换端口了事
+              ? '。看起来你本机也在运行游戏服务：玩联机时**不需要**在好友这边启动游戏 —— 关掉本机的游戏窗口，然后直接用浏览器打开隧道地址（界面会给出 http://127.0.0.1:<入口端口>），游戏会从房主那边送过来。'
+              : '。入口端口可以换一个（例如 8080）：它只是你本机的入口，只要浏览器打开**同一个**端口即可。')
           : '。请把「对好友开放的端口」换成别的（例如 ' + (listenPort + 1) + '）。';
         fail(result.code || 'EADDRINUSE', withPortOwner(base + hint, listenPort));
       }
