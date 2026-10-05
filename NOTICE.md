@@ -9,6 +9,12 @@
 | [koffi](https://koffi.dev/) | MIT | FFI 运行时（steamworks-ffi-node 依赖） |
 | [Steamworks SDK](https://partner.steamgames.com/) | Valve 专有 | **不随本项目分发**，需使用者自行获取 |
 
+## 内置前端库
+
+| 组件 | 许可 | 用途 |
+| --- | --- | --- |
+| [Three.js](https://threejs.org/) r186 | MIT | 界面三维舞台。构建期依赖（devDependencies），运行时使用 `src/ui/vendor/three.min.js` 单文件产物，重新生成：`npm run vendor:three` |
+
 ## 内置字体
 
 界面字体全部随应用本地分发（不访问网络），并按下面的许可保留署名：

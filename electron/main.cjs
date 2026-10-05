@@ -673,7 +673,8 @@ async function runProbe(dir) {
       open: !!(document.getElementById('bootScreen')||{}).classList && document.getElementById('bootScreen').classList.contains('open'),
       rows: Array.from(document.querySelectorAll('.boot__row')).map(function(r){return r.textContent.trim()}),
       count: (document.getElementById('bootCount')||{}).textContent,
-      status: (document.getElementById('bootStatus')||{}).textContent
+      status: (document.getElementById('bootStatus')||{}).textContent,
+      three: (typeof window.THREE !== 'undefined') ? ('r' + window.THREE.REVISION) : 'MISSING'
     })`);
     await fs.writeFile(path.join(dir, 'boot-mid.png'), (await win.webContents.capturePage()).toPNG());
     // 2) 等启动序列结束
@@ -689,7 +690,7 @@ async function runProbe(dir) {
     await new Promise((r) => setTimeout(r, 420));
     const active = await win.webContents.executeJavaScript("(function(){var v=document.querySelector('.view.active');return {id:v?v.id:null,nav:document.querySelector('[data-view].active').dataset.view}})()");
     await fs.writeFile(path.join(dir, 'after-transition.png'), (await win.webContents.capturePage()).toPNG());
-    console.log('[probe] 启动序列进行中 = ' + boot.open + '  计数 = ' + boot.count + '  当前行 = ' + boot.status);
+    console.log('[probe] 启动序列进行中 = ' + boot.open + '  计数 = ' + boot.count + '  当前行 = ' + boot.status + '  Three = ' + boot.three);
     for (const row of boot.rows) console.log('         ' + row);
     console.log('[probe] 启动结束后 className = "' + afterBoot + '"（应不含 open）');
     console.log('[probe] 视差 --px = ' + String(parallax.px).trim() + '  --py = ' + String(parallax.py).trim() + '  远层 transform = ' + parallax.far);

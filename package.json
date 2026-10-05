@@ -11,11 +11,14 @@
     "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs test/providers.test.cjs test/quality.test.cjs",
     "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs test/providers.test.cjs test/quality.test.cjs",
     "build": "electron-builder --win nsis",
-    "build:dir": "electron-builder --win --dir"
+    "build:dir": "electron-builder --win --dir",
+    "vendor:three": "node tools/vendor-three.cjs"
   },
   "devDependencies": {
     "electron": "39.8.10",
-    "electron-builder": "^26.0.0"
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.28.2",
+    "three": "^0.186.1"
   },
   "optionalDependencies": {
     "steamworks-ffi-node": "^0.11.3"
