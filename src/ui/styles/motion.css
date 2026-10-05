@@ -40,6 +40,16 @@
   animation: sl-drift var(--mo-bg-drift) linear infinite;
   will-change: transform;
 }
+/* 三维舞台画布：铺满窗口，位于内容之下（WebGL 不可用时元素不存在，自动退回上面的 CSS 网格） */
+.stage-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0.9;
+}
+
 /* 扫描带：1px 细线自上而下横穿，12s 一次，亮暗各一档亮度 */
 .bg__scan {
   position: absolute;
