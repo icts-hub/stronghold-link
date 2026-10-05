@@ -749,6 +749,7 @@ async function runMatrix(dir) {
   const shotViews = ["library", "session"];
   const win = createWindow({ show: true, query: { capture: "1", ...(FORCE_MOTION ? { motion: "force" } : {}) } });
   mainWindow = win;
+  startMemoryWatch();   // 启动总内存看护（超阈值降级 / 重载）
   win.setPosition(20, 20);
   win.setAlwaysOnTop(true);
   win.webContents.on("console-message", (_e, level, message, line, source) => { if (level >= 2) issues.push(source + ":" + line + " " + message); });
@@ -927,7 +928,8 @@ async function runProbe(dir) {
   console.log('[probe] 网络页包流 = ' + JSON.stringify(silk2));
   console.log('[probe] 待机运动 = nodes:' + boot.ambientNodes + ' orbits:' + boot.ambientOrbits + ' flows:' + boot.ambientFlows + ' idleT:' + boot.idleT + ' phase:' + boot.idlePhase);
   console.log('[probe] 分层速度 = grid:' + boot.gridDur + ' | glow:' + boot.glowDur + ' | orbit:' + boot.orbitDur + ' | flow:' + boot.flowDur + ' | node:' + boot.nodeDur);
-  console.log('[probe] 菜单栏 = ' + JSON.stringify({ visible: win.isMenuBarVisible(), autoHide: win.isMenuBarAutoHide(), appMenu: Menu.getApplicationMenu() === null }) + '\n' + console.log('[probe] 溢出元凶 = ' + JSON.stringify(boot.widest) + '  bodyScrollW:' + boot.bodyScrollW);
+  console.log('[probe] 菜单栏 = ' + JSON.stringify({ visible: win.isMenuBarVisible(), autoHide: win.isMenuBarAutoHide(), appMenu: Menu.getApplicationMenu() === null }));
+  console.log('[probe] 溢出元凶 = ' + JSON.stringify(boot.widest) + '  bodyScrollW:' + boot.bodyScrollW);
   console.log('[probe] 签名层 = strands:' + boot.ribbonStrands + ' accent:' + boot.ribbonAccent + ' wrapW:' + boot.ribbonW + ' docScrollW:' + boot.docScrollW + ' innerW:' + boot.innerW);
   console.log('[probe] 丝滑层 = surfaces:' + boot.silkSurfaces + ' loopTasks:' + boot.silkLoopTasks + ' packets:' + boot.silkPackets + ' revealed:' + boot.silkRevealed + '/' + boot.silkWatching + ' lite:' + boot.silkLite + ' ease:' + boot.silkEase);
     for (const row of boot.rows) console.log('         ' + row);
@@ -1174,6 +1176,39 @@ if (!gotLock) {
 
   // 去掉应用菜单：界面自带导航，原生 File/Edit/View 菜单与整体设计冲突
 try { Menu.setApplicationMenu(null); } catch (err) { /* 忽略 */ }
+
+// 内存硬护栏 1／2：给 V8 设堆上限，避免 JS 堆无界增长导致进程被系统杀掉（闪退）
+try { app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256'); } catch (err) { /* 忽略 */ }
+
+// 内存硬护栏 2／2：总 Working Set 看护（超阈值先降级视觉，再超阈值重载界面回收内存）
+const MEM_WARN_MB = Number(process.env.SHL_MEM_WARN_MB || 300);
+const MEM_RELOAD_MB = Number(process.env.SHL_MEM_RELOAD_MB || 480);
+let memWatchTimer = null;
+function totalWorkingSetMB() {
+  try {
+    return app.getAppMetrics().reduce((sum, x) => sum + ((x.memory && x.memory.workingSetSize) || 0), 0) / 1024;
+  } catch (err) { return 0; }
+}
+function startMemoryWatch() {
+  if (memWatchTimer) return;
+  let warned = false;
+  memWatchTimer = setInterval(() => {
+    const mb = totalWorkingSetMB();
+    if (!mb) return;
+    if (mb >= MEM_WARN_MB && !warned) {
+      warned = true;
+      logLine('内存看护：总 Working Set ' + mb.toFixed(0) + ' MB 已达阈值 ' + MEM_WARN_MB + ' MB，请求界面降级');
+      try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:mem-pressure', { mb: Math.round(mb) }); } catch (err) { /* 忽略 */ }
+    }
+    if (mb >= MEM_RELOAD_MB) {
+      logLine('内存看护：总 Working Set ' + mb.toFixed(0) + ' MB 超过 ' + MEM_RELOAD_MB + ' MB，重载界面以回收内存（防止闪退）');
+      try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload(); } catch (err) { /* 忽略 */ }
+    }
+    if (mb < MEM_WARN_MB * 0.75) warned = false;
+  }, 10000);
+  if (memWatchTimer.unref) memWatchTimer.unref();
+}
+app.on('will-quit', () => { if (memWatchTimer) { clearInterval(memWatchTimer); memWatchTimer = null; } });
 
 app.whenReady().then(async () => {
     logLine('app ready');

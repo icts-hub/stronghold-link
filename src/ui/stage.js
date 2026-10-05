@@ -13,6 +13,11 @@
 (function () {
   'use strict';
 
+  // 立方体阵列已停用：背景主视觉改为 SVG ∞ 流动带（rhine-effects.js 第 6 段）。
+  // 关闭后不创建 canvas / renderer，也不启动 RAF —— 直接省下 GPU 进程内存。
+  var ENABLE_LATTICE = false;
+  if (!ENABLE_LATTICE) return;
+
   var host = document.querySelector('.bg');
   if (!host || typeof window.THREE === 'undefined') return;      // 没挂上 Three：保留 CSS 背景
   if (typeof window.WebGLRenderingContext === 'undefined') return; // 环境不支持 WebGL

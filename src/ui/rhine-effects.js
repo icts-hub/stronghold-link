@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Stronghold Link — Dynamic UI interactions
  * -----------------------------------------
  * Renderer-only visual layer. No Node APIs, no IPC calls, no business state.
@@ -377,67 +377,91 @@
   else init();
 })();
 
-/* ---------- 6) 签名层：成束流动细线（∞ 形扫掠带） ---------- */
-(function () {
-  'use strict';
-  if (typeof document === 'undefined') return;
-
-  function buildRibbon() {
-    // 优先挂到 .bg：它是 position:fixed + inset:0，天然裁剪且不参与文档尺寸
-    var host = document.querySelector('.bg') || document.querySelector('.ambient-system');
-    if (!host || host.querySelector('.ribbon-wrap')) return;
-
+﻿  /* ---------- 6) 签名层：∞ 流动带（背景主视觉，替代原立方体阵列） ---------- */
+  (function () {
+    'use strict';
+    if (typeof document === 'undefined') return;
     var NS = 'http://www.w3.org/2000/svg';
-    var wrap = document.createElement('div');
-    wrap.className = 'ribbon-wrap';
-    wrap.setAttribute('aria-hidden', 'true');
-    var svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '-100 -100 200 200');
-    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    var g = document.createElementNS(NS, 'g');
-    g.setAttribute('class', 'ribbon-group');
 
-    var STRANDS = 40;
-    var STEPS = 120;
-    var A = 62;          // 横向半径
-    var B = 34;          // 纵向半径（Gerono 双纽线 -> ∞）
-    var WIDTH = 40;      // 扫掠带宽
-    var TWIST = 1.0;     // 扭转强度
+    function buildRibbon() {
+      var host = document.querySelector('.bg') || document.querySelector('.ambient-system');
+      if (!host) return;
+      var old = host.querySelector('.ribbon-wrap');
+      if (old) old.remove();
 
-    for (var i = 0; i < STRANDS; i += 1) {
-      var u = STRANDS === 1 ? 0.5 : i / (STRANDS - 1);       // 0..1 沿带宽
-      var off = (u - 0.5) * WIDTH;
-      var d = '';
-      for (var s = 0; s <= STEPS; s += 1) {
-        var t = (s / STEPS) * Math.PI * 2;
+      var wrap = document.createElement('div');
+      wrap.className = 'ribbon-wrap';
+      wrap.setAttribute('aria-hidden', 'true');
+      var svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '-100 -100 200 200');
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+      var band = document.createElementNS(NS, 'g');
+      band.setAttribute('class', 'ribbon-band');
+      var g = document.createElementNS(NS, 'g');
+      g.setAttribute('class', 'ribbon-group');
+
+      var STRANDS = 72;      // 固定数量：静态 DOM，无逐帧 JS
+      var STEPS = 150;
+      var A = 68;
+      var B2 = 38;
+      var WIDTH = 48;
+      var TWIST = 1.75;
+
+      function point(t, u) {
         var x = A * Math.sin(t);
-        var y = (B * Math.sin(2 * t)) / 1.6;
-        // 切向 -> 法向
+        var y = (B2 * Math.sin(2 * t)) / 1.6;
         var dx = A * Math.cos(t);
-        var dy = (B * 2 * Math.cos(2 * t)) / 1.6;
+        var dy = (B2 * 2 * Math.cos(2 * t)) / 1.6;
         var len = Math.sqrt(dx * dx + dy * dy) || 1;
         var nx = -dy / len;
         var ny = dx / len;
-        // 扭转：让带宽随行程收放，形成扫掠感
-        var twist = Math.cos(t * 2 + (u - 0.5) * Math.PI * 1.6) * TWIST;
-        var w = off * (0.55 + 0.45 * twist);
-        var px = x + nx * w;
-        var py = y + ny * w;
-        d += (s === 0 ? 'M' : 'L') + px.toFixed(2) + ' ' + py.toFixed(2);
+        var twist = Math.cos(2 * t + (u - 0.5) * Math.PI * TWIST);
+        var w = ((u - 0.5) * WIDTH) * (0.5 + 0.5 * twist);
+        return { x: x + nx * w, y: y + ny * w, depth: twist };
       }
-      var p = document.createElementNS(NS, 'path');
-      p.setAttribute('class', 'ribbon-strand' + (i % 13 === 6 ? ' is-accent' : ''));
-      p.setAttribute('d', d);
-      p.setAttribute('stroke-dasharray', '3 5');
-      p.style.animationDelay = (-(i * 0.21)).toFixed(2) + 's';
-      p.style.opacity = String((i % 13 === 6 ? 0.42 : 0.10 + 0.10 * Math.abs(Math.cos(u * Math.PI))).toFixed(3));
-      g.appendChild(p);
-    }
-    svg.appendChild(g);
-    wrap.appendChild(svg);
-    host.insertBefore(wrap, host.firstChild);
-  }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildRibbon);
-  else buildRibbon();
-})();
+      for (var b = 0; b < 9; b += 1) {
+        var ub = b / 8;
+        var db = '';
+        for (var sb = 0; sb <= STEPS; sb += 1) {
+          var pb = point((sb / STEPS) * Math.PI * 2, ub);
+          db += (sb === 0 ? 'M' : 'L') + pb.x.toFixed(2) + ' ' + pb.y.toFixed(2);
+        }
+        var pathB = document.createElementNS(NS, 'path');
+        pathB.setAttribute('class', 'ribbon-band-line');
+        pathB.setAttribute('d', db);
+        pathB.style.opacity = (0.10 + 0.10 * Math.sin(ub * Math.PI)).toFixed(3);
+        band.appendChild(pathB);
+      }
+
+      for (var i = 0; i < STRANDS; i += 1) {
+        var u = i / (STRANDS - 1);
+        var d = '';
+        var depthSum = 0;
+        for (var s = 0; s <= STEPS; s += 1) {
+          var pt = point((s / STEPS) * Math.PI * 2, u);
+          depthSum += pt.depth;
+          d += (s === 0 ? 'M' : 'L') + pt.x.toFixed(2) + ' ' + pt.y.toFixed(2);
+        }
+        var shade = (depthSum / (STEPS + 1)) * 0.5 + 0.5;
+        var accent = (i % 17 === 8);
+        var p = document.createElementNS(NS, 'path');
+        p.setAttribute('class', 'ribbon-strand' + (accent ? ' is-accent' : ''));
+        p.setAttribute('d', d);
+        p.setAttribute('stroke-dasharray', '2 6');
+        p.style.animationDelay = (-(i * 0.33)).toFixed(2) + 's';
+        p.style.opacity = accent ? '0.55' : (0.18 + 0.42 * shade).toFixed(3);
+        p.style.strokeWidth = accent ? '0.7' : (0.34 + 0.30 * shade).toFixed(2);
+        g.appendChild(p);
+      }
+
+      svg.appendChild(band);
+      svg.appendChild(g);
+      wrap.appendChild(svg);
+      host.insertBefore(wrap, host.firstChild);
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildRibbon);
+    else buildRibbon();
+  })();

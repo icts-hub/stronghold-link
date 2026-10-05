@@ -968,11 +968,11 @@ html, body { overflow-x: clip; }
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(120% 78% at 50% 42%, rgba(var(--paper-rgb), 0.94) 0%, rgba(var(--paper-rgb), 0.72) 48%, rgba(var(--paper-rgb), 0.34) 78%, rgba(var(--paper-rgb), 0) 100%);
+    radial-gradient(120% 78% at 50% 42%, rgba(var(--paper-rgb), 0.90) 0%, rgba(var(--paper-rgb), 0.60) 48%, rgba(var(--paper-rgb), 0.24) 78%, rgba(var(--paper-rgb), 0) 100%);
 }
 [data-theme='dark'] .wrap::before {
   background:
-    radial-gradient(120% 78% at 50% 42%, rgba(var(--paper-rgb), 0.95) 0%, rgba(var(--paper-rgb), 0.78) 48%, rgba(var(--paper-rgb), 0.38) 78%, rgba(var(--paper-rgb), 0) 100%);
+    radial-gradient(120% 78% at 50% 42%, rgba(var(--paper-rgb), 0.92) 0%, rgba(var(--paper-rgb), 0.66) 48%, rgba(var(--paper-rgb), 0.28) 78%, rgba(var(--paper-rgb), 0) 100%);
 }
 
 /* ---------- 7) 底部状态条：标尺刻度感 ---------- */
@@ -1048,3 +1048,12 @@ html, body { overflow-x: clip; }
 .rail .nav button .n-name { color: var(--muted); letter-spacing: 0.10em; }
 .rail .nav button:hover .n-name { color: var(--ink); }
 .rail .nav button.active .n-name { color: inherit !important; }
+
+/* ∞ 流动带：更密更细的线 + 底层宽带；整体更慢、更大 */
+.ribbon-strand { stroke: rgba(var(--ink-rgb), 0.55); stroke-linecap: round; }
+.ribbon-strand.is-accent { stroke: rgba(var(--accent-rgb), 1); }
+.ribbon-band-line { stroke: rgba(var(--ink-rgb), 1); stroke-width: 5; fill: none; stroke-linecap: round; }
+.ribbon-group { animation: ribbon-drift 30s cubic-bezier(0.2, 0.8, 0.2, 1) infinite alternate; }
+.ribbon-wrap svg { transform: scale(1.34) translate(-6%, 2%); transform-origin: 50% 50%; }
+.ribbon-wrap { opacity: 0.95; }
+@media (prefers-reduced-motion: reduce) { .ribbon-wrap { opacity: 0.5; } }
