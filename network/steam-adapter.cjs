@@ -19,7 +19,8 @@ const path = require('node:path');
 const { diagnoseSteam } = require('./steam-env.cjs');
 const { createSendPlan, isReliable } = require('./steam-framing.cjs');
 
-const CALLBACK_INTERVAL_MS = 16;
+const CALLBACK_INTERVAL_MS = 4;    // 4ms（原 16ms）：小包型游戏对往返延迟敏感，泵越勤越快
+const OUT_FLUSH_BYTES = 16 * 1024; // 攒够 16KB 立刻发；否则下个 tick 发（≤4ms 延迟代价）
 const DEFAULT_MAX_PEERS = 16;
 const STEAM_ID_PATTERN = /^7656119\d{10,}$/;
 const MAX_MESSAGE_BATCH = 128;
@@ -172,6 +173,34 @@ function startCallbackLoop({ steam, pump, onFatal, label = '', onNotice = null }
   return () => clearInterval(timer);
 }
 
+/**
+ * 发送合并（关键吞吐优化）。
+ * 为什么需要：Minecraft 这类游戏会发**大量小包**，逐包调用 sendMessage 时，
+ * 每条 Steam 消息的协议开销占绝对主导 —— 实测这类流量只有 ~30KB/s，
+ * 而 HTTP 这类大块传输能到 ~1MB/s（协议开销被摊薄）。
+ * 做法：把本 tick 内读到的小包先攒在 peer.out，攒够 OUT_FLUSH_BYTES 立即发，
+ * 否则由 pump 在每个 tick 末尾合并成一条较大的消息发出。延迟代价 ≤ 一个 tick（4ms）。
+ */
+function queueOut(peer, chunk) {
+  if (!peer.out) peer.out = [];
+  peer.out.push(Buffer.from(chunk));
+  let total = 0;
+  for (const b of peer.out) total += b.length;
+  return total >= OUT_FLUSH_BYTES;
+}
+function flushPeerOut(steam, peer, sendChunk) {
+  if (!peer || !peer.out || !peer.out.length || peer.connection == null) return 0;
+  const payload = peer.out.length === 1 ? peer.out[0] : Buffer.concat(peer.out);
+  peer.out = [];
+  const result = sendChunk(steam, peer.connection, payload, { channel: 'reliable' });
+  if (!result || !result.success) return -1;
+  return payload.length;
+}
+function peerOutBytes(peer) {
+  if (!peer || !peer.out) return 0;
+  let t = 0; for (const b of peer.out) t += b.length; return t;
+}
+
 function createStats(role) {
   return {
     role,
@@ -253,6 +282,7 @@ function createSteamHost(options = {}) {
       socket: net.createConnection({ host: gameHost, port: Number(gamePort) }),
       connected: false,
       queue: [],
+      out: [],
     };
     peers.set(connection, peer);
     stats.peers = peers.size;
@@ -270,8 +300,10 @@ function createSteamHost(options = {}) {
       stats.packetsToPeer += 1;
       const active = steam.networkingSockets.isConnectionActive(connection);
       if (!active) { stats.dropped += 1; return; }
-      const result = sendChunk(steam, connection, chunk, { channel: 'reliable' });
-      if (!result?.success) { stats.dropped += 1; emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: '发送到 Steam 对端失败', message: 'sendReliable failed' } }); }
+      if (queueOut(peer, chunk)) {
+        const written = flushPeerOut(steam, peer, sendChunk);
+        if (written < 0) { stats.dropped += 1; emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: '发送到 Steam 对端失败', message: 'sendReliable failed' } }); }
+      }
     });
     peer.socket.on('error', (err) => {
       stats.failed += 1;
@@ -339,6 +371,8 @@ function createSteamHost(options = {}) {
 
   const pump = () => {
     if (stopped || !pollGroup) return;
+    // 先发送本 tick 攒下的小包（合并成大消息）
+    for (const peer of peers.values()) flushPeerOut(steam, peer, sendChunk);
     const messages = steam.networkingSockets.receiveMessagesOnPollGroup(pollGroup, MAX_MESSAGE_BATCH) || [];
     for (const message of messages) {
       const peer = peers.get(message.connection);
@@ -488,6 +522,8 @@ function createSteamJoiner(options = {}) {
 
   const pump = () => {
     if (stopped) return;
+    // 先发送本 tick 攒下的小包（合并成大消息）—— 这是吞吐的关键
+    for (const peer of peers.values()) flushPeerOut(steam, peer, sendChunk);
     for (const peer of peers.values()) {
       if (peer.connection == null) continue;
       const messages = steam.networkingSockets.receiveMessages(peer.connection, MAX_MESSAGE_BATCH) || [];
@@ -510,7 +546,7 @@ function createSteamJoiner(options = {}) {
       return;
     }
     socket.setNoDelay(true);
-    const peer = { socket, connection: null, connected: false, queue: [] };
+    const peer = { socket, connection: null, connected: false, queue: [], out: [] };
     peers.set(socket, peer);
     stats.connections = peers.size;
     stats.totalPeers += 1;
@@ -525,8 +561,11 @@ function createSteamJoiner(options = {}) {
         else { peer.queue.shift(); peer.queue.push(Buffer.from(chunk)); stats.dropped += 1; }
         return;
       }
-      const result = sendChunk(steam, peer.connection, chunk, { channel: 'reliable' });
-      if (!result?.success) { stats.dropped += 1; emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: '发送到房主失败', message: 'sendReliable failed' } }); }
+      // 合并发送（加入者=好友上行方向，MC 的小包主要走这里）
+      if (queueOut(peer, chunk)) {
+        const written = flushPeerOut(steam, peer, sendChunk);
+        if (written < 0) { stats.dropped += 1; emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: '发送到房主失败', message: 'sendReliable failed' } }); }
+      }
     });
     socket.on('error', () => { /* 客户端断开属正常 */ });
     socket.on('close', () => dropPeer(peer));
