@@ -305,6 +305,10 @@
               <button class="btn btn--sm" id="relaySelfTestBtn" type="button">RUN RELAY SELF-TEST</button>
               <span class="tech" id="relaySelfTestOut">未测量 · 点上方按钮本机实测</span>
             </div>
+            <div class="row" style="margin-top:8px;gap:10px;align-items:center">
+              <button class="btn btn--sm" id="natTypeBtn" type="button">MEASURE NAT</button>
+              <span class="tech" id="natTypeOut">NAT TYPE — NOT MEASURED</span>
+            </div>
             <div class="spec" id="routeDiag" style="margin-top:10px"></div>
             <div class="row" style="margin-top:10px;gap:10px;align-items:center">
               <button class="btn btn--sm" id="routeWatchBtn" type="button">START ROUTE WATCH</button>
@@ -720,6 +724,23 @@ function refreshRouteCandidates(measure){
     if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);}
   }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
 }
+function renderNatType(out){
+  var el=$('natTypeOut');if(!el)return;
+  if(!out){el.textContent='NAT TYPE — NOT MEASURED';return;}
+  if(!out.ok){el.textContent='NAT TYPE — 未测量 · '+(out.reason||'测量失败');return;}
+  var label={'endpoint-independent':'端点无关（打洞通常可行）','address-dependent':'地址相关（对称倾向，建议走中继）','multiple-exits':'多出口（打洞基本不可行）'}[out.mapping]||out.mapping;
+  el.textContent='NAT 映射 · '+label+' · 公网 '+(out.publicAddress||'—')+':'+(out.publicPort===null?'（每目标不同）':out.publicPort)+' · 本机实测';
+}
+function initNatType(){
+  var btn=$('natTypeBtn');if(!btn)return;
+  btn.addEventListener('click',function(){
+    var api=window.strongholdLink&&window.strongholdLink.network;
+    var out=$('natTypeOut');
+    if(!api||!api.natType){if(out)out.textContent='此环境未提供 NAT 测量接口';return;}
+    if(out)out.textContent='测量中（向两个 STUN 服务器各问一次）…';
+    api.natType().then(function(r){renderNatType(r);}).catch(function(e){renderNatType({ok:false,reason:String(e&&e.message||e)});});
+  });
+}
 function renderRelaySelfTest(out){
   var el=$('relaySelfTestOut');if(!el)return;
   if(!out){el.textContent='未测量 · 点上方按钮本机实测';return;}
@@ -780,7 +801,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();pollRouteWatch();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。

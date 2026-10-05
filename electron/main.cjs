@@ -364,6 +364,16 @@ function registerIpc() {
     }
   });
   let routeWatch = null;
+ipcMain.handle('network:nat-type', async () => {
+  // NAT 映射行为实测：同一 socket 问两个 STUN 服务器，比较映射结果
+  try {
+    const { measureNatMapping } = require('../network/direct-udp/nat-type.cjs');
+    return await measureNatMapping({});
+  } catch (err) {
+    return { ok: false, mapping: 'unknown', reason: String(err && err.message ? err.message : err), results: [], notes: [] };
+  }
+});
+
 ipcMain.handle('network:route-watch', async (event, input) => {
   // 路由监看：按需启动/停止，状态由界面轮询读取（不新增事件通道）
   const action = (input && input.action) || 'state';
