@@ -789,7 +789,7 @@ function initSelfTest(){
       if(!r||!r.ok){if(out)out.textContent='自检失败：'+((r&&r.verdict)||'');return;}
       if((r.checks||[]).some(function(c){return c.ok===false&&/启动计划|隧道入口/.test(c.name);})){
         var role=(lobbySnapshot&&lobbySnapshot.role)||null;
-        if(role==='joiner')renderRoomSteps({manualPrompt:true});
+        if(role==='joiner')renderRoomSteps({manualPrompt:true,forcePort:(lobbySnapshot&&((lobbySnapshot.hostInfo&&lobbySnapshot.hostInfo.port)||lobbySnapshot.port))||null});
       }
       var lines=(r.checks||[]).map(function(c){
         var mark=c.ok===null?'—':(c.ok?'✔':'✘');
@@ -854,7 +854,8 @@ function renderRoomSteps(s){
     box.innerHTML='<div class="tech" style="display:block;margin-bottom:6px">大厅读不到房主信息时，用这条直连通道（和 SESSION 页手动配置等价）：</div>'
       + '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">'
       + '<input class="inp mono" id="manualHostId" placeholder="房主 SteamID（7656119…）" style="max-width:230px">'
-      + '<input class="inp mono" id="manualPort" placeholder="入口端口（如 3000）" style="max-width:150px">'
+      + '<input class="inp mono" id="manualPort" placeholder="入口端口（如 3000）" style="max-width:150px"'
+      + (s.forcePort ? (' value="' + s.forcePort + '" readonly title="入口端口强制与房主一致"') : '') + '>'
       + '<button class="cmd is-accent" type="button" data-manual-join="1">直连</button></div>'
       + box.innerHTML;
   }
@@ -923,7 +924,7 @@ function renderRoomSteps(s){
         }else{
           lobbyLog('连接失败：'+((r5&&r5.reason)||''),'error');
           toast('连接失败：'+((r5&&r5.reason)||''));
-          renderRoomSteps({manualPrompt:true});
+          renderRoomSteps({manualPrompt:true,forcePort:(lobbySnapshot&&((lobbySnapshot.hostInfo&&lobbySnapshot.hostInfo.port)||lobbySnapshot.port))||null});
         }
       }).catch(function(e5){toast('连接出错：'+(e5.message||e5));});
       return;
@@ -932,6 +933,9 @@ function renderRoomSteps(s){
     if(mj){
       var hid=($('manualHostId')||{}).value||'', mp=($('manualPort')||{}).value||'';
       hid=hid.trim(); mp=mp.trim();
+      // 端口强制与房主一致：大厅里已知房主端口时，直接用它（忽略手填，避免两端不同号导致连不通）
+      var forced=(lobbySnapshot&&((lobbySnapshot.hostInfo&&lobbySnapshot.hostInfo.port)||lobbySnapshot.port))||null;
+      if(forced)mp=String(forced);
       if(!/^\d{6,20}$/.test(hid)){toast('请填房主的 SteamID（一串数字）');return;}
       var apiM=window.strongholdLink&&window.strongholdLink.session;
       if(!apiM||!apiM.start){toast('此环境未提供会话接口');return;}
@@ -1778,7 +1782,7 @@ async function lobbyConnect(){
       renderRoomSteps({fixPrompt:true});
     }
     if(r&&!r.ok&&!r.needsHostStop){
-      renderRoomSteps({manualPrompt:true});   // 大厅读不到房主信息：给出直连通道
+      renderRoomSteps({manualPrompt:true,forcePort:(lobbySnapshot&&((lobbySnapshot.hostInfo&&lobbySnapshot.hostInfo.port)||lobbySnapshot.port))||null});   // 大厅读不到房主信息：给出直连通道
     }
    }
    return r;

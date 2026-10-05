@@ -886,7 +886,10 @@ ipcMain.handle('lobby:selftest', async () => {
       add('隧道转发 HTTP（决定性）', r.ok,
         r.ok ? ('GET ' + url + ' → HTTP ' + r.status + (r.looksLikeGame ? ' · 内容是网页（说明数据真的从房主那边过来了）' : ' · 但内容不像游戏页面'))
              : ('GET ' + url + ' 失败：' + r.reason + ' → 隧道没起作用'));
-      add('浏览器该打开的地址', true, url + '（只打开这个；不要打开 127.0.0.1:' + (port || 3000) + '，那是你自己那边）');
+      const samePort = Number(port) === Number(e3);
+      add('浏览器该打开的地址', true, samePort
+        ? (url3 + '（入口端口已与房主服务端口同号：' + e3 + '，直接用这个地址打开）')
+        : (url3 + '（注意：入口端口 ' + e3 + ' 与房主服务端口 ' + (port || '-') + ' 不同，只打开上面这个）'));
     } else {
       const ownerId = (info.hostSteamId || snap.hostSteamId || '-');
       const noHostInfo = !(info.hostSteamId || port);
