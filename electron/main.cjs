@@ -348,7 +348,8 @@ function resolveSessionAppId(input, snapshot) {
   const fromConfig = Number(cfg.appId) > 0 ? Number(cfg.appId) : 0;
   if (fromConfig) return fromConfig;
   try {
-    const env = Number(process.env.SteamAppId || process.env.STEAM_APPID);
+    // 与 adapters:list / diagnoseSteam 用的是同一个来源，避免两处解析不一致
+    const env = Number(appIdFromEnv());
     if (env > 0) return env;
   } catch (err) { /* 忽略 */ }
   return null;
