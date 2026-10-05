@@ -833,6 +833,11 @@ function renderRoomSteps(s){
       + (x.ok?'<span class="t-invert">就绪</span>':'<span class="tech">待办</span>')
       + '</div>';
   }).join('');
+  if(s.fixPrompt){
+    box.innerHTML='<div class="tech" style="display:block;margin-bottom:8px">你本机还开着一个旧会话，占着隧道，所以加入者的隧道起不来。</div>'
+      + '<div style="margin-bottom:8px"><button class="cmd is-accent" type="button" data-fix-joiner="1">以加入者身份重连（自动停掉本机旧会话）</button></div>'
+      + box.innerHTML;
+  }
   if(!s.entryUrl&&!s.port){box.innerHTML='<div class="tech" style="display:block">房主：点「选择要转发的进程」选端口开局 → 邀请好友　|　加入者：点接受邀请 → 点「打开游戏」</div>'+box.innerHTML;}
   if(s.entryUrl){
     var full=s.room?(s.entryUrl+'/?room='+encodeURIComponent(s.room)):s.entryUrl;
@@ -848,6 +853,17 @@ function renderRoomSteps(s){
     box.innerHTML+='<div style="margin-top:8px"><button class="cmd" type="button" data-open-url="'+s.gameUrl+'">复制本机游戏地址 '+s.gameUrl+'</button></div>';
   }
   box.onclick=function(e){
+    var fix=e.target&&e.target.closest?e.target.closest('[data-fix-joiner]'):null;
+    if(fix){
+      var apiF=window.strongholdLink&&window.strongholdLink.lobby;
+      if(!apiF||!apiF.connect){toast('此环境未提供连接接口');return;}
+      toast('正在停止本机旧会话并以加入者身份重连…');
+      apiF.connect({fix:true}).then(function(r2){
+        if(r2&&r2.ok){lobbyLog('已纠正：本机旧会话已停止，加入者隧道已建立 '+(r2.entryUrl||''),'ok');toast('已纠正 · '+(r2.entryUrl||''));if(r2.entryUrl)renderRoomSteps({entryUrl:r2.entryUrl,room:r2.room||null});}
+        else{lobbyLog('纠正失败：'+((r2&&r2.reason)||''),'error');toast('纠正失败：'+((r2&&r2.reason)||''));}
+      }).catch(function(e2){toast('纠正出错：'+(e2.message||e2));});
+      return;
+    }
     var live=e.target&&e.target.closest?e.target.closest('[data-open-live]'):null;
     if(live){
       var u2=live.getAttribute('data-open-live');
@@ -1656,8 +1672,11 @@ async function lobbyConnect(){
     toast(r.entryHint?('隧道已建立 · '+r.entryHint):'隧道已建立');
     await refreshLobby();
    }else{
-    lobbyLog('暂未建立隧道：'+((r&&r.reason)||'未知原因'),'');
+    lobbyLog('暂未建立隧道：'+((r&&r.reason)||'未知原因'), r&&r.needsHostStop?'error':'');
     toast('暂未建立隧道：'+((r&&r.reason)||''));
+    if(r&&r.needsHostStop){
+      renderRoomSteps({fixPrompt:true});
+    }
    }
    return r;
   }catch(e){lobbyLog('建立隧道出错：'+(e.message||e),'error');toast('建立隧道出错：'+(e.message||e));return null}

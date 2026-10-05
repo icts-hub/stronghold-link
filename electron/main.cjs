@@ -946,7 +946,34 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
       appVersion: APP_VERSION,
     });
     if (plan.action !== 'start') {
-      return { ok: false, action: 'none', reason: plan.reason, notes: plan.notes, status: snap };
+      // 一键纠正：加入者本机残留房主会话时，先停掉它再重试（用户点按钮才会走到这里）
+      if (plan.needsHostStop && input.fix === true) {
+        try {
+          await session.stop();
+          logLine('已按「以加入者身份重连」停掉本机残留的房主会话');
+        } catch (err) { /* 停不掉就按原样返回原因 */ }
+        const retry = planLobbyConnect({
+          role: manager.isOwner ? 'host' : 'joiner',
+          lobby, session: session.getSnapshot(),
+          appId: Number(input.appId) > 0 ? Number(input.appId) : (Number(current.config && current.config.appId) || null),
+          appVersion: APP_VERSION,
+        });
+        if (retry.action === 'start') {
+          const snap2 = await session.start(sanitizeSessionInput(retry.options));
+          const entry2 = snap2.channels && snap2.channels[0] && snap2.channels[0].listen ? snap2.channels[0].listen.port : null;
+          return {
+            ok: true, action: 'start', reason: retry.reason, notes: retry.notes, fixed: true,
+            room: (info && info.room) || '',
+            hostPort: Number(info && info.port) > 0 ? Number(info.port) : null,
+            entryPort: entry2,
+            entryUrl: entry2 ? ('http://127.0.0.1:' + entry2) : null,
+            entryHint: entry2 ? ('用浏览器打开 http://127.0.0.1:' + entry2 + '（入口端口与房主服务端口同号）') : null,
+            snapshot: snap2, status: snap,
+          };
+        }
+        return { ok: false, action: 'none', reason: retry.reason, notes: retry.notes, status: snap };
+      }
+      return { ok: false, action: 'none', reason: plan.reason, notes: plan.notes, needsHostStop: Boolean(plan.needsHostStop), status: snap };
     }
     const snapshot = await session.start(sanitizeSessionInput(plan.options));
     if (manager.isOwner) openLobbyForSession(snapshot).catch(() => { /* 建房失败不影响隧道 */ });

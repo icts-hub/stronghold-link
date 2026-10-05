@@ -54,9 +54,14 @@ function planLobbyConnect({ role = 'joiner', lobby = null, session = null, appId
       return { action: ACTIONS.NONE, options: null, reason: '已经通过大厅连上了这条隧道', notes };
     }
     if (running) {
+      // 加入者本机残留了"房主会话"（多半是之前角色搞反时开的）：标出来，界面可一键纠正
+      const staleHost = isSteamSession && sessionRole === 'host';
       return {
         action: ACTIONS.NONE, options: null, notes,
-        reason: '当前已有会话在运行（' + (config.adapter || '未知') + ' / ' + (sessionRole || '未知') + '）：请先停止，再通过大厅连接',
+        needsHostStop: staleHost,
+        reason: staleHost
+          ? '你本机还开着一个「房主会话」（不是这个大厅的），它占着隧道，所以加入者的隧道起不来。点下面的「以加入者身份重连」会自动先停掉它。'
+          : '当前已有会话在运行（' + (config.adapter || '未知') + ' / ' + (sessionRole || '未知') + '）：请先停止，再通过大厅连接',
       };
     }
     if (lobby.version && appVersion && String(lobby.version) !== String(appVersion)) {
