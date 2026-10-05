@@ -3,12 +3,24 @@
 ## 未发布
 
 网络
-- 新增 Provider 契约与包装层（network/providers/）：session 不再直接用 TCP/UDP/Steam 内核
-- 新增 Provider 注册表，能力声明里区分可靠/不可靠通道、是否点对点、是否自带穿透、加密来源
-- 新增统一统计（network/stats.cjs）：可直接镜像现有内核计数，按时间差分出速率
-- 新增质量测量（network/route/quality.cjs）：RTT / 抖动 / 丢包，无样本时返回未测量
-- 测试 140 → 158 例
+- 新增 Provider 契约（start/stop/send/getStats/getCapabilities + 状态机 + 能力声明）
+- 现有 TCP/UDP 中继与 Steam 内核包装成 Provider，会话层不再直接依赖内核
+- 新增统一统计：镜像内核计数，或自行计数，字段名一致
+- 新增质量测量：RTT / 抖动 / 丢包，没有样本时返回"未测量"而不是 0
+- Steam：中继网络与 POP 延迟诊断；发送改走 sendMessage + 4KB 分片 + 关 Nagle
+- 新增路径评分（延迟/丢包/抖动/可靠性加权，缺项不参与计分）
+- 新增 RouteManager：阈值、滞回、最小观察窗、冷却，四项防抖；切换标注为重建传输
+- 新增直连 UDP 相关：STUN、NAT-PMP、UPnP IGD、双向打洞状态机、DirectUDPProvider
+- 新增 Stronghold Relay：服务端（口令入会、会话内转发、限速、包上限、空闲逐出）与客户端
+- 中继服务端已实现并本机端到端跑通，但尚未部署公网实例
 
+界面（NETWORK 页）
+- 新增 RELAY SELF-TEST：本机起中继服务端与两个客户端，实测 RTT/抖动/丢包并显示
+- 候选路径按真实清单渲染：已测量显示分数与理由，未测量显示原因
+- 新增路由诊断块：状态、当前路径、排名、策略、本次决策与原因、最近日志
+
+测试
+- 140 → 286 例；新增部分全部使用真实回环端口与真实数据往返
 ## v0.11.0
 
 界面

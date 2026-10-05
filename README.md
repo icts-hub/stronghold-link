@@ -129,10 +129,18 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 ├─ src/ui/index.html      界面外壳与全部视图（单文件 + 单块内联脚本，便于 DOM 桩测试）
 ├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集（MiSans 免费商用 + Inter/Plex OFL，见同目录许可与 SOURCE.txt）
-├─ test/                  node:test 测试（158 例）
+├─ test/                  node:test 测试（286 例）
 ├─ tools/                 开发工具：Steam 探针、MiSans 子集裁剪、CI 测试运行器、便携版打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告（PHASE1 ~ PHASE6 + 排错与 Steam 步骤）
 ```
+
+## 网络层（PHASE 2 起）
+
+- 统一 Provider 契约与注册表：本地中继、Steam P2P、直连 UDP、Stronghold Relay
+- 真实测量：RTT / 抖动 / 丢包（无样本时显示"未测量"，不填 0）
+- 路径评分与 RouteManager：阈值 55 分、滞回 12 分、观察窗 4 秒、冷却 15 秒
+- NETWORK 页的 `RUN RELAY SELF-TEST` 会在本机起中继服务端与两个客户端实测一次
+- 未测量的候选会写明原因（本地中继无包级往返 / Steam 需真实对端 / 打洞需两台机器）
 
 ## 主进程 IPC 契约（渲染进程可见的全部能力）
 
@@ -162,8 +170,7 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 
 ## 测试
 
-`npm test` 覆盖 **158 个用例**（适配器 8 + 加密原语 7 + TCP 安全通道 13 + UDP 安全通道 12 + Steam 环境 10 +
-Steam 适配器 11 + Steam 大厅 13 + TCP 中继 11 + UDP 中继 10 + 会话控制器 21 + 主进程 IPC 13 + UI 逻辑 11），
+`npm test` 覆盖 **286 个用例**（29 个测试文件：适配器、加密、中继、会话、IPC、界面逻辑，以及网络 Provider / 路由评分 / 中继服务端 / STUN / 打洞等新增部分），
 全部使用本机回环真实端口与真实数据往返；包括**链路抓包无明文**、**跨会话重放被拒**、**伪造认证标签被拒**、
 **旧协议明确拒绝**、**端口冲突带占用者提示**、**SDK 目录名容错**等实测项。
 Steam 传输层逻辑用注入的假 SDK 测试（测试文件内明确标注），真实 Steam 的验证情况见下一节。
@@ -195,7 +202,11 @@ node steam-userdir-probe.cjs "D:\某个安装目录"    # 用指定目录里的 
   同一账号自连**不可用**（实测 `sendReliable` 返回 `result=8` 并断开），这是 Steam 侧限制。
 - Steam 好友邀请需要两台机器、两个账号，端到端未在本机验证（大厅与好友页已实现，真实数据可读）。
 - NSIS 安装包未在本机产出（下载组件被网络代理拦截），配置已就绪；便携版已可用。
-- 跨公网不用 Steam 通道时需要端口映射或 VPN；打洞与自有中继尚未实现。
+- 跨公网不用 Steam 通道时需要端口映射或 VPN。
+- **打洞**：STUN 已实测能取到公网映射，但跨两台机器的真实打洞**未验证**（同一 NAT 内部互打因缺回环而失败，属预期）。
+- **自建中继**：服务端与客户端已实现并在本机端到端跑通，但**尚未部署公网实例**。
+- **Steam 连接级质量**：需要真实对端连接才能读到延迟，本机单账号无法构造，**未验证**。
+- 本机网络实测：网关不支持 UPnP 与 NAT-PMP（两条自动端口映射路径都不可用）。
 
 ## 排错
 
