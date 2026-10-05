@@ -275,3 +275,61 @@ test('环境未就绪（把 appDir 指向没有 SDK 的目录）时拒绝启动�
     await game.close();
   }
 });
+
+// ---- PHASE 4b：发送策略（分片 + 发送标志）---------------------------------
+const { sendChunk } = require('../network/steam-adapter.cjs');
+const F = require('../network/steam-framing.cjs');
+
+function fakeSockets({ withSendMessage = true } = {}) {
+  const calls = [];
+  const sockets = {
+    sendMessage: withSendMessage
+      ? (conn, data, flags) => { calls.push({ conn, bytes: data.length, flags, via: 'sendMessage' }); return { success: true }; }
+      : undefined,
+    sendReliable: (conn, data) => { calls.push({ conn, bytes: data.length, via: 'sendReliable' }); return { success: true }; },
+  };
+  return { steam: { networkingSockets: sockets }, calls };
+}
+
+test('发送走 sendMessage，标志为 Reliable | NoNagle，小数据只发一条', () => {
+  const { steam, calls } = fakeSockets();
+  const out = sendChunk(steam, 7, Buffer.from('hello'), { channel: 'reliable' });
+  assert.equal(out.success, true);
+  assert.equal(out.chunks, 1);
+  assert.equal(out.bytes, 5);
+  assert.equal(out.reliable, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].via, 'sendMessage');
+  assert.ok(F.isReliable(calls[0].flags), '必须带 Reliable 位');
+  assert.ok(calls[0].flags & F.loadSendFlags().NoNagle, '必须关 Nagle');
+});
+
+test('大块数据按 4KB 分片，全部走 sendMessage', () => {
+  const { steam, calls } = fakeSockets();
+  const payload = Buffer.alloc(10000, 7);
+  const out = sendChunk(steam, 3, payload, { channel: 'reliable' });
+  assert.equal(out.bytes, 10000);
+  assert.equal(out.chunks, 3);
+  assert.ok(calls.every((c) => c.via === 'sendMessage'));
+  assert.ok(calls.every((c) => c.bytes <= 4096), '每片不超过 4KB');
+  assert.equal(calls.reduce((s, c) => s + c.bytes, 0), 10000, '总字节数不变');
+});
+
+test('绑定没有 sendMessage 时退回 sendReliable（行为与从前一致）', () => {
+  const { steam, calls } = fakeSockets({ withSendMessage: false });
+  const out = sendChunk(steam, 5, Buffer.from('legacy'), { channel: 'reliable' });
+  assert.equal(out.success, true);
+  assert.equal(calls[0].via, 'sendReliable', '老绑定/测试桩必须能继续工作');
+});
+
+test('发送失败会如实返回 success=false，不谎报成功', () => {
+  const steam = { networkingSockets: { sendMessage: () => ({ success: false }) } };
+  const out = sendChunk(steam, 1, Buffer.from('x'), { channel: 'reliable' });
+  assert.equal(out.success, false);
+});
+
+test('发送抛异常时返回失败而不是崩掉会话', () => {
+  const steam = { networkingSockets: { sendMessage: () => { throw new Error('连接已断开'); } } };
+  const out = sendChunk(steam, 1, Buffer.from('x'), { channel: 'reliable' });
+  assert.equal(out.success, false);
+});

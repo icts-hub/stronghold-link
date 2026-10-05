@@ -36,7 +36,11 @@ function createMockSdk({ identity = HOST_STEAM_ID } = {}) {
     setConnectionPollGroup: (connection, group) => { state.pollGroups.push({ connection, group }); return true; },
     receiveMessagesOnPollGroup: (group, max) => state.pollQueue.splice(0, max),
     receiveMessages: (connection, max) => (clientQueues.get(connection) || []).splice(0, max),
-    sendReliable: (connection, data) => { state.sent.push({ connection, data: Buffer.from(data) }); return { success: true, result: 1, messageNumber: BigInt(state.sent.length) }; },
+    sendMessage: (connection, data, flags) => {
+    state.sent.push({ connection, data: Buffer.from(data), flags, via: 'sendMessage' });
+    return { success: true, result: 1 };
+  },
+  sendReliable: (connection, data) => { state.sent.push({ connection, data: Buffer.from(data) }); return { success: true, result: 1, messageNumber: BigInt(state.sent.length) }; },
     isConnectionActive: (connection) => state.active.has(connection),
     closeConnection: (connection, reason, message, linger) => { state.closed.push({ connection, reason, message, linger }); state.active.delete(connection); return true; },
     closeListenSocket: () => { state.listenClosed = true; return true; },

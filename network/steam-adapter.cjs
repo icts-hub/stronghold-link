@@ -17,11 +17,49 @@
 const net = require('node:net');
 const path = require('node:path');
 const { diagnoseSteam } = require('./steam-env.cjs');
+const { createSendPlan, isReliable } = require('./steam-framing.cjs');
 
 const CALLBACK_INTERVAL_MS = 16;
 const DEFAULT_MAX_PEERS = 16;
 const STEAM_ID_PATTERN = /^7656119\d{10,}$/;
 const MAX_MESSAGE_BATCH = 128;
+
+/**
+ * 统一发送入口（房主与加入者共用）。
+ *
+ * 与重构前的区别：
+ *   * 按 4KB 分片，避免大块数据在 Steam 消息层产生队头阻塞；
+ *   * 用 sendMessage(conn, chunk, flags) 发出，标志为 Reliable | NoNagle
+ *     （不可靠通道在 steam-framing.cjs 里已具备，等 UDP 桥接时启用）；
+ *   * 绑定没有 sendMessage（老版本或测试桩）时退回 sendReliable，行为与从前一致。
+ *
+ * @returns {{ success:boolean, chunks:number, bytes:number, reliable:boolean }}
+ */
+function sendChunk(steam, connection, payload, { channel = 'reliable', maxChunk } = {}) {
+  let plan;
+  try {
+    plan = createSendPlan(payload, { channel, maxChunk });
+  } catch (err) {
+    return { success: false, chunks: 0, bytes: 0, reliable: channel === 'reliable', error: err.message };
+  }
+  const sockets = steam.networkingSockets;
+  let ok = true;
+  let sentBytes = 0;
+  for (const chunk of plan.chunks) {
+    let result;
+    try {
+      result = typeof sockets.sendMessage === 'function'
+        ? sockets.sendMessage(connection, chunk, plan.flags)
+        : sockets.sendReliable(connection, chunk);
+    } catch (err) {
+      ok = false;
+      break;
+    }
+    if (result && result.success === false) { ok = false; break; }
+    sentBytes += chunk.length;
+  }
+  return { success: ok, chunks: plan.chunks.length, bytes: sentBytes, reliable: isReliable(plan.flags) };
+}
 
 /**
  * 归一化 SteamID。
@@ -210,7 +248,7 @@ function createSteamHost(options = {}) {
       stats.packetsToPeer += 1;
       const active = steam.networkingSockets.isConnectionActive(connection);
       if (!active) { stats.dropped += 1; return; }
-      const result = steam.networkingSockets.sendReliable(connection, chunk);
+      const result = sendChunk(steam, connection, chunk, { channel: 'reliable' });
       if (!result?.success) { stats.dropped += 1; emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: '发送到 Steam 对端失败', message: 'sendReliable failed' } }); }
     });
     peer.socket.on('error', (err) => {
@@ -406,7 +444,7 @@ function createSteamJoiner(options = {}) {
       peer.connected = true;
       stats.sessionId = String(hostSteamId);
       for (const chunk of peer.queue.splice(0)) {
-        const result = steam.networkingSockets.sendReliable(change.connection, chunk);
+        const result = sendChunk(steam, change.connection, chunk, { channel: 'reliable' });
         if (!result?.success) stats.dropped += 1;
       }
       emit('peer-connected', { peer: `房主 ${hostSteamId}（本机客户端 ${peer.socket.remotePort || '?'}）` });
@@ -458,7 +496,7 @@ function createSteamJoiner(options = {}) {
         else { peer.queue.shift(); peer.queue.push(Buffer.from(chunk)); stats.dropped += 1; }
         return;
       }
-      const result = steam.networkingSockets.sendReliable(peer.connection, chunk);
+      const result = sendChunk(steam, peer.connection, chunk, { channel: 'reliable' });
       if (!result?.success) { stats.dropped += 1; emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: '发送到房主失败', message: 'sendReliable failed' } }); }
     });
     socket.on('error', () => { /* 客户端断开属正常 */ });
@@ -535,6 +573,7 @@ function createSteamJoiner(options = {}) {
 }
 
 module.exports = {
+  sendChunk,
   STEAM_ID_PATTERN,
   normalizeSteamId,
   resolveOwnSteamId,
