@@ -668,6 +668,11 @@ ipcMain.handle('steam:diagnose', () => {
   });
     const manager = getLobby();
     const snapshot = manager.snapshot();
+    // 角色信息（加入者不该看到"选进程/选端口"）：挂在 snapshot 上，返回时会被 ...snapshot 展开
+    try {
+      snapshot.isOwner = Boolean(manager.isOwner);
+      snapshot.role = manager.isOwner ? 'host' : (manager.lobbyId ? 'joiner' : null);
+    } catch (err) { /* 忽略 */ }
     return {
       ...snapshot,
       // Steam 用 +connect_lobby 启动我们时，界面据此显示「有人邀请你」
@@ -758,6 +763,68 @@ ipcMain.handle('lobby:set-room', async (_event, raw) => {
     return r;
   } catch (err) {
     return { ok: false, reason: String(err && err.message ? err.message : err) };
+  }
+});
+
+/** 探测本机某个 HTTP 地址（用于验证隧道是否真的把房主的网页送过来了） */
+function httpProbe(url, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      const http = require('node:http');
+      const req = http.get(url, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { if (body.length < 4096) body += c; });
+        res.on('end', () => finish({ ok: res.statusCode >= 200 && res.statusCode < 400, status: res.statusCode, looksLikeGame: /<html|<!doctype/i.test(body) }));
+      });
+      req.setTimeout(timeoutMs, () => { req.destroy(); finish({ ok: false, status: 0, reason: '超时 ' + timeoutMs + 'ms（隧道没有把数据送过来）' }); });
+      req.on('error', (err) => finish({ ok: false, status: 0, reason: err && err.message ? err.message : String(err) }));
+    } catch (err) {
+      finish({ ok: false, status: 0, reason: String(err && err.message ? err.message : err) });
+    }
+  });
+}
+
+ipcMain.handle('lobby:selftest', async () => {
+  // 联机自检：逐环打印真实状态，直接指出断点在哪一环
+  const checks = [];
+  const add = (name, ok, detail) => checks.push({ name, ok: ok === null ? null : Boolean(ok), detail });
+  try {
+    const manager = lobbyManager || getLobby();
+    const snap = (manager.snapshot ? manager.snapshot() : {}) || {};
+    const isOwner = Boolean(manager.isOwner);
+    const members = Array.isArray(snap.members) ? snap.members : [];
+    add('大厅', Boolean(snap.lobbyId), snap.lobbyId ? ('大厅 ' + snap.lobbyId + ' · ' + (isOwner ? '我是房主' : '我是加入者') + ' · 成员 ' + members.length + ' 人') : '还没有大厅（房主请先建房；好友请先接受邀请）');
+
+    const s = session.getSnapshot();
+    const cfg = s.config || {};
+    const entry = s.channels && s.channels[0] && s.channels[0].listen ? s.channels[0].listen.port : null;
+    add('会话', s.state === 'running',
+      'state=' + s.state + ' · adapter=' + (cfg.adapter || '-') + ' · role=' + (cfg.role || '-') +
+      (cfg.adapter === 'steam' ? (' · 房主SteamID=' + (cfg.remoteHost || '-') + ' · 游戏端口=' + (cfg.gamePort || cfg.targetPort || '-')) : ''));
+
+    const info = lastLobbyHostInfo || snap.hostInfo || {};
+    const port = Number(info.port) > 0 ? Number(info.port) : (Number(snap.port) > 0 ? Number(snap.port) : null);
+    add('大厅里的连接信息', Boolean(info.hostSteamId || port),
+      '房主SteamID=' + (info.hostSteamId || '-') + ' · 端口=' + (port || '-') + ' · 游戏=' + (info.game || '-') + ' · 房间号=' + (info.room || '-'));
+
+    if (isOwner) {
+      add('房主本地服务', null, '房主侧不监听端口，只连 127.0.0.1:' + (cfg.gamePort || cfg.targetPort || '-') + '（隧道好不好用由好友侧自检判定）');
+    } else if (entry) {
+      const url = 'http://127.0.0.1:' + entry + '/';
+      const r = await httpProbe(url);
+      add('隧道转发 HTTP（决定性）', r.ok,
+        r.ok ? ('GET ' + url + ' → HTTP ' + r.status + (r.looksLikeGame ? ' · 内容是网页（说明数据真的从房主那边过来了）' : ' · 但内容不像游戏页面'))
+             : ('GET ' + url + ' 失败：' + r.reason + ' → 隧道没起作用'));
+      add('浏览器该打开的地址', true, url + '（只打开这个；不要打开 127.0.0.1:' + (port || 3000) + '，那是你自己那边）');
+    } else {
+      add('隧道入口', false, '加入者还没有入口端口 → 隧道没起来（多半是大厅里还缺房主的端口，或房主没启动 Steam 房主会话）');
+    }
+    return { ok: true, checks, verdict: checks.some((c) => c.ok === false) ? '发现断点：见标红项' : '未发现断点' };
+  } catch (err) {
+    return { ok: false, checks, verdict: '自检本身出错：' + (err && err.message ? err.message : err) };
   }
 });
 

@@ -435,6 +435,10 @@
     <button class="btn btn--sm is-primary" id="roomCodeBtn" type="button">写入大厅</button>
     <span class="tech" id="roomCodeOut"></span>
   </div>
+  <div class="row" style="margin-top:6px;gap:10px;align-items:center">
+    <button class="btn btn--sm" id="selfTestBtn" type="button">联机自检</button>
+    <span class="tech" id="selfTestOut">逐环检查：大厅 / 会话 / 连接信息 / 隧道是否真的转发</span>
+  </div>
   <div class="spec" id="roomSteps" style="margin-top:10px"></div>
 </div>
 <div class="friends" id="friendList"></div>
@@ -773,6 +777,26 @@ function refreshRouteCandidates(measure){
     if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);renderRoutePolicy(out.routePolicy);}
   }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
 }
+function initSelfTest(){
+  var btn=$('selfTestBtn'),out=$('selfTestOut');
+  if(!btn)return;
+  btn.addEventListener('click',async function(){
+    var api=window.strongholdLink&&window.strongholdLink.lobby;
+    if(!api||!api.selftest){if(out)out.textContent='此环境未提供自检接口';return;}
+    if(out)out.textContent='自检中…（隧道那一环最多等 8 秒）';
+    try{
+      var r=await api.selftest();
+      if(!r||!r.ok){if(out)out.textContent='自检失败：'+((r&&r.verdict)||'');return;}
+      var lines=(r.checks||[]).map(function(c){
+        var mark=c.ok===null?'—':(c.ok?'✔':'✘');
+        return mark+' '+c.name+'：'+c.detail;
+      }).join('\n');
+      if(out)out.textContent=r.verdict;
+      (r.checks||[]).forEach(function(c){ lobbyLog((c.ok===null?'[—] ':(c.ok?'[✔] ':'[✘] '))+c.name+'：'+c.detail, c.ok===false?'error':(c.ok?'ok':'')); });
+      toast(r.verdict);
+    }catch(e){if(out)out.textContent='自检出错：'+(e.message||e);}
+  });
+}
 function initRoomCode(){
   var btn=$('roomCodeBtn'),inp=$('roomCodeInput'),out=$('roomCodeOut');
   if(!btn||!inp)return;
@@ -1090,7 +1114,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();initRoomCode();renderRoomSteps({});pollRouteWatch();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();initRoomCode();initSelfTest();renderRoomSteps({});pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
