@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Stronghold Link — RhineLab-inspired dynamic UI layer
  * -----------------------------------------------------
  * This file intentionally sits on top of the existing UI system. It adds:
@@ -374,6 +374,220 @@
 }
 
 /* -------------------- Reduced motion -------------------- */
+
+/* ============================================================================
+   IDLE MOTION SYSTEM — ambient flow that keeps the UI alive while idle.
+   This layer is intentionally subtle: no user interaction is required.
+   ============================================================================ */
+.ambient-system {
+  position: absolute;
+  inset: -8%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+  opacity: .82;
+  mix-blend-mode: normal;
+  transform: translate3d(calc(var(--px, 0) * -2px), calc(var(--py, 0) * -2px), 0);
+  transition: transform 900ms cubic-bezier(.2,.8,.2,1);
+}
+
+.ambient-glow {
+  position: absolute;
+  width: 42vw;
+  height: 42vw;
+  min-width: 420px;
+  min-height: 420px;
+  border-radius: 50%;
+  filter: blur(42px);
+  opacity: .10;
+  will-change: transform;
+  background: radial-gradient(circle at 50% 50%, rgba(197,161,107,.22) 0%, rgba(197,161,107,.08) 26%, transparent 70%);
+}
+
+.ambient-glow--a {
+  left: 7%; top: 5%;
+  animation: sl-ambient-orb-a 26s ease-in-out infinite alternate;
+}
+
+.ambient-glow--b {
+  right: 4%; bottom: -2%;
+  opacity: .075;
+  animation: sl-ambient-orb-b 34s ease-in-out infinite alternate;
+}
+
+.ambient-orbit {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: min(72vw, 980px);
+  height: min(30vw, 410px);
+  border: 1px solid color-mix(in srgb, var(--accent) 13%, transparent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) rotate(-14deg);
+  opacity: .18;
+  box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 3%, transparent) inset;
+  will-change: transform;
+}
+
+.ambient-orbit--a { animation: sl-orbit-a 42s linear infinite; }
+.ambient-orbit--b {
+  width: min(58vw, 780px);
+  height: min(24vw, 330px);
+  transform: translate(-50%, -50%) rotate(24deg);
+  opacity: .11;
+  animation: sl-orbit-b 58s linear infinite reverse;
+}
+.ambient-orbit--c {
+  width: min(92vw, 1180px);
+  height: min(36vw, 500px);
+  transform: translate(-50%, -50%) rotate(7deg);
+  opacity: .055;
+  animation: sl-orbit-c 76s linear infinite;
+}
+
+.ambient-flow {
+  position: absolute;
+  left: -12vw;
+  right: -12vw;
+  height: 1px;
+  opacity: .20;
+  display: flex;
+  align-items: center;
+  gap: 13vw;
+  will-change: transform;
+}
+
+.ambient-flow::before {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 16%, transparent) 18%, transparent 38%, color-mix(in srgb, var(--text) 6%, transparent) 68%, transparent);
+  opacity: .55;
+}
+
+.ambient-flow i {
+  width: clamp(90px, 11vw, 180px);
+  height: 1px;
+  display: block;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 30%, transparent), transparent);
+  transform-origin: left center;
+  animation: sl-flow-segment 7.5s linear infinite;
+}
+.ambient-flow i:nth-child(2) { animation-delay: -2.4s; width: clamp(50px, 7vw, 110px); }
+.ambient-flow i:nth-child(3) { animation-delay: -5.1s; width: clamp(120px, 15vw, 240px); }
+
+.ambient-flow--a { top: 26%; transform: rotate(-7deg); animation: sl-flow-a 22s ease-in-out infinite alternate; }
+.ambient-flow--b { top: 63%; transform: rotate(5deg); opacity: .13; animation: sl-flow-b 29s ease-in-out infinite alternate; }
+.ambient-flow--c { top: 78%; transform: rotate(-2deg); opacity: .09; animation: sl-flow-c 37s ease-in-out infinite alternate; }
+
+.ambient-node {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 9%, transparent);
+  opacity: .65;
+  animation: sl-node-breathe 3.8s ease-in-out infinite;
+}
+.ambient-node--a { left: 22%; top: 27%; animation-delay: -1.1s; }
+.ambient-node--b { right: 27%; top: 61%; animation-delay: -2.6s; }
+.ambient-node--c { right: 12%; bottom: 19%; animation-delay: -3.2s; }
+
+.ambient-cross {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  opacity: .18;
+  animation: sl-cross-float 13s ease-in-out infinite;
+}
+.ambient-cross::before,
+.ambient-cross::after {
+  content: "";
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.ambient-cross::before { width: 28px; height: 1px; left: 0; top: 13px; }
+.ambient-cross::after { width: 1px; height: 28px; left: 13px; top: 0; }
+.ambient-cross--a { left: 14%; top: 52%; animation-delay: -3s; }
+.ambient-cross--b { right: 18%; top: 34%; transform: scale(.72); opacity: .12; animation-delay: -8s; }
+
+@keyframes sl-ambient-orb-a {
+  0%   { transform: translate3d(-3vw, -2vh, 0) scale(.96); }
+  50%  { transform: translate3d(4vw, 3vh, 0) scale(1.05); }
+  100% { transform: translate3d(-1vw, 6vh, 0) scale(1); }
+}
+@keyframes sl-ambient-orb-b {
+  0%   { transform: translate3d(2vw, 2vh, 0) scale(1); }
+  50%  { transform: translate3d(-5vw, -4vh, 0) scale(1.06); }
+  100% { transform: translate3d(-2vw, 2vh, 0) scale(.98); }
+}
+@keyframes sl-orbit-a {
+  0%   { transform: translate(-50%, -50%) rotate(-14deg) scale(1); }
+  50%  { transform: translate(-50%, -50%) rotate(4deg) scale(1.025); }
+  100% { transform: translate(-50%, -50%) rotate(-14deg) scale(1); }
+}
+@keyframes sl-orbit-b {
+  0%   { transform: translate(-50%, -50%) rotate(24deg) scale(1.02); }
+  100% { transform: translate(-50%, -50%) rotate(-10deg) scale(.98); }
+}
+@keyframes sl-orbit-c {
+  0%   { transform: translate(-50%, -50%) rotate(7deg) scale(1); }
+  100% { transform: translate(-50%, -50%) rotate(21deg) scale(1.03); }
+}
+@keyframes sl-flow-a {
+  from { transform: translate3d(-2vw, 0, 0) rotate(-7deg); }
+  to   { transform: translate3d(7vw, 2vh, 0) rotate(-7deg); }
+}
+@keyframes sl-flow-b {
+  from { transform: translate3d(5vw, 0, 0) rotate(5deg); }
+  to   { transform: translate3d(-8vw, -1vh, 0) rotate(5deg); }
+}
+@keyframes sl-flow-c {
+  from { transform: translate3d(-4vw, 0, 0) rotate(-2deg); }
+  to   { transform: translate3d(10vw, 1vh, 0) rotate(-2deg); }
+}
+@keyframes sl-flow-segment {
+  0%   { opacity: .08; transform: scaleX(.55); }
+  30%  { opacity: .36; }
+  70%  { opacity: .18; transform: scaleX(1); }
+  100% { opacity: .05; transform: scaleX(.55); }
+}
+@keyframes sl-node-breathe {
+  0%,100% { opacity: .25; transform: scale(.84); }
+  45% { opacity: .75; transform: scale(1.12); }
+  70% { opacity: .4; transform: scale(.94); }
+}
+@keyframes sl-cross-float {
+  0%,100% { opacity: .10; transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { opacity: .24; transform: translate3d(8px, -12px, 0) rotate(15deg); }
+}
+
+html:not(.force-motion) .ambient-system { animation: sl-ambient-system-breathe 12s ease-in-out infinite; }
+@keyframes sl-ambient-system-breathe {
+  0%,100% { opacity: .72; }
+  50% { opacity: .88; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not(.force-motion) .ambient-system,
+  html:not(.force-motion) .ambient-glow,
+  html:not(.force-motion) .ambient-orbit,
+  html:not(.force-motion) .ambient-flow,
+  html:not(.force-motion) .ambient-flow i,
+  html:not(.force-motion) .ambient-node,
+  html:not(.force-motion) .ambient-cross {
+    animation: none !important;
+  }
+  html:not(.force-motion) .ambient-system { opacity: .48; }
+}
+
+@media (max-width: 900px) {
+  .ambient-orbit--c { opacity: .025; }
+  .ambient-flow--c { display: none; }
+  .ambient-glow { filter: blur(54px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html:not(.force-motion) .bg::after,
   html:not(.force-motion) .panel:hover::after,

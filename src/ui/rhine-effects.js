@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Stronghold Link — Dynamic UI interactions
  * -----------------------------------------
  * Renderer-only visual layer. No Node APIs, no IPC calls, no business state.
@@ -18,6 +18,7 @@
   var tx = 0.5, ty = 0.5;
   var rx = 0.5, ry = 0.5;
   var hidden = !!document.hidden;
+  var idleStart = performance.now();
 
   function reducedMotion() {
     try {
@@ -32,7 +33,7 @@
     return Math.max(min, Math.min(max, v));
   }
 
-  function frame() {
+  function frame(now) {
     raf = 0;
     if (hidden || reducedMotion()) return;
 
@@ -46,9 +47,9 @@
     root.style.setProperty('--px', ((rx - 0.5) * 2).toFixed(4));
     root.style.setProperty('--py', ((ry - 0.5) * 2).toFixed(4));
 
-    if (Math.abs(tx - rx) > 0.002 || Math.abs(ty - ry) > 0.002) {
-      raf = requestAnimationFrame(frame);
-    }
+    
+    // 指针缓动收敛后即停帧；"待机也在动"由中央循环的 idle 时钟负责，避免两个常驻 RAF
+    if (Math.abs(tx - rx) > 0.002 || Math.abs(ty - ry) > 0.002) raf = requestAnimationFrame(frame);
   }
 
   function pointerMove(e) {
@@ -148,6 +149,7 @@
     root.style.setProperty('--fx-pointer-y', '0.5');
     root.style.setProperty('--fx-pointer-x-px', (window.innerWidth * 0.5).toFixed(1) + 'px');
     root.style.setProperty('--fx-pointer-y-px', (window.innerHeight * 0.5).toFixed(1) + 'px');
+    if (!reducedMotion() && !raf) raf = requestAnimationFrame(frame);
   }
 
   if (document.readyState === 'loading') {
@@ -208,6 +210,18 @@
     get size() { return tasks.size; },
     get lite() { return lite; }
   };
+
+  /* ---------- 1b) Idle 时钟：由中央循环驱动（不再另开常驻 RAF） ---------- */
+  var __idleClockInstalled = true;
+  (function () {
+    var idleStart = (window.performance && performance.now) ? performance.now() : Date.now();
+    addTask(function (now) {
+      if (reduce()) return;                       // 减少动效：时钟停住，ambient 层由 CSS 静止
+      var t = (now || ((window.performance && performance.now) ? performance.now() : Date.now())) - idleStart;
+      root.style.setProperty('--fx-idle-t', (t * 0.001).toFixed(3) + 's');
+      root.style.setProperty('--fx-idle-phase', ((t * 0.000025) % 1).toFixed(4));
+    });
+  })();
 
   /* ---------- 2) 数字补间：数据变化连续滚动，不闪断 ---------- */
   var NUM = /(-?\d+(?:\.\d+)?)/;

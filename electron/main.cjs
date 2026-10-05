@@ -815,7 +815,17 @@ async function runProbe(dir) {
       silkRevealed: document.querySelectorAll('.is-revealed').length,
       silkWatching: document.querySelectorAll('.silk-watch').length,
       silkLite: document.documentElement.classList.contains('fx-lite'),
-      silkEase: (getComputedStyle(document.documentElement).getPropertyValue('--ease-smooth')||'').trim()
+      silkEase: (getComputedStyle(document.documentElement).getPropertyValue('--ease-smooth')||'').trim(),
+      ambientNodes: document.querySelectorAll('.ambient-system > div').length,
+      ambientOrbits: document.querySelectorAll('.ambient-orbit').length,
+      ambientFlows: document.querySelectorAll('.ambient-flow').length,
+      idleT: (getComputedStyle(document.documentElement).getPropertyValue('--fx-idle-t')||'').trim(),
+      idlePhase: (getComputedStyle(document.documentElement).getPropertyValue('--fx-idle-phase')||'').trim(),
+      orbitDur: (function(){ var el=document.querySelector('.ambient-orbit'); if(!el) return 'none'; var cs=getComputedStyle(el); return cs.animationDuration + '/' + cs.animationName; })(),
+      glowDur: (function(){ var el=document.querySelector('.ambient-glow'); if(!el) return 'none'; var cs=getComputedStyle(el); return cs.animationDuration + '/' + cs.animationName; })(),
+      flowDur: (function(){ var el=document.querySelector('.ambient-flow i'); if(!el) return 'none'; var cs=getComputedStyle(el); return cs.animationDuration + '/' + cs.animationName; })(),
+      nodeDur: (function(){ var el=document.querySelector('.ambient-node'); if(!el) return 'none'; var cs=getComputedStyle(el); return cs.animationDuration + '/' + cs.animationName; })(),
+      gridDur: (function(){ var el=document.querySelector('.bg__grid'); if(!el) return 'none'; var cs=getComputedStyle(el); return cs.animationDuration + '/' + cs.animationName; })()
     })`);
     await fs.writeFile(path.join(dir, 'boot-mid.png'), (await win.webContents.capturePage()).toPNG());
     // 2) 等启动序列结束
@@ -835,6 +845,8 @@ async function runProbe(dir) {
   console.log('[probe] 动态层 = owner:' + boot.fxOwner + ' pointerX:' + boot.fxPointer + ' interactive:' + boot.fxInteractive + ' glass:' + boot.fxGlass);
   const silk2 = await win.webContents.executeJavaScript("(async () => { const p=document.querySelector('[data-view=\"network\"]'); if(p) p.click(); await new Promise(r=>setTimeout(r,1200)); return { packets: document.querySelectorAll('#routeDiagram .silk-packet').length, loop: (window.__silkLoop?window.__silkLoop.size:-1), lite: document.documentElement.classList.contains('fx-lite') }; })()");
   console.log('[probe] 网络页包流 = ' + JSON.stringify(silk2));
+  console.log('[probe] 待机运动 = nodes:' + boot.ambientNodes + ' orbits:' + boot.ambientOrbits + ' flows:' + boot.ambientFlows + ' idleT:' + boot.idleT + ' phase:' + boot.idlePhase);
+  console.log('[probe] 分层速度 = grid:' + boot.gridDur + ' | glow:' + boot.glowDur + ' | orbit:' + boot.orbitDur + ' | flow:' + boot.flowDur + ' | node:' + boot.nodeDur);
   console.log('[probe] 丝滑层 = surfaces:' + boot.silkSurfaces + ' loopTasks:' + boot.silkLoopTasks + ' packets:' + boot.silkPackets + ' revealed:' + boot.silkRevealed + '/' + boot.silkWatching + ' lite:' + boot.silkLite + ' ease:' + boot.silkEase);
     for (const row of boot.rows) console.log('         ' + row);
     console.log('[probe] 启动结束后 className = "' + afterBoot + '"（应不含 open）');
