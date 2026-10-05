@@ -1188,3 +1188,90 @@ html.force-motion #bootScreen::before { animation: shl-mark-breathe 4.5s cubic-b
 /*
 :root { --shl-mark: url("brand/mark.svg"); }
 */
+
+
+/* ==========================================================================
+   PROPORTION PASS —— 比例与节奏统一
+   实测问题：行间距无节奏（间隙 2~75px 混用）、行过高（110px 装 40px 文字）、
+             标题过大（73px 块）。这里统一到 8pt 间距节奏 + 1.25 字阶。
+   规则只对确认存在的选择器生效（脚本逐条校验）。
+   ========================================================================== */
+.pagehead {
+  margin: 0 0 28px;
+  padding: 0 0 18px;
+  border-bottom: 2px solid var(--plate-line);
+}
+.pagehead h1, .pagehead .h1 {
+  font-size: 30px;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  margin: 4px 0 8px;
+}
+.pagehead .tech, .pagehead .eyebrow {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.18em;
+}
+.row {
+  padding: 12px 0;
+  gap: 12px;
+}
+.trow {
+  padding: 14px 0;
+  min-height: 0;
+}
+.step {
+  margin: 0 0 24px;
+  padding-top: 12px;
+}
+.readout-row {
+  gap: 16px 24px;
+  padding: 12px 0;
+}
+.readout__v {
+  font-size: 30px;
+  line-height: 1.05;
+}
+.readout__k {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.16em;
+}
+.rail {
+  width: 90px;
+  min-width: 90px;
+}
+.rail .nav button {
+  padding: 11px 10px;
+  gap: 6px;
+}
+.rail__foot {
+  padding: 14px 10px 12px;
+}
+.top {
+  height: 56px;
+  padding: 0 18px;
+}
+.top .brand::before, .top__brand::before {
+  width: 30px;
+  height: 13.7px;
+  margin-right: 9px;
+}
+.pagehead::after {
+  width: 184px;
+  height: 84px;
+}
+.rail__foot::before {
+  width: 44px;
+  height: 20px;
+  margin-bottom: 10px;
+}
+
+/* 水印不再与页头按钮打架：移到标题下方的空白带，尺寸按 2.195 比例 */
+.pagehead::after {
+  top: auto;
+  bottom: 6px;
+  right: 2px;
+  width: 152px;
+  height: 69px;
+  opacity: 0.06;
+}
+[data-theme='dark'] .pagehead::after { opacity: 0.09; }
