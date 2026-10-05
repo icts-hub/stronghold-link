@@ -60,7 +60,7 @@
   // 节点方阵：长条方柱按网格排布，越远越淡（靠雾）
   var COLS = 26;
   var ROWS = 16;
-  var SPACING = 6.2;
+  var SPACING = 7.4;
   var count = COLS * ROWS;
   var box = new THREE.BoxGeometry(1.35, 1, 3.6);
   var material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5 });
@@ -107,7 +107,7 @@
   // 扫描面：一条极窄的横向带，沿纵深缓慢推进
   var scan = new THREE.Mesh(
     new THREE.PlaneGeometry(COLS * SPACING * 0.9, 1),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.12 })
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.05 })
   );
   scan.rotation.x = -Math.PI / 2;
   scene.add(scan);
@@ -117,9 +117,9 @@
     var ink = rgb('--ink-rgb', '8, 10, 8');
     var accent = rgb('--accent-rgb', '197, 161, 107');
     var line = rgb('--line-rgb', '170, 165, 154');
-    scene.fog = new THREE.Fog(new THREE.Color(color(paper, 1)), 60, 210);
+    scene.fog = new THREE.Fog(new THREE.Color(color(paper, 1)), 40, 150);
     material.color.set(color(ink, 1));
-    material.opacity = 0.42;
+    material.opacity = 0.13;
     buildRoutes(accent, line);
     scan.material.color.set(color(accent, 1));
   }
@@ -138,13 +138,13 @@
     if (!running) return;
     requestAnimationFrame(frame);
     if (!reduceMotion) clock += 0.0016;
-    var radius = 96;
+    var radius = 132;
     var angle = reduceMotion ? -0.55 : -0.55 + clock;
-    camera.position.set(Math.cos(angle) * radius, 34 + (reduceMotion ? 0 : Math.sin(clock * 0.7) * 4), Math.sin(angle) * radius);
+    camera.position.set(Math.cos(angle) * radius, 48 + (reduceMotion ? 0 : Math.sin(clock * 0.7) * 4), Math.sin(angle) * radius);
     camera.lookAt(0, 4, 0);
     if (!reduceMotion) {
       scan.position.set(0, 7, ((clock * 26) % (ROWS * SPACING)) - (ROWS * SPACING) / 2);
-      if (activeLine) activeLine.material.opacity = 0.6 + Math.sin(clock * 6) * 0.25;
+      if (activeLine) activeLine.material.opacity = 0.3 + Math.sin(clock * 6) * 0.12;
     }
     renderer.render(scene, camera);
   }
