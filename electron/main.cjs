@@ -384,7 +384,15 @@ ipcMain.handle('network:route-watch', async (event, input) => {
         routeWatch = createRelayRouteWatch({
           intervalMs: Number(input && input.intervalMs) || 15000,
           pings: 4,
-          onRouteChanged: (ev) => console.log('[route] NETWORK_ROUTE_CHANGED ' + JSON.stringify(ev)),
+          onRouteChanged: (ev) => {
+            console.log('[route] NETWORK_ROUTE_CHANGED ' + JSON.stringify(ev));
+            // 接进会话事件流：会话在跑时，SESSION 页的终端会看到这一行
+            try {
+              if (sessionManager && typeof sessionManager.note === 'function') {
+                sessionManager.note('路由切换：' + ev.from + ' → ' + ev.to + (ev.reason ? '（' + ev.reason + '）' : ''), 'warn');
+              }
+            } catch (err) { /* 日志注入失败不影响监看 */ }
+          },
         });
       }
       routeWatch.start();

@@ -886,6 +886,17 @@ class SessionManager {
     this.log(`加入者会话已就绪：${channels.length} 条通道 -> 房主 ${remoteHost}`, 'ok');
   }
 
+  /**
+   * 把外部事件写进会话日志流（供路由监看等外部模块使用）。
+   * 只走既有的 log 通道，不改变会话状态或通道行为。
+   */
+  note(text, level = 'info') {
+    const message = String(text === undefined || text === null ? '' : text);
+    if (!message) return false;
+    this.log(message, level);
+    return true;
+  }
+
   async _awaitReady(relay, where) {
     let timer;
     try {
