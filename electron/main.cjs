@@ -330,6 +330,27 @@ function sanitizeSessionInput(raw) {
 }
 
 /** 把主进程内部的错误翻译成渲染进程能直接展示的文案（IPC 只保留 message）。 */
+/**
+ * 归一化"大厅里的房主连接信息"。
+ * 真实形状：snapshot().host = { hostSteamId, port, game, room, version }
+ *          join() 返回 { ok, lobbyId, host: {...} }
+ * 这里同时接受 { host: {...} } 与扁平对象，避免再出现"读错键名导致永远为空"的问题。
+ */
+function normalizeHostInfo(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const h = (raw.host && typeof raw.host === 'object') ? raw.host : raw;
+  const hostSteamId = h.hostSteamId ? String(h.hostSteamId) : null;
+  const portNum = Number(h.port) > 0 ? Number(h.port) : null;
+  if (!hostSteamId && !portNum) return null;
+  return {
+    hostSteamId,
+    port: portNum,
+    game: h.game ? String(h.game) : '',
+    room: h.room ? String(h.room) : '',
+    version: h.version ? String(h.version) : '',
+  };
+}
+
 function toIpcError(err) {
   const message = err && (err.friendly || err.message) ? (err.friendly || err.message) : '未知错误';
   const wrapped = new Error(message);
@@ -672,6 +693,8 @@ ipcMain.handle('steam:diagnose', () => {
     try {
       snapshot.isOwner = Boolean(manager.isOwner);
       snapshot.role = manager.isOwner ? 'host' : (manager.lobbyId ? 'joiner' : null);
+      // 界面用的统一字段（真实键是 snapshot.host）
+      snapshot.hostInfo = normalizeHostInfo(snapshot.host);
     } catch (err) { /* 忽略 */ }
     return {
       ...snapshot,
@@ -712,7 +735,11 @@ ipcMain.handle('steam:diagnose', () => {
       if (!lobbyId) throw Object.assign(new Error('请填写大厅 ID'), { code: 'EINVALIDLOBBY' });
       const manager = getLobby();
       const result = await manager.join(lobbyId);
-      lastLobbyHostInfo = result || null;        // 大厅里交换来的房主信息（SteamID + 端口）
+      // 注意：真实数据在 result.host 里（键名是 host，不是 hostInfo）
+      lastLobbyHostInfo = normalizeHostInfo(result) || null;
+      logLine(lastLobbyHostInfo
+        ? ('已读到房主信息：SteamID ' + (lastLobbyHostInfo.hostSteamId || '-') + ' · 端口 ' + (lastLobbyHostInfo.port || '-'))
+        : '大厅里暂时读不到房主信息（房主还没开局？）');
       return { ...result, status: manager.snapshot() };
     } catch (err) {
       throw toIpcError(err);
@@ -819,7 +846,7 @@ ipcMain.handle('lobby:selftest', async () => {
       'state=' + s.state + ' · adapter=' + (cfg.adapter || '-') + ' · role=' + (cfg.role || '-') +
       (cfg.adapter === 'steam' ? (' · 房主SteamID=' + (cfg.remoteHost || '-') + ' · 游戏端口=' + (cfg.gamePort || cfg.targetPort || '-')) : ''));
 
-    const info = lastLobbyHostInfo || snap.hostInfo || {};
+    const info = lastLobbyHostInfo || normalizeHostInfo(snap.host) || normalizeHostInfo(snap.hostInfo) || {};
     const port = Number(info.port) > 0 ? Number(info.port) : (Number(snap.port) > 0 ? Number(snap.port) : null);
     add('大厅里的连接信息', Boolean(info.hostSteamId || port),
       '房主SteamID=' + (info.hostSteamId || '-') + ' · 端口=' + (port || '-') + ' · 游戏=' + (info.game || '-') + ' · 房间号=' + (info.room || '-'));
@@ -956,7 +983,7 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
     const input = raw && typeof raw === 'object' ? raw : {};
     const manager = getLobby();
     const snap = manager.snapshot ? manager.snapshot() : {};
-    const info = lastLobbyHostInfo || snap.hostInfo || {};
+    const info = lastLobbyHostInfo || normalizeHostInfo(snap.host) || normalizeHostInfo(snap.hostInfo) || {};
     const lobby = {
       lobbyId: snap.lobbyId || info.lobbyId || null,
       hostSteamId: info.hostSteamId || snap.hostSteamId || null,
