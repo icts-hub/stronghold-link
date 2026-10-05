@@ -755,13 +755,36 @@ function renderPortScan(out){
   var line=$('portScanOut'),list=$('portScanList');if(!line)return;
   if(!out){line.textContent='尚未探测 · 用于自动找出要转发的端口';if(list)list.innerHTML='';return;}
   if(!out.ok){line.textContent='探测失败 · '+(out.reason||'未知原因');if(list)list.innerHTML='';return;}
-  var c=out.candidates||[];
-  line.textContent='发现 '+c.length+' 个候选'+(out.steamPick?(' · Steam 房主建议端口 '+out.steamPick.port+(out.steamPick.process?('（'+out.steamPick.process+'）'):'')):'')+' · 点击下面任一行可复制端口';
+  var c=out.candidates||[],g=out.games||[],pg=out.primaryGame;
+  if(pg){
+   line.textContent='已识别：'+pg.name+' · '+pg.protocol+' '+pg.port+(pg.process?('（'+pg.process+'）'):'')+(pg.confidence==='medium'?' · 置信度中等':'');
+  }else{
+   line.textContent='未识别到已知联机游戏'+(out.steamPick?(' · 建议端口 '+out.steamPick.port):'')+' · 可手动从下方候选里选';
+  }
   if(!list)return;
-  list.innerHTML=c.map(function(x){
-   var proc=x.process||'未知进程';
-   return '<div class="tech" style="display:block;cursor:pointer" data-copy-port="'+x.port+'">'+x.protocol+' · '+x.port+' · '+String(x.address||'')+' · '+proc+'</div>';
-  }).join('');
+  var html='';
+  // 一键卡：认出游戏时只做一件事——给出可复制的连接地址
+  if(pg){
+   var addr='127.0.0.1:'+pg.port;
+   html+='<div class="tech" style="display:block;margin-bottom:6px">'
+       + '<button class="cmd is-accent" type="button" data-copy-text="'+addr+'">复制 '+addr+'</button> '
+       + '<button class="cmd" type="button" data-copy-text="'+String(pg.join||'').replace(/"/g,'')+'">复制加入步骤</button>'
+       + '</div>'
+       + '<div class="tech" style="display:block;color:var(--ink-muted);margin-bottom:8px">本机连接：'+addr+'　·　好友连接：用大厅自动分配的本机入口端口（建立隧道后界面会给出）</div>'
+       + '<div class="tech" style="display:block;color:var(--ink-muted);margin-bottom:10px">加入步骤：'+String(pg.join||'')+'</div>';
+  }
+  if(g.length>1){
+   html+='<div class="tech" style="display:block;color:var(--ink-muted);margin-bottom:4px">其他识别结果</div>';
+   html+=g.slice(1).map(function(x){return '<div class="tech" style="display:block">'+x.name+' · '+x.protocol+' '+x.port+' · '+(x.process||'?')+'</div>';}).join('');
+  }
+  if(c.length){
+   html+='<div class="tech" style="display:block;color:var(--ink-muted);margin:8px 0 4px">端口候选（点击复制）</div>';
+   html+=c.map(function(x){
+    var proc=x.process||'未知进程';
+    return '<div class="tech" style="display:block;cursor:pointer" data-copy-port="'+x.port+'">'+x.protocol+' · '+x.port+' · '+String(x.address||'')+' · '+proc+'</div>';
+   }).join('');
+  }
+  list.innerHTML=html;
 }
 function initPortScan(){
   var btn=$('portScanBtn');if(!btn)return;
@@ -774,11 +797,18 @@ function initPortScan(){
   });
   var list=$('portScanList');
   if(list)list.addEventListener('click',function(e){
+    var t=e.target&&e.target.closest?e.target.closest('[data-copy-text]'):null;
+    if(t){
+      var text=t.getAttribute('data-copy-text')||'';
+      try{if(navigator.clipboard)navigator.clipboard.writeText(text)}catch(_){}
+      toast('已复制：'+text);
+      return;
+    }
     var row=e.target&&e.target.closest?e.target.closest('[data-copy-port]'):null;if(!row)return;
     var port=row.getAttribute('data-copy-port');
     try{if(navigator.clipboard)navigator.clipboard.writeText(port)}catch(_){}
-    lobbyLog('已复制端口 '+port+'：到 SESSION 页填「本地服务端口」或加一条端口规则','');
-    toast('已复制端口 '+port+' · 去 SESSION 填写');
+    lobbyLog('已复制端口 '+port+'','');
+    toast('已复制端口 '+port);
   });
 }
 function renderNatType(out){

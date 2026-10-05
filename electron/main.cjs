@@ -193,6 +193,24 @@ function sendLobbyEvent(type, payload) {
  * 大厅要写进 shl_port 的端口：显式传入 > 当前会话配置 > 本机探测（自动认出正在监听的游戏服务）
  * 这样房主不必手填端口，好友加入后就能直接建立隧道。
  */
+/** 大厅里显示的游戏名：显式传入 > 会话配置 > 本机识别 */
+function resolveLobbyGame(input, config) {
+  const explicit = input && input.game ? String(input.game).slice(0, 64) : '';
+  if (explicit) return explicit;
+  const fromSession = config && config.game ? String(config.game).slice(0, 64) : '';
+  if (fromSession) return fromSession;
+  try {
+    const ports = require('../network/listening-ports.cjs');
+    const games = require('../network/game-detect.cjs');
+    const found = ports.listListeningPorts({});
+    if (found && found.ok) {
+      const game = games.pickPrimaryGame(found.entries);
+      if (game) return game.name;
+    }
+  } catch (err) { /* 忽略 */ }
+  return '';
+}
+
 function resolveLobbyPort(input, config) {
   const explicit = Number(input && input.port) > 0 ? Number(input.port) : 0;
   if (explicit) return explicit;
@@ -200,8 +218,15 @@ function resolveLobbyPort(input, config) {
   if (fromSession) return fromSession;
   try {
     const ports = require('../network/listening-ports.cjs');
+    const games = require('../network/game-detect.cjs');
     const found = ports.listListeningPorts({});
     if (found && found.ok) {
+      // 先认游戏（一键联机的主路径）：认出就直接用它的端口
+      const game = games.pickPrimaryGame(found.entries);
+      if (game && Number(game.port) > 0) {
+        logLine('大厅未指定端口：已识别到 ' + game.name + '（' + game.protocol + ' ' + game.port + '），自动使用');
+        return Number(game.port);
+      }
       const pick = ports.suggestSteamGamePort(found.entries, {});
       if (pick && Number(pick.port) > 0) {
         logLine('大厅未指定端口：已自动探测到本机服务端口 ' + pick.port + (pick.process ? '（' + pick.process + '）' : ''));
@@ -399,19 +424,24 @@ ipcMain.handle('network:listening-ports', async () => {
       if (c && c.peer && Number(c.peer.port) > 0) used.push(Number(c.peer.port));
     });
     const found = ports.listListeningPorts({});
-    if (!found.ok) return { ok: false, reason: found.reason, candidates: [], rules: [], steamPick: null, used };
+    if (!found.ok) return { ok: false, reason: found.reason, candidates: [], rules: [], steamPick: null, games: [], primaryGame: null, used };
     const candidates = ports.rankCandidates(found.entries, { exclude: used, limit: 12 });
+    const games = require('../network/game-detect.cjs');
+    const detected = games.detectGames(found.entries, { limit: 6 });
+    const primary = games.pickPrimaryGame(found.entries);
     return {
       ok: true,
       reason: null,
       used,
+      games: detected,
+      primaryGame: primary,
       candidates,
       steamPick: ports.suggestSteamGamePort(found.entries, { exclude: used }),
       rules: ports.suggestRules(found.entries, { exclude: used, max: 4, perProcess: 2 }),
       scannedAt: Date.now(),
     };
   } catch (err) {
-    return { ok: false, reason: String(err && err.message ? err.message : err), candidates: [], rules: [], steamPick: null, used: [] };
+    return { ok: false, reason: String(err && err.message ? err.message : err), candidates: [], rules: [], steamPick: null, games: [], primaryGame: null, used: [] };
   }
 });
 
@@ -563,7 +593,7 @@ ipcMain.handle('steam:diagnose', () => {
         maxMembers: Number(input.maxMembers) > 0 ? Number(input.maxMembers) : 4,
         hostSteamId: input.hostSteamId ? String(input.hostSteamId).slice(0, 32) : null,
         port: resolveLobbyPort(input, config),
-        game: input.game ? String(input.game).slice(0, 64) : String(config.game || ''),
+        game: resolveLobbyGame(input, config),
         version: APP_VERSION,
       });
       return { ...result, status: manager.snapshot() };
