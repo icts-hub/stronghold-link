@@ -136,11 +136,33 @@ function initSteamSdk({ appDir, appId, sdkPath, sdk, debug = false } = {}) {
 }
 
 /** 共享的「跑回调 + 收消息」循环。 */
-function startCallbackLoop({ steam, pump, onFatal }) {
+function startCallbackLoop({ steam, pump, onFatal, label = '', onNotice = null }) {
+  let lastNotice = 0;
+  let lastPending = -1;
   const timer = setInterval(() => {
     try {
       steam.runCallbacks?.();
-      steam.networkingSockets?.runCallbacks?.();
+      const ns = steam.networkingSockets;
+      ns?.runCallbacks?.();
+      // 关键：连接状态变化与"有人请求连接"都排在这两个队列里，
+      // 不泵它们 -> 房主永远收不到连接请求、从不 accept -> 加入者连接一直 pending
+      // -> 本机入口 socket 被关掉 -> 浏览器表现为 ERR_EMPTY_RESPONSE（实测就是这样）。
+      try { ns?.pollConnectionStates?.(); } catch (err) { /* 兼容旧版 FFI */ }
+      try { ns?.ensureCallbackRegistered?.(); } catch (err) { /* 兼容旧版 FFI */ }
+      // 证据日志：把"收到连接请求 / 连接状态变化"打到日志里，联机时一眼可见
+      try {
+        const now = Date.now();
+        if (now - lastNotice > 2000) {
+          lastNotice = now;
+          const pending = (typeof ns?.getPendingConnectionRequests === 'function') ? (ns.getPendingConnectionRequests() || []) : [];
+          if (pending.length && pending.length !== lastPending) {
+            lastPending = pending.length;
+            onNotice?.('Steam ' + (label ? label + ' ' : '') + '收到 ' + pending.length + ' 个连接请求');
+          } else if (!pending.length) {
+            lastPending = 0;
+          }
+        }
+      } catch (err) { /* 证据日志失败不影响主流程 */ }
       pump();
     } catch (err) {
       onFatal?.(err);

@@ -336,6 +336,24 @@ function sanitizeSessionInput(raw) {
  *          join() 返回 { ok, lobbyId, host: {...} }
  * 这里同时接受 { host: {...} } 与扁平对象，避免再出现"读错键名导致永远为空"的问题。
  */
+/**
+ * 会话 AppID 的唯一解析入口。
+ * 必须与「SESSION 页手动启动」用同一个值：两端 AppID 不一致时，
+ * Steam 会接受 P2P 连接但**不转发数据** —— 表现为"隧道已建立、HTTP 却超时"。
+ */
+function resolveSessionAppId(input, snapshot) {
+  const explicit = Number(input && input.appId) > 0 ? Number(input.appId) : 0;
+  if (explicit) return explicit;
+  const cfg = (snapshot && snapshot.config) || {};
+  const fromConfig = Number(cfg.appId) > 0 ? Number(cfg.appId) : 0;
+  if (fromConfig) return fromConfig;
+  try {
+    const env = Number(process.env.SteamAppId || process.env.STEAM_APPID);
+    if (env > 0) return env;
+  } catch (err) { /* 忽略 */ }
+  return null;
+}
+
 function normalizeHostInfo(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const h = (raw.host && typeof raw.host === 'object') ? raw.host : raw;
@@ -937,9 +955,9 @@ ipcMain.handle('lobby:prepare', async (_event, raw) => {
         role: 'host',
         targetHost: '127.0.0.1',
         gamePort: port,
-        appId: Number(input.appId) > 0 ? Number(input.appId) : null,
+        appId: resolveSessionAppId(input, session.getSnapshot()),
       }));
-      logLine('已按选定端口 ' + port + ' 启动房主会话，准备等待好友加入');
+      logLine('已按选定端口 ' + port + ' 启动房主会话（AppID ' + (resolveSessionAppId(input, session.getSnapshot()) || '未指定') + '），准备等待好友加入');
     }
     preferredGamePort = port;      // 只有真正起来了才记住（失败时不留脏值）
 
@@ -997,7 +1015,7 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
       role: manager.isOwner ? 'host' : 'joiner',
       lobby,
       session: current,
-      appId: Number(input.appId) > 0 ? Number(input.appId) : (Number(current.config && current.config.appId) || null),
+      appId: resolveSessionAppId(input, current),
       appVersion: APP_VERSION,
     });
     if (plan.action !== 'start') {
@@ -1027,7 +1045,7 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
         const retry = planLobbyConnect({
           role: manager.isOwner ? 'host' : 'joiner',
           lobby, session: session.getSnapshot(),
-          appId: Number(input.appId) > 0 ? Number(input.appId) : (Number(current.config && current.config.appId) || null),
+          appId: resolveSessionAppId(input, current),
           appVersion: APP_VERSION,
         });
         if (retry.action === 'start') {
