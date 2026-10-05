@@ -325,6 +325,13 @@
               <button class="btn btn--sm" id="portScanBtn" type="button">DETECT PORTS</button>
               <span class="tech" id="portScanOut">尚未探测 · 用于自动找出要转发的端口</span>
               <div class="spec" id="portScanList" style="margin-top:4px;width:100%"></div>
+              <div class="row" style="margin-top:12px;gap:10px;align-items:center;flex-wrap:wrap">
+                <button class="btn btn--sm" id="procRefresh" type="button">选择进程</button>
+                <input class="inp mono" id="procFilter" placeholder="按名称筛选，如 minecraft / server / java" style="max-width:320px">
+                <label class="tech" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="procAuto">自动刷新</label>
+                <span class="tech" id="procOut">列出本机正在监听的程序，自己挑要转发的那个</span>
+              </div>
+              <div class="spec" id="procBody" style="margin-top:8px"></div>
               <button class="btn btn--sm" id="natTypeBtn" type="button">MEASURE NAT</button>
               <span class="tech" id="natTypeOut">NAT TYPE — NOT MEASURED</span>
             </div>
@@ -811,6 +818,62 @@ function initPortScan(){
     toast('已复制端口 '+port);
   });
 }
+function renderProcList(data){
+  var out=$('procOut'),body=$('procBody');if(!out||!body)return;
+  if(!data){out.textContent='列出本机正在监听的程序，自己挑要转发的那个';body.innerHTML='';return;}
+  if(!data.ok){out.textContent='读取进程失败 · '+(data.reason||'');body.innerHTML='';return;}
+  var rows=data.rows||[];
+  out.textContent=rows.length?('共 '+rows.length+' 个在监听 · 看清名字再点，选错不会改任何配置'):'没有可列出的进程（都像系统进程）';
+  body.innerHTML=rows.map(function(r){
+    var ports=(r.ports||[]).map(function(p){return p.protocol+' '+p.port;}).join(' · ');
+    var tag=r.isGame?('<span class="t-invert">'+r.gameName+'</span> '):(r.isInfra?'<span class="tech">基础设施</span> ':'');
+    return '<div class="trow" style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(var(--ink-rgb),0.10)">'
+      + '<span class="trow__idx" style="min-width:64px">'+r.pid+'</span>'
+      + '<span class="trow__title" style="min-width:210px">'+(r.name||'未知进程')+'</span>'
+      + '<span class="tech" style="flex:1;min-width:180px">'+(ports||'（无监听端口）')+'</span>'
+      + tag
+      + (r.ports&&r.ports.length?('<button class="cmd is-accent" type="button" data-use-port="'+r.ports[0].port+'">用这个端口</button> <button class="cmd" type="button" data-detail-pid="'+r.pid+'">详情</button>'):'')
+      + '</div>';
+  }).join('');
+}
+function initProcList(){
+  var btn=$('procRefresh'),filter=$('procFilter'),auto=$('procAuto'),body=$('procBody');
+  if(!btn)return;
+  var timer=null;
+  function load(){
+    var api=window.strongholdLink&&window.strongholdLink.network;
+    var out=$('procOut');
+    if(!api||!api.processList){if(out)out.textContent='此环境未提供进程列表接口';return;}
+    if(out&&!auto)out.textContent='读取中…';
+    api.processList({filter:filter?filter.value.trim():''}).then(renderProcList).catch(function(e){renderProcList({ok:false,reason:String(e&&e.message||e)});});
+  }
+  btn.addEventListener('click',load);
+  if(filter)filter.addEventListener('input',function(){clearTimeout(filter.__t);filter.__t=setTimeout(load,250)});
+  if(auto)auto.addEventListener('change',function(){
+    if(auto.checked){load();timer=setInterval(load,4000);}else if(timer){clearInterval(timer);timer=null;}
+  });
+  if(body)body.addEventListener('click',function(e){
+    var t=e.target;
+    var d=t&&t.closest?t.closest('[data-detail-pid]'):null;
+    if(d){
+      var pid=d.getAttribute('data-detail-pid');
+      var api=window.strongholdLink&&window.strongholdLink.network;
+      if(api&&api.processDetail){toast('读取命令行…（约几秒）');api.processDetail(pid).then(function(r){
+        if(r&&r.ok&&r.detail){lobbyLog('进程 '+r.detail.name+'（PID '+r.detail.pid+'）'+(r.detail.gameName?(' 识别为 '+r.detail.gameName):'')+' 命令行：'+String(r.detail.cmd||'').slice(0,160),'');toast(r.detail.gameName?('这是 '+r.detail.gameName):'未识别为已知游戏');}
+        else{toast('详情读取失败：'+((r&&r.reason)||''));}
+      }).catch(function(err){toast('详情读取失败：'+(err.message||err))});}
+      return;
+    }
+    var u=t&&t.closest?t.closest('[data-use-port]'):null;
+    if(!u)return;
+    var port=u.getAttribute('data-use-port');
+    try{if(navigator.clipboard)navigator.clipboard.writeText('127.0.0.1:'+port)}catch(_){}
+    lobbyLog('已选定端口 '+port+'（复制了 127.0.0.1:'+port+'）· 建房时会用它；也可到 SESSION 页填「本地服务端口」','ok');
+    toast('已选定 '+port+' · 已复制 127.0.0.1:'+port);
+  });
+  // 离开 NETWORK 页时停掉自动刷新，避免后台空转
+  document.querySelectorAll('[data-view]').forEach(function(b){b.addEventListener('click',function(){if(timer&&b.dataset.view!=='network'){clearInterval(timer);timer=null;if(auto)auto.checked=false;}});});
+}
 function renderNatType(out){
   var el=$('natTypeOut');if(!el)return;
   if(!out){el.textContent='NAT TYPE — NOT MEASURED';return;}
@@ -888,7 +951,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();pollRouteWatch();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。

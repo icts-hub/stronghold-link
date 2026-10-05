@@ -419,6 +419,80 @@ function registerIpc() {
     }
   });
   let routeWatch = null;
+ipcMain.handle('network:process-list', async (_event, raw) => {
+  // 实时列出"正在监听的程序"，供用户自己挑（自动识别失败时的兜底路径）
+  // 只用 netstat + tasklist（毫秒级）；命令行要单独点开某个进程才查（约 4.5 秒）
+  try {
+    const input = raw && typeof raw === 'object' ? raw : {};
+    const filter = String(input.filter || '').trim().toLowerCase();
+    const ports = require('../network/listening-ports.cjs');
+    const games = require('../network/game-detect.cjs');
+    const found = ports.listListeningPorts({});
+    if (!found.ok) return { ok: false, reason: found.reason, rows: [] };
+
+    const byPid = new Map();
+    for (const e of found.entries) {
+      if (!e || !Number(e.port)) continue;
+      if (e.protocol === 'TCP' && e.state && e.state !== 'LISTENING') continue;   // 只要"在听"的
+      if (!byPid.has(e.pid)) byPid.set(e.pid, { pid: e.pid, name: e.process || null, ports: [], kinds: new Set() });
+      const row = byPid.get(e.pid);
+      row.ports.push({ port: e.port, protocol: e.protocol, address: e.address });
+      row.kinds.add(ports.classify(e, e.process));
+    }
+
+    const gameByPid = new Map();
+    for (const g of games.detectGames(found.entries, { limit: 40 })) {
+      if (g.pid !== undefined && !gameByPid.has(g.pid)) gameByPid.set(g.pid, g);
+    }
+
+    const rows = [...byPid.values()].map((r) => {
+      const g = gameByPid.get(r.pid) || null;
+      const kinds = [...r.kinds];
+      return {
+        pid: r.pid,
+        name: r.name,
+        ports: r.ports.sort((a, b) => a.port - b.port).slice(0, 8),
+        portCount: r.ports.length,
+        isGame: Boolean(g),
+        gameName: g ? g.name : null,
+        confidence: g ? g.confidence : null,
+        isSystem: kinds.length === 1 && kinds[0] === 'system',
+        isInfra: ports.isInfra({ port: r.ports[0] ? r.ports[0].port : 0, process: r.name }),
+      };
+    })
+      .filter((r) => (filter ? String(r.name || '').toLowerCase().includes(filter) : true))
+      .filter((r) => !r.isSystem)                                    // 系统进程不列（噪音）
+      .sort((a, b) => (Number(b.isGame) - Number(a.isGame)) || (Number(a.isInfra) - Number(b.isInfra)) || String(a.name || '~').localeCompare(String(b.name || '~')))
+      .slice(0, 120);
+
+    return { ok: true, reason: null, rows, scannedAt: Date.now() };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err), rows: [] };
+  }
+});
+
+ipcMain.handle('network:process-detail', async (_event, raw) => {
+  // 只有用户点开某个进程时才查命令行（约 4.5 秒，带 30 秒缓存）
+  try {
+    const pid = Number(raw && raw.pid);
+    if (!Number.isFinite(pid) || pid <= 0) return { ok: false, reason: 'PID 无效', detail: null };
+    const procTable = require('../network/process-table.cjs');
+    const table = procTable.readProcessTable(pid ? { force: false } : {});
+    if (!table.ok) return { ok: false, reason: table.reason, detail: null };
+    const hit = table.rows.find((r) => r.pid === pid) || null;
+    if (!hit) return { ok: false, reason: '进程已退出（PID ' + pid + '）', detail: null };
+    const games = require('../network/game-detect.cjs');
+    let game = null;
+    for (const p of games.PROFILES) {
+      const hints = games.CMD_HINTS[p.id];
+      if (hints && hints.some((re) => re.test(hit.cmd))) { game = p; break; }
+    }
+    return { ok: true, reason: null, detail: { pid, name: hit.name, cmd: hit.cmd, gameId: game ? game.id : null, gameName: game ? game.name : null } };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err), detail: null };
+  }
+});
+
 ipcMain.handle('network:listening-ports', async () => {
   // 探测本机监听端口，过滤系统与基础设施，排除本会话自己的端口，给出可转发的候选
   try {
