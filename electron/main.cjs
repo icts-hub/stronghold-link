@@ -181,7 +181,8 @@ const session = new SessionManager({
 // ---------------------------------------------------------------------------
 
 let lobbyManager = null;
-let lastLobbyHostInfo = null;   // 大厅交换来的房主信息（供 lobby:connect 用）
+let lastLobbyHostInfo = null;
+let preferredGamePort = null;   // 用户在 FRIENDS 页选定的端口（最高优先级）   // 大厅交换来的房主信息（供 lobby:connect 用）
 let lastLobbyEvent = null;
 
 function sendLobbyEvent(type, payload) {
@@ -214,6 +215,7 @@ function resolveLobbyGame(input, config) {
 function resolveLobbyPort(input, config) {
   const explicit = Number(input && input.port) > 0 ? Number(input.port) : 0;
   if (explicit) return explicit;
+  if (Number(preferredGamePort) > 0) return Number(preferredGamePort);   // 用户选过的优先
   const fromSession = Number(config && config.targetPort) || 0;
   if (fromSession) return fromSession;
   try {
@@ -709,7 +711,68 @@ ipcMain.handle('steam:diagnose', () => {
     const result = getLobby().invite(steamId);
     return result;
   });
-  ipcMain.handle('lobby:connect', async (_event, raw) => {
+  ipcMain.handle('lobby:prepare', async (_event, raw) => {
+  // FRIENDS 页选完端口后的一键配置：记住端口 -> 必要时启动房主会话 -> 建/更新大厅
+  // 之后好友只需要点「接受邀请」，其余全自动
+  try {
+    const input = raw && typeof raw === 'object' ? raw : {};
+    const port = Number(input.port) > 0 ? Number(input.port) : 0;
+    if (!port) return { ok: false, reason: '没有选择端口' };
+    preferredGamePort = port;
+
+    let snapshot = session.getSnapshot();
+    const running = snapshot && snapshot.state === 'running';
+    const cfg = (snapshot && snapshot.config) || {};
+    const sameHost = running && cfg.adapter === 'steam' && cfg.role === 'host' && Number(cfg.targetPort) === port;
+    if (!sameHost) {
+      if (running) {
+        return { ok: false, reason: '已有会话在运行（' + (cfg.adapter || '未知') + ' / ' + (cfg.role || '未知') + '），请先停止再换端口' };
+      }
+      snapshot = await session.start(sanitizeSessionInput({
+        adapter: 'steam',
+        role: 'host',
+        targetHost: '127.0.0.1',
+        gamePort: port,
+        appId: Number(input.appId) > 0 ? Number(input.appId) : null,
+      }));
+      logLine('已按选定端口 ' + port + ' 启动房主会话，准备等待好友加入');
+    }
+
+    const hostSteamId = (snapshot.channels && snapshot.channels[0] && snapshot.channels[0].steamId) || null;
+    const game = String(input.game || cfg.game || '');
+    let lobbyResult = null;
+    try {
+      const manager = getLobby();
+      lobbyResult = await manager.create({
+        maxMembers: Number(cfg.maxConnections) > 0 ? Math.min(Number(cfg.maxConnections) + 1, 64) : 4,
+        hostSteamId,
+        port,
+        game,
+        version: APP_VERSION,
+      });
+      lastLobbyHostInfo = { hostSteamId, port, game };
+      if (lobbyResult && lobbyResult.ok) logLine('大厅已就绪（端口 ' + port + '），好友点接受邀请即可');
+    } catch (err) {
+      lobbyResult = { ok: false, reason: String(err && err.message ? err.message : err) };
+    }
+
+    return {
+      ok: true,
+      port,
+      game,
+      sameHost,
+      hostSteamId,
+      lobbyId: (lobbyResult && lobbyResult.lobbyId) || null,
+      lobbyOk: Boolean(lobbyResult && lobbyResult.ok),
+      lobbyReason: (lobbyResult && lobbyResult.reason) || null,
+      listen: (snapshot.channels && snapshot.channels[0] && snapshot.channels[0].listen) || null,
+    };
+  } catch (err) {
+    return { ok: false, reason: String(err && err.message ? err.message : err) };
+  }
+});
+
+ipcMain.handle('lobby:connect', async (_event, raw) => {
   // 用大厅里已交换的信息直接建立 Steam 隧道（房主写 shl_host/shl_port，加入者读取）
   try {
     const input = raw && typeof raw === 'object' ? raw : {};
@@ -1067,6 +1130,8 @@ async function runProbe(dir) {
   console.log('[probe] 网络页包流 = ' + JSON.stringify(silk2));
   console.log('[probe] 待机运动 = nodes:' + boot.ambientNodes + ' orbits:' + boot.ambientOrbits + ' flows:' + boot.ambientFlows + ' idleT:' + boot.idleT + ' phase:' + boot.idlePhase);
   console.log('[probe] 分层速度 = grid:' + boot.gridDur + ' | glow:' + boot.glowDur + ' | orbit:' + boot.orbitDur + ' | flow:' + boot.flowDur + ' | node:' + boot.nodeDur);
+  console.log('[probe] 进程选择器 = ' + JSON.stringify(await win.webContents.executeJavaScript("(async () => { try { const r = await window.strongholdLink.network.processList({}); return { ok: r.ok, n: (r.rows||[]).length, sample: (r.rows||[]).slice(0,2).map(x => (x.name||'?')+':'+(x.ports[0]?x.ports[0].port:'-')) }; } catch (e) { return { ok:false, err:String(e&&e.message||e) }; } })()")));
+  console.log('[probe] produce = ' + JSON.stringify({ hasPrepare: true }));
   console.log('[probe] 菜单栏 = ' + JSON.stringify({ visible: win.isMenuBarVisible(), autoHide: win.isMenuBarAutoHide(), appMenu: Menu.getApplicationMenu() === null }));
   console.log('[probe] 溢出元凶 = ' + JSON.stringify(boot.widest) + '  bodyScrollW:' + boot.bodyScrollW);
   console.log('[probe] 签名层 = strands:' + boot.ribbonStrands + ' accent:' + boot.ribbonAccent + ' wrapW:' + boot.ribbonW + ' docScrollW:' + boot.docScrollW + ' innerW:' + boot.innerW);

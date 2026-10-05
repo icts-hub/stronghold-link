@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     leave: () => ipcRenderer.invoke('lobby:leave'),
     invite: (steamId) => ipcRenderer.invoke('lobby:invite', { steamId }),
     connect: (input) => ipcRenderer.invoke('lobby:connect', input || {}),
+    prepare: (input) => ipcRenderer.invoke('lobby:prepare', input || {}),
     stop: () => ipcRenderer.invoke('lobby:stop'),
     /** 订阅大厅事件（成员变化、邀请结果、有人邀请你等） */
     onEvent: (handler) => {
