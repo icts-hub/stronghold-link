@@ -23,6 +23,7 @@ const { createLocalRelayProvider } = require('./providers/local-relay.cjs');
 const { createSteamP2PProvider } = require('./providers/steam-p2p.cjs');
 const { STEAM_ID_PATTERN } = require('./steam-adapter.cjs');
 const { diagnoseSteam } = require('./steam-env.cjs');
+const { normalizeRoutePolicy, describeRoutePolicy } = require('./route/policy.cjs');
 const { describeHints, getRecipe } = require('./adapters.cjs');
 
 const STATES = Object.freeze({ IDLE: 'idle', STARTING: 'starting', RUNNING: 'running', STOPPING: 'stopping', ERROR: 'error' });
@@ -362,6 +363,8 @@ function steamSecurityProfile() {
 class SessionManager {
   constructor({ onEvent = null, appDir = null, steamSdk = null, steamModule = null } = {}) {
     this.onEvent = typeof onEvent === 'function' ? onEvent : null;
+    // 多通道选路开关（默认关闭，见 docs/多通道选路设计.md）；这里只保存策略，不改通道行为
+    this.routePolicy = normalizeRoutePolicy(null);
     this.appDir = appDir || require('node:path').resolve(__dirname, '..');
     // 仅供测试注入假 SDK；生产路径由 steam-adapter 自己初始化真实 SDK
     this.steamSdk = steamSdk;
@@ -890,6 +893,11 @@ class SessionManager {
    * 把外部事件写进会话日志流（供路由监看等外部模块使用）。
    * 只走既有的 log 通道，不改变会话状态或通道行为。
    */
+  /** 多通道策略：只读，供界面展示；开关关闭时行为与从前一致。 */
+  getRoutePolicy() {
+    return { ...this.routePolicy, description: describeRoutePolicy(this.routePolicy) };
+  }
+
   note(text, level = 'info') {
     const message = String(text === undefined || text === null ? '' : text);
     if (!message) return false;
