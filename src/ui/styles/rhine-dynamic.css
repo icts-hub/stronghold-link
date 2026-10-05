@@ -412,3 +412,195 @@
   75% { transform: translate(2px,2px); }
   100% { transform: translate(0,0); }
 }
+
+/* ==========================================================================
+   SILKY MOTION LAYER
+   统一动效语言：一套曲线、一套时长、五态交互、GPU 友好属性（transform/opacity）
+   仅用 transform / opacity / filter / backdrop-filter；不动 width/height/top/left。
+   ========================================================================== */
+:root {
+  /* 统一曲线（全应用只认这几个，不再各写各的） */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);   /* 按规范统一覆盖旧值 */
+
+  /* 统一时长：进入慢、退出快、Hover 跟手 */
+  --dur-hover-in: 200ms;
+  --dur-hover-out: 260ms;
+  --dur-press: 90ms;
+  --dur-enter: 520ms;
+  --dur-exit: 210ms;
+  --dur-line: 620ms;
+  --dur-sheen: 4.2s;
+
+  /* 位移必须极小：1–3px */
+  --silk-lift: -1px;
+  --silk-nudge: 3px;
+  --silk-row: 2px;
+}
+
+/* ---------- 导航：细线生长 + 3px 位移 + 亮度，绝不跳动 ---------- */
+.nav button {
+  position: relative;
+  transition: opacity var(--dur-hover-out) var(--ease-standard),
+              transform var(--dur-hover-out) var(--ease-standard),
+              color var(--dur-hover-out) var(--ease-standard);
+}
+.nav button::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 2px; height: 14px; margin-top: -7px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--dur-hover-in) var(--ease-smooth),
+              opacity var(--dur-hover-in) var(--ease-smooth);
+  opacity: 0;
+}
+.nav button:hover, .nav button:focus-visible { transform: translateX(var(--silk-nudge)); }
+.nav button:hover::before, .nav button:focus-visible::before { transform: scaleY(1); opacity: 1; }
+.nav button:active { transform: translateX(calc(var(--silk-nudge) - 1px)); }
+
+/* ---------- 按钮：Idle / Hover / Active / Focus / Disabled 五态 ---------- */
+.btn {
+  transition: background-color var(--dur-hover-out) var(--ease-standard),
+              border-color var(--dur-hover-out) var(--ease-standard),
+              color var(--dur-hover-out) var(--ease-standard),
+              opacity var(--dur-hover-out) var(--ease-standard),
+              transform var(--dur-hover-in) var(--ease-standard);
+}
+.btn:hover { transform: translateY(-1px); border-color: rgba(var(--accent-rgb), 0.5); }
+.btn:active { transform: translateY(1px); transition-duration: var(--dur-press); }
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.55), 0 0 0 4px rgba(var(--accent-rgb), 0.12);
+}
+.btn:disabled, .btn[disabled] { opacity: 0.45; transform: none; }
+
+/* ---------- 行项目：2px 位移 + 边框染色 ---------- */
+.trow {
+  transition: transform var(--dur-hover-out) var(--ease-standard),
+              background-color var(--dur-hover-out) var(--ease-standard),
+              border-color var(--dur-hover-out) var(--ease-standard);
+}
+.trow:hover { transform: translateX(var(--silk-row)); border-color: rgba(var(--accent-rgb), 0.28); }
+
+/* ---------- 面板：1px 抬升 + 边框，不用 scale 跳变 ---------- */
+.panel {
+  transition: border-color var(--dur-hover-out) var(--ease-standard),
+              background-color var(--dur-hover-out) var(--ease-standard),
+              transform var(--dur-hover-out) var(--ease-standard);
+}
+.panel:hover { border-color: rgba(var(--accent-rgb), 0.22); transform: translateY(var(--silk-lift)); }
+
+/* ---------- 玻璃反射：只在主要玻璃面，极慢、极淡 ---------- */
+.fx-silk-surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(105deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.05) 48%,
+    rgba(255, 255, 255, 0.075) 52%,
+    transparent 66%);
+  transition: opacity var(--dur-hover-out) var(--ease-standard);
+}
+.fx-silk-surface:hover::after { opacity: 1; animation: silk-sheen var(--dur-sheen) var(--ease-standard) infinite alternate; }
+@keyframes silk-sheen {
+  from { transform: translate3d(-5%, 0, 0); }
+  to   { transform: translate3d(5%, 0, 0); }
+}
+.fx-silk-surface { position: relative; }
+.panel, .dialog, .lobby { position: relative; }
+
+/* ---------- 输入聚焦：光线 + 边框，无位移 ---------- */
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+  transition: border-color var(--dur-hover-in) var(--ease-standard),
+              box-shadow var(--dur-hover-in) var(--ease-standard);
+}
+
+/* ---------- 页面进入/退出：解密 + 抬升；退出更快更利落 ---------- */
+@keyframes silk-page-in {
+  from { opacity: 0; filter: blur(9px);  transform: translate3d(0, 8px, 0); }
+  60%  { opacity: 1; filter: blur(1.5px); }
+  to   { opacity: 1; filter: blur(0);    transform: none; }
+}
+@keyframes silk-page-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translate3d(0, -6px, 0); }
+}
+.view.active { animation: silk-page-in var(--dur-enter) var(--ease-enter) both; }
+.view.is-leaving { animation: silk-page-out var(--dur-exit) var(--ease-exit) both; }
+
+/* Staggered entry：标题 → 标题线 → 主数据 → 次级 → 装饰 */
+@keyframes silk-rise {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.view.active .pagehead   { --silk-d: 0ms; }
+.view.active .step       { --silk-d: 40ms; }
+.view.active .readout-row{ --silk-d: 80ms; }
+.view.active .panel      { --silk-d: 120ms; }
+.view.active .trow       { --silk-d: 160ms; }
+.view.active :is(.pagehead, .step, .readout-row, .trow) {
+  animation: silk-rise var(--dur-enter) var(--ease-enter) both;
+  animation-delay: var(--silk-d, 0ms);
+}
+
+/* ---------- Modal：淡入 + 12px 上移 + 极轻缩放；背景模糊渐进 ---------- */
+@keyframes silk-modal-in {
+  from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.overlay:not([hidden]) > .dialog,
+.overlay:not([hidden]) > .terminal-modal {
+  animation: silk-modal-in var(--dur-enter) var(--ease-enter) both;
+}
+@keyframes silk-backdrop-in {
+  from { backdrop-filter: blur(0) saturate(1); -webkit-backdrop-filter: blur(0) saturate(1); opacity: 0; }
+  to   { backdrop-filter: blur(10px) saturate(0.9); -webkit-backdrop-filter: blur(10px) saturate(0.9); opacity: 1; }
+}
+.overlay:not([hidden]) { animation: silk-backdrop-in var(--dur-enter) var(--ease-enter) both; }
+
+/* ---------- 状态反馈：仅极轻呼吸；错误不常闪 ---------- */
+@keyframes silk-breathe {
+  from { opacity: 0.82; } to { opacity: 1; }
+}
+.status.is-online .status__dot { animation: silk-breathe 3.2s var(--ease-standard) infinite alternate; }
+
+/* ---------- 滚动揭示：只播一次（由脚本加 .is-revealed） ---------- */
+.silk-watch { opacity: 0; transform: translate3d(0, 12px, 0); }
+.silk-watch.is-revealed {
+  opacity: 1; transform: none;
+  transition: opacity var(--dur-enter) var(--ease-enter), transform var(--dur-enter) var(--ease-enter);
+}
+
+/* ---------- 数字滚动：由脚本补间，这里保证数字列宽不抖 ---------- */
+.readout__v, .trow__fact span, .tech { font-variant-numeric: tabular-nums; }
+.readout__v.is-tweening { will-change: contents; }
+
+/* ---------- 自适应降级：帧率不足时由脚本加 .fx-lite ---------- */
+.fx-lite .fx-silk-surface::after { display: none; }
+.fx-lite .nav button:hover, .fx-lite .trow:hover, .fx-lite .panel:hover, .fx-lite .btn:hover { transform: none; }
+.fx-lite .bg::before, .fx-lite .bg::after { animation: none; }
+
+/* ---------- Reduced Motion：只保留透明度与简单状态反馈 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .fx-silk-surface::after { display: none; }
+  .view.active, .view.is-leaving,
+  .overlay:not([hidden]), .overlay:not([hidden]) > .dialog, .overlay:not([hidden]) > .terminal-modal,
+  .view.active :is(.pagehead, .step, .readout-row, .trow),
+  .status.is-online .status__dot {
+    animation: none !important;
+  }
+  .nav button:hover, .nav button:active, .btn:hover, .btn:active,
+  .trow:hover, .panel:hover { transform: none; }
+  .silk-watch { opacity: 1; transform: none; }
+}
