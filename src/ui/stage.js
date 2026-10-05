@@ -1,31 +1,26 @@
-/* ============================================================================
-   Stronghold Link — 三维舞台（Three.js）
+﻿/* ============================================================================
+   Stronghold Link — 三维 ∞ 方块带（背景主视觉）
    ----------------------------------------------------------------------------
-   用我们自己的几何表达「网络基础设施」：一片节点方阵 + 路由链路 + 深度雾 +
-   缓慢相机轨道 + 琥珀高亮在用路径 + 扫描线。不是档案盒，也不复制任何第三方美术。
+   参考 RhineLabUI 的扫掠带状：**用许多细长方块沿双纽线拼接**成一条扭转的带子，
+   侧面因此出现细密"梳齿"，这正是参考图质感的来源。
 
-   安全约定：
-     * window.THREE 不存在、WebGL 初始化失败、或系统偏好「减少动态效果」时，
-       本文件不做任何事，界面保留原来的 CSS 网格背景（绝不能变白）。
-     * 只读 CSS 变量取色，主题切换时重新取；不写死颜色。
-     * 页面不可见时暂停渲染。
+   性能与内存约定（对应 RAM300 方案）：
+     * 单个 InstancedMesh（一次 draw call），无逐帧几何计算
+     * 30 FPS 门控 + DPR ≤ 1.0 + antialias 关闭
+     * 页面隐藏 / prefers-reduced-motion 停止渲染（减少动效只画一帧）
+     * WebGL 不可用直接返回：背景保留 CSS/SVG 层，界面绝不空白
    ========================================================================= */
 (function () {
   'use strict';
 
-  // 立方体阵列已停用：背景主视觉改为 SVG ∞ 流动带（rhine-effects.js 第 6 段）。
-  // 关闭后不创建 canvas / renderer，也不启动 RAF —— 直接省下 GPU 进程内存。
-  var ENABLE_LATTICE = false;
-  if (!ENABLE_LATTICE) return;
-
   var host = document.querySelector('.bg');
-  if (!host || typeof window.THREE === 'undefined') return;      // 没挂上 Three：保留 CSS 背景
-  if (typeof window.WebGLRenderingContext === 'undefined') return; // 环境不支持 WebGL
+  if (!host || typeof window.THREE === 'undefined') return;
+  if (typeof window.WebGLRenderingContext === 'undefined') return;
 
   var reduceMotion = false;
   try {
     reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!reduceMotion && typeof location !== 'undefined' && String(location.search || '').indexOf('motion=force') >= 0) reduceMotion = false;
+    if (typeof location !== 'undefined' && String(location.search || '').indexOf('motion=force') >= 0) reduceMotion = false;
   } catch (e) { /* 忽略 */ }
 
   function token(name, fallback) {
@@ -41,9 +36,6 @@
     }
     return raw;
   }
-  function color(rgbArr, alpha) {
-    return 'rgba(' + rgbArr[0] + ',' + rgbArr[1] + ',' + rgbArr[2] + ',' + (alpha === undefined ? 1 : alpha) + ')';
-  }
 
   var THREE = window.THREE;
   var canvas = document.createElement('canvas');
@@ -54,85 +46,104 @@
   try {
     renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, alpha: true, powerPreference: 'low-power' });
   } catch (err) {
-    return; // 没有 WebGL：保留 CSS 背景
+    return;                                  // 没有 WebGL：保留 CSS/SVG 背景
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));   // 高 DPI 不再 1.5 倍（方案 C）
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
   host.insertBefore(canvas, host.firstChild);
-  // 画布之上压一层极薄纸色：正文始终落在安静的底上（舞台仍然可见）
+
   var scrim = document.createElement('div');
   scrim.className = 'stage-scrim';
   host.insertBefore(scrim, canvas.nextSibling);
 
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(38, 1, 1, 400);
+  var camera = new THREE.PerspectiveCamera(34, 1, 1, 600);
+  camera.position.set(0, 16, 260);
+  camera.lookAt(0, 2, 0);
 
-  // 节点方阵：长条方柱按网格排布，越远越淡（靠雾）
-  var COLS = 19;
-  var ROWS = 10;                 // 190 个实例（原 416，方案 D）
-  var SPACING = 9.6;
-  var count = COLS * ROWS;
-  var box = new THREE.BoxGeometry(1.35, 1, 3.6);
-  var material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5 });
-  var field = new THREE.InstancedMesh(box, material, count);
-  var dummy = new THREE.Object3D();
-  var i = 0;
-  for (var r = 0; r < ROWS; r += 1) {
-    for (var c = 0; c < COLS; c += 1) {
-      dummy.position.set((c - COLS / 2) * SPACING, 0, (r - ROWS / 2) * SPACING);
-      var h = 1 + ((r * 7 + c * 3) % 5) * 0.35;
-      dummy.scale.set(1, h, 1);
-      dummy.updateMatrix();
-      field.setMatrixAt(i, dummy.matrix);
-      i += 1;
-    }
+  var ambient = new THREE.AmbientLight(0xffffff, 0.42);
+  scene.add(ambient);
+  var key = new THREE.DirectionalLight(0xffffff, 1.15);
+  key.position.set(-60, 90, 70);
+  scene.add(key);
+  var fill = new THREE.DirectionalLight(0xffffff, 0.3);
+  fill.position.set(70, -40, -60);
+  scene.add(fill);
+
+  var A = 68;          // ∞ 横向半径
+  var B = 26;          // 纵向起伏
+  var WIDTH = 27;      // 带宽（收窄才像带子）
+  var THICK = 0.62;    // 方块厚度（薄板）
+  var LONG = 150;      // 沿路径方块数
+  var WIDE = 7;        // 沿带宽方块数
+  var TWIST = 1.05;    // 扭转强度（过大就会折向镜头）
+
+  var tmp = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), wid: new THREE.Vector3() };
+  var normal = new THREE.Vector3();
+  var basis = new THREE.Matrix4();
+  var quat = new THREE.Quaternion();
+  var one = new THREE.Vector3(1, 1, 1);
+  var segLen = ((Math.PI * 2 * A) / LONG) * 1.28;
+
+  function pointAt(t, u, out) {
+    var x = A * Math.sin(t);
+    var z = (A * Math.sin(2 * t)) / 3.6;
+    var y = Math.sin(2 * t) * (B / 2) + Math.sin(t) * 4;
+
+    var dx = A * Math.cos(t);
+    var dz = (A * 2 * Math.cos(2 * t)) / 3.6;
+    var dy = Math.cos(2 * t) * B + Math.cos(t) * 4;
+    var len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    var tx = dx / len, ty = dy / len, tz = dz / len;
+
+    var theta = t * 0.5 + (u - 0.5) * Math.PI * TWIST;
+    var wx = Math.cos(theta), wy = Math.sin(theta) * 0.85, wz = Math.sin(theta) * 0.4;
+    var dot = wx * tx + wy * ty + wz * tz;
+    wx -= tx * dot; wy -= ty * dot; wz -= tz * dot;
+    var wl = Math.sqrt(wx * wx + wy * wy + wz * wz) || 1;
+    wx /= wl; wy /= wl; wz /= wl;
+
+    var off = (u - 0.5) * WIDTH;
+    out.pos.set(x + wx * off, y + wy * off, z + wz * off);
+    out.tan.set(tx, ty, tz);
+    out.wid.set(wx, wy, wz);
+    return out;
   }
-  field.instanceMatrix.needsUpdate = true;
-  field.frustumCulled = false;
-  scene.add(field);
 
-  // 三条链路：中间一条为「在用路径」（琥珀），两侧为备用（线色）
-  var routeGroup = new THREE.Group();
-  var activeLine = null;
-  var standbyLines = [];
-  function buildRoutes(accent, lineColor) {
-    routeGroup.clear();
-    standbyLines = [];
-    for (var k = -1; k <= 1; k += 1) {
-      var z = k * SPACING * 3;
-      var points = [
-        new THREE.Vector3(-COLS * SPACING * 0.42, 6.5, z),
-        new THREE.Vector3(0, 9.5 + (k === 0 ? 1.6 : 0), z),
-        new THREE.Vector3(COLS * SPACING * 0.42, 6.5, z),
-      ];
-      var geo = new THREE.BufferGeometry().setFromPoints(points);
-      var mat = new THREE.LineBasicMaterial({ transparent: true, opacity: k === 0 ? 0.85 : 0.35 });
-      var line = new THREE.Line(geo, mat);
-      if (k === 0) { line.material.color.set(color(accent, 1)); activeLine = line; } else { line.material.color.set(color(lineColor, 1)); standbyLines.push(line); }
-      routeGroup.add(line);
+  var box = new THREE.BoxGeometry(segLen, THICK, (WIDTH / WIDE) * 1.06);
+  var material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  var count = LONG * WIDE;
+  var mesh = new THREE.InstancedMesh(box, material, count);
+  mesh.frustumCulled = false;
+  mesh.rotation.z = -0.10;
+  scene.add(mesh);
+
+  function buildField() {
+    var i = 0;
+    var m = new THREE.Matrix4();
+    for (var s = 0; s < LONG; s += 1) {
+      var t = (s / LONG) * Math.PI * 2;
+      for (var u = 0; u < WIDE; u += 1) {
+        pointAt(t, (u + 0.5) / WIDE, tmp);
+        normal.crossVectors(tmp.tan, tmp.wid).normalize();
+        basis.makeBasis(tmp.tan, tmp.wid, normal);
+        quat.setFromRotationMatrix(basis);
+        m.compose(tmp.pos, quat, one);
+        mesh.setMatrixAt(i, m);
+        i += 1;
+      }
     }
+    mesh.instanceMatrix.needsUpdate = true;
   }
-  scene.add(routeGroup);
-
-  // 扫描面：一条极窄的横向带，沿纵深缓慢推进
-  var scan = new THREE.Mesh(
-    new THREE.PlaneGeometry(COLS * SPACING * 0.9, 1),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.05 })
-  );
-  scan.rotation.x = -Math.PI / 2;
-  scene.add(scan);
 
   function applyTheme() {
     var paper = rgb('--paper-rgb', '242, 240, 235');
-    var ink = rgb('--ink-rgb', '8, 10, 8');
-    var accent = rgb('--accent-rgb', '197, 161, 107');
-    var line = rgb('--line-rgb', '170, 165, 154');
-    scene.fog = new THREE.Fog(new THREE.Color(color(paper, 1)), 40, 150);
-    material.color.set(color(ink, 1));
-    // 按底色亮度决定节点强度：浅底需要更实的深色方柱，深底需要更虚的浅色方柱
     var luma = (paper[0] * 0.299 + paper[1] * 0.587 + paper[2] * 0.114) / 255;
-    material.opacity = luma > 0.5 ? 0.2 : 0.14;
-    buildRoutes(accent, line);
-    scan.material.color.set(color(accent, 1));
+    var isLight = luma > 0.5;
+    material.color.setRGB(isLight ? 0.93 : 0.15, isLight ? 0.922 : 0.18, isLight ? 0.905 : 0.195);
+    ambient.intensity = isLight ? 0.44 : 0.36;
+    key.intensity = isLight ? 1.12 : 0.72;
+    fill.intensity = isLight ? 0.34 : 0.24;
+    buildField();
   }
 
   function resize() {
@@ -141,49 +152,34 @@
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
+    var far = Math.max(1, Math.min(w, h));
+    camera.position.set(0, 15, far * 0.235);
+    camera.lookAt(0, 2, 0);
   }
 
   var clock = 0;
   var running = true;
   var lastPaint = 0;
-  var paintCount = 0;
-  var FRAME_MIN_MS = 33;              // 装饰性舞台 30 FPS（方案 E）
-  var LOOKAT_EVERY = 3;               // 相机朝向每 3 帧更新（方案 F）
-
-  /** 只有 Session / Network 页需要网络舞台，其它页面完全不渲染（方案 B/P） */
-  function stageWanted() {
-    if (reduceMotion) return true;
-    try {
-      var nv = document.getElementById('networkView');
-      var sv = document.getElementById('sessionView');
-      if (nv && nv.classList.contains('active')) return true;
-      if (sv && sv.classList.contains('active')) return true;
-      return false;
-    } catch (e) { return true; }
-  }
+  var FRAME_MIN_MS = 33;
 
   function frame(now) {
     if (!running) return;
     requestAnimationFrame(frame);
     var t = now || 0;
+    if (document.hidden) return;
     if (!reduceMotion) {
-      if (t - lastPaint < FRAME_MIN_MS) return;      // 30 FPS 门控
-      if (!stageWanted()) return;                    // 当前页面不需要舞台：跳过渲染
+      if (t - lastPaint < FRAME_MIN_MS) return;
       lastPaint = t;
-      clock += (FRAME_MIN_MS / 1000) * 0.02;
-    }
-    var radius = 132;
-    var angle = reduceMotion ? -0.55 : -0.55 + clock;
-    camera.position.set(Math.cos(angle) * radius, 48 + (reduceMotion ? 0 : Math.sin(clock * 0.7) * 4), Math.sin(angle) * radius);
-    paintCount += 1;
-    if (reduceMotion || paintCount % LOOKAT_EVERY === 0) camera.lookAt(0, 4, 0);
-    if (!reduceMotion && paintCount % 2 === 0) {
-      scan.position.set(0, 7, ((clock * 26) % (ROWS * SPACING)) - (ROWS * SPACING) / 2);
-      if (activeLine) activeLine.material.opacity = 0.3 + Math.sin(clock * 6) * 0.12;
+      clock += 0.0045;
+      var far = Math.max(1, Math.min(host.clientWidth || 1440, host.clientHeight || 900));
+      camera.position.x = Math.sin(Math.sin(clock * 0.35) * 0.075) * far * 0.22;
+      camera.position.y = 16 + Math.sin(clock * 0.5) * 2.5;
+      camera.lookAt(0, 2, 0);
     }
     renderer.render(scene, camera);
   }
 
+  try { document.documentElement.classList.add('has-3d'); } catch (e) { /* 忽略 */ }
   applyTheme();
   resize();
   frame(0);
@@ -195,7 +191,7 @@
     }
     document.addEventListener('visibilitychange', function () {
       var visible = !document.hidden;
-      if (visible && !running) { running = true; frame(); }
+      if (visible && !running) { running = true; frame(0); }
       else if (!visible) running = false;
     });
   } catch (e) { /* 忽略 */ }

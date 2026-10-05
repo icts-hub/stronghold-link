@@ -1057,3 +1057,16 @@ html, body { overflow-x: clip; }
 .ribbon-wrap svg { transform: scale(1.34) translate(-6%, 2%); transform-origin: 50% 50%; }
 .ribbon-wrap { opacity: 0.95; }
 @media (prefers-reduced-motion: reduce) { .ribbon-wrap { opacity: 0.5; } }
+
+/* 3D 方块带接管背景时，隐藏 SVG 线带，避免两套 ∞ 重影 */
+html.has-3d .ribbon-wrap { display: none; }
+
+/* 3D 带子要透出来：压暗层在浅色主题下再放轻一档 */
+.wrap::before {
+  background: radial-gradient(120% 88% at 50% 44%, rgba(var(--paper-rgb), 0.86) 0%, rgba(var(--paper-rgb), 0.52) 52%, rgba(var(--paper-rgb), 0.18) 80%, rgba(var(--paper-rgb), 0) 100%);
+}
+
+/* 3D 带子透出：中段压暗再减一档（正文仍靠面板底板保证可读） */
+.wrap::before {
+  background: radial-gradient(125% 92% at 50% 45%, rgba(var(--paper-rgb), 0.80) 0%, rgba(var(--paper-rgb), 0.44) 55%, rgba(var(--paper-rgb), 0.14) 82%, rgba(var(--paper-rgb), 0) 100%);
+}
