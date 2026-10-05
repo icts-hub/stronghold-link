@@ -34,11 +34,18 @@
     "files": [
       "electron/**/*",
       "network/**/*",
+      "shared/**/*",
       "src/**/*",
       "package.json",
       "!**/*.map",
       "!**/*.md",
-      "!**/test/**"
+      "!test/**/*",
+      "!tools/**/*",
+      "!docs/**/*",
+      "!release/**/*",
+      "!steamworks_sdk/**/*.lib",
+      "!steamworks_sdk/**/*.exp",
+      "!steamworks_sdk/**/*.pdb"
     ],
     "asar": true,
     "extraFiles": [
@@ -69,7 +76,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Stronghold Link",
       "deleteAppDataOnUninstall": false
-    }
+    },
+    "compression": "maximum"
   },
   "license": "GPL-3.0-or-later",
   "author": "icts-hub",
