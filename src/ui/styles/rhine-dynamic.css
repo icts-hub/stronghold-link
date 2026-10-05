@@ -817,3 +817,173 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   .trow:hover, .panel:hover { transform: none; }
   .silk-watch { opacity: 1; transform: none; }
 }
+
+/* ==========================================================================
+   SIGNATURE RIBBON —— 成束流动细线（辨识度层）
+   参考：RhineLabUI 的扫掠带状形态。全部为 SVG stroke，暖灰为主、琥珀仅点缀。
+   动画只用 transform / opacity / stroke-dashoffset，且速度极慢（18~26s）。
+   ========================================================================== */
+.ribbon-wrap {
+  /* 挂在 .bg（position: fixed; inset: 0）里：尺寸恒等于视口，不产生文档溢出 */
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.9;
+  contain: strict;
+  overflow: hidden;
+  transform: translate3d(calc(var(--px, 0) * -6px), calc(var(--py, 0) * -5px), 0);
+  transition: transform 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ribbon-wrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ribbon-strand {
+  fill: none;
+  stroke: rgba(var(--ink-rgb), 0.5);
+  stroke-width: 0.45;
+  stroke-linecap: round;
+  opacity: 0.16;
+}
+.ribbon-strand.is-accent { stroke: rgba(var(--accent-rgb), 1); stroke-width: 0.6; opacity: 0.5; }
+.ribbon-group { transform-origin: 50% 50%; animation: ribbon-drift 26s cubic-bezier(0.2, 0.8, 0.2, 1) infinite alternate; }
+@keyframes ribbon-drift {
+  from { transform: rotate(-2.4deg) scale(1); }
+  to   { transform: rotate(2.4deg) scale(1.015); }
+}
+.ribbon-strand { animation: ribbon-flow 18s linear infinite; }
+@keyframes ribbon-flow {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -260; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ribbon-group, .ribbon-strand { animation: none; }
+  .ribbon-wrap { transform: none; }
+}
+.fx-lite .ribbon-strand { animation: none; }
+.fx-lite .ribbon-wrap { opacity: 0.55; }
+
+/* ==========================================================================
+   背景层裁剪（修复横向溢出）
+   背景/环境层的几何本身比视口宽（为漂移留余量），必须由固定层裁剪，
+   否则会给文档贡献 scrollWidth，出现横向滚动。
+   ========================================================================== */
+.bg,
+.ambient-system,
+.ribbon-wrap {
+  overflow: hidden;
+  max-width: 100vw;
+}
+html, body { overflow-x: clip; }
+
+/* ==========================================================================
+   CONTRAST / IDENTITY LAYER —— 让重要 UI 一眼可见，并与背景拉开差异
+   参考：RhineLabUI 的实心数据牌（黑块 + 琥珀状态条）+ 硬边面板 + 工业标尺框
+   全部为纯样式覆盖，不改动任何 id / 业务脚本。
+   ========================================================================== */
+:root {
+  --plate-ink: #080a08;
+  --plate-paper: #f2f0eb;
+  --plate-line: rgba(var(--ink-rgb), 0.92);
+}
+
+/* ---------- 1) 状态芯片 → 实心数据牌（最重要的一眼可读元素） ---------- */
+.status {
+  background: var(--plate-ink);
+  color: var(--plate-paper) !important;
+  border: 1px solid var(--plate-ink);
+  padding: 3px 9px 3px 8px;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  box-shadow: none;
+}
+.status .status__dot { background: var(--plate-paper); opacity: 0.85; }
+.status.is-online { border-bottom: 2px solid var(--accent); }
+.status.is-online .status__dot { background: var(--accent); opacity: 1; }
+.status.is-warn { border-bottom: 2px solid var(--accent); background: #2a1f12; }
+.status.is-warn .status__dot { background: var(--accent); opacity: 1; }
+[data-theme='dark'] .status { background: var(--plate-paper); color: var(--plate-ink) !important; border-color: var(--plate-paper); }
+[data-theme='dark'] .status .status__dot { background: var(--plate-ink); }
+
+/* 反色标记（IN USE / ACTIVE 之类）统一成实心琥珀块 */
+.t-invert {
+  background: var(--accent) !important;
+  color: var(--plate-ink) !important;
+  padding: 2px 7px;
+  letter-spacing: 0.12em;
+}
+
+/* ---------- 2) 面板：硬边 + 底板，与流动背景明确分层 ---------- */
+.panel, .lobby, .dialog {
+  border: 1px solid var(--plate-line);
+  background: rgba(var(--paper-rgb), 0.88);
+  box-shadow: 0 1px 0 rgba(var(--ink-rgb), 0.06), 0 18px 46px -34px rgba(var(--ink-rgb), 0.5);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.75)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.75)) saturate(var(--glass-saturate));
+}
+[data-theme='dark'] .panel, [data-theme='dark'] .lobby, [data-theme='dark'] .dialog {
+  background: rgba(var(--surface-rgb, 24, 32, 36), 0.9);
+}
+
+/* 主要面板加工业标尺角标（纯 CSS，无需改 markup） */
+.panel { position: relative; }
+.panel::before,
+.panel::after {
+  content: '';
+  position: absolute;
+  width: 9px; height: 9px;
+  pointer-events: none;
+  border-color: var(--plate-line);
+  border-style: solid;
+  border-width: 0;
+}
+.panel::before { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+.panel::after { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
+
+/* ---------- 3) 分区标题：加粗横规 + 编号块，形成"仪表盘"节奏 ---------- */
+.step { border-top: 2px solid var(--plate-line); padding-top: var(--sp-3); }
+.step__idx {
+  background: var(--plate-ink);
+  color: var(--plate-paper) !important;
+  padding: 2px 6px;
+  letter-spacing: 0.1em;
+}
+[data-theme='dark'] .step__idx { background: var(--plate-paper); color: var(--plate-ink) !important; }
+
+/* ---------- 4) 主数据读数：更大更实，成为视觉焦点 ---------- */
+.readout__v { color: var(--ink); }
+.readout__k { letter-spacing: 0.16em; }
+.readout-row { border-top: 1px solid var(--plate-line); }
+
+/* ---------- 5) 表格行：清晰的行界与悬停实心反馈 ---------- */
+.trow { border-bottom: 1px solid rgba(var(--ink-rgb), 0.28); }
+.trow:hover { background: rgba(var(--ink-rgb), 0.045); }
+[data-theme='dark'] .trow:hover { background: rgba(var(--paper-rgb), 0.05); }
+
+/* ---------- 6) 内容区局部压暗：正文永不压在流动线条上 ---------- */
+.wrap {
+  position: relative;
+}
+.wrap::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 78% at 50% 42%, rgba(var(--paper-rgb), 0.94) 0%, rgba(var(--paper-rgb), 0.72) 48%, rgba(var(--paper-rgb), 0.34) 78%, rgba(var(--paper-rgb), 0) 100%);
+}
+[data-theme='dark'] .wrap::before {
+  background:
+    radial-gradient(120% 78% at 50% 42%, rgba(var(--paper-rgb), 0.95) 0%, rgba(var(--paper-rgb), 0.78) 48%, rgba(var(--paper-rgb), 0.38) 78%, rgba(var(--paper-rgb), 0) 100%);
+}
+
+/* ---------- 7) 底部状态条：标尺刻度感 ---------- */
+.foot, footer {
+  border-top: 2px solid var(--plate-line);
+  background-image: repeating-linear-gradient(to right, rgba(var(--ink-rgb), 0.30) 0 1px, transparent 1px 14px);
+  background-size: 100% 5px;
+  background-repeat: no-repeat;
+  background-position: left top;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel, .lobby, .dialog { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

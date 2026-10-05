@@ -858,6 +858,13 @@ async function runProbe(dir) {
       silkRevealed: document.querySelectorAll('.is-revealed').length,
       silkWatching: document.querySelectorAll('.silk-watch').length,
       silkLite: document.documentElement.classList.contains('fx-lite'),
+      ribbonStrands: document.querySelectorAll('.ribbon-strand').length,
+      ribbonAccent: document.querySelectorAll('.ribbon-strand.is-accent').length,
+      ribbonW: (function(){ var w=document.querySelector('.ribbon-wrap'); return w? Math.round(w.getBoundingClientRect().width):0; })(),
+      docScrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+      widest: (function(){ var out=[], all=document.querySelectorAll('body *'); for (var i=0;i<all.length;i++){ try{ var r=all[i].getBoundingClientRect(); if(r.width>0 && r.right>window.innerWidth+2){ out.push((all[i].tagName.toLowerCase())+'.'+(String(all[i].className||'').split(' ')[0])+'#'+(all[i].id||'')+'@'+Math.round(r.right)); } }catch(e){} if(out.length>=8)break; } return out; })(),
+      bodyScrollW: document.body.scrollWidth,
       silkEase: (getComputedStyle(document.documentElement).getPropertyValue('--ease-smooth')||'').trim(),
       ambientNodes: document.querySelectorAll('.ambient-system > div').length,
       ambientOrbits: document.querySelectorAll('.ambient-orbit').length,
@@ -890,6 +897,8 @@ async function runProbe(dir) {
   console.log('[probe] 网络页包流 = ' + JSON.stringify(silk2));
   console.log('[probe] 待机运动 = nodes:' + boot.ambientNodes + ' orbits:' + boot.ambientOrbits + ' flows:' + boot.ambientFlows + ' idleT:' + boot.idleT + ' phase:' + boot.idlePhase);
   console.log('[probe] 分层速度 = grid:' + boot.gridDur + ' | glow:' + boot.glowDur + ' | orbit:' + boot.orbitDur + ' | flow:' + boot.flowDur + ' | node:' + boot.nodeDur);
+  console.log('[probe] 溢出元凶 = ' + JSON.stringify(boot.widest) + '  bodyScrollW:' + boot.bodyScrollW);
+  console.log('[probe] 签名层 = strands:' + boot.ribbonStrands + ' accent:' + boot.ribbonAccent + ' wrapW:' + boot.ribbonW + ' docScrollW:' + boot.docScrollW + ' innerW:' + boot.innerW);
   console.log('[probe] 丝滑层 = surfaces:' + boot.silkSurfaces + ' loopTasks:' + boot.silkLoopTasks + ' packets:' + boot.silkPackets + ' revealed:' + boot.silkRevealed + '/' + boot.silkWatching + ' lite:' + boot.silkLite + ' ease:' + boot.silkEase);
     for (const row of boot.rows) console.log('         ' + row);
     console.log('[probe] 启动结束后 className = "' + afterBoot + '"（应不含 open）');
