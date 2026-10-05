@@ -34,6 +34,11 @@ const CAPTURE_DIR = (() => {
   return hit ? hit.slice('--capture='.length) : null;
 })();
 const CAPTURE_SESSION = process.argv.includes('--capture-session');
+// 截图可指定主题：--capture-theme=light|dark（默认用应用当前设置）
+const CAPTURE_THEME = (() => {
+  const hit = process.argv.find((arg) => arg.startsWith('--capture-theme='));
+  return hit ? hit.slice('--capture-theme='.length) : null;
+})();
 const CAPTURE_VIEWS = ['library', 'session', 'network', 'adapters', 'friends', 'settings'];
 
 // ---------------------------------------------------------------------------
@@ -534,6 +539,11 @@ async function runCapture(dir) {
       win.webContents.once('did-finish-load', resolve);
       win.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`渲染进程加载失败 ${code} ${desc}`)));
     });
+
+    if (CAPTURE_THEME) {
+      await win.webContents.executeJavaScript("applyTheme('" + CAPTURE_THEME + "', false)");
+      await new Promise((r) => setTimeout(r, 400));
+    }
 
     for (let index = 0; index < CAPTURE_VIEWS.length; index += 1) {
       const view = CAPTURE_VIEWS[index];

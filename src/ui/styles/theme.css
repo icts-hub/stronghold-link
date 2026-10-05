@@ -1,0 +1,157 @@
+/* ============================================================================
+   Stronghold Link — Theme（语义层）
+   ----------------------------------------------------------------------------
+   规则：
+   1. 组件只允许使用本文件的语义 token，不得出现任何硬编码色值。
+   2. 每个颜色 token 同时提供 `-rgb` 三元组，用于 rgba() 合成（细线、遮罩、
+      淡底），这与参考项目的做法一致，避免到处写死透明度。
+   3. 默认亮色（`:root`），暗色通过 `<html data-theme="dark">` 覆盖；
+      两个主题是「同一套语义、两条取值」，不是给 body 换个背景色。
+   ========================================================================= */
+
+/* ---------------------------------- 亮色（默认） -------------------------- */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* 表面 */
+  --paper: var(--c-paper-light);
+  --paper-rgb: 242, 240, 235;
+  --surface: var(--c-surface-light);
+  --surface-rgb: 232, 230, 224;
+  --field: var(--c-surface2-light);
+  --field-rgb: 227, 224, 216;
+  --scrim-rgb: 242, 240, 235;
+
+  /* 文字 */
+  --ink: var(--c-ink-light);
+  --ink-rgb: 8, 10, 8;
+  --ink-muted: var(--c-muted-light);
+  --ink-muted-rgb: 119, 117, 109;
+  --ink-faint: var(--c-faint-light);
+  --ink-faint-rgb: 154, 151, 141;
+
+  /* 线 */
+  --line: var(--c-line-light);
+  --line-rgb: 170, 165, 154;
+  --line-soft: rgba(var(--line-rgb), 0.42);
+  --line-strong: rgba(var(--line-rgb), 0.85);
+
+  /* 系统信号：琥珀 */
+  --accent: var(--c-amber);
+  --accent-rgb: 197, 161, 107;
+  --accent-hover: var(--c-amber-deep);
+  --accent-hover-rgb: 155, 114, 71;
+  --accent-pressed: var(--c-amber-deeper);
+  --accent-ink: #2a2118;               /* 琥珀底上的文字（极少用） */
+  --accent-wash: rgba(var(--accent-rgb), 0.14);
+  --accent-line: rgba(var(--accent-hover-rgb), 0.85);
+  /* 琥珀当【文字】时用这一档：线/方块仍用 --accent，避免小字对比度不足 */
+  --accent-text: var(--c-amber-text-light);
+  --accent-text-hover: #66461f;
+
+  /* 状态（在线不用绿色：与琥珀同族） */
+  --signal-live: var(--accent-hover);
+  --signal-live-rgb: 155, 114, 71;
+  --signal-warn: var(--c-warn-light);
+  --signal-error: var(--c-error-light);
+  --signal-idle: var(--c-faint-light);
+
+  /* 反白块（黑底纸字，替代用琥珀做大面积强调） */
+  --invert-bg: var(--ink);
+  --invert-fg: var(--paper);
+
+  /* 分隔与网格 */
+  --grid-line: rgba(var(--line-rgb), 0.15);
+  --grid-line-strong: rgba(var(--line-rgb), 0.42);
+  --hair: var(--line);
+  --hair-soft: var(--line-soft);
+
+  /* 面板与遮罩 */
+  --panel-bg: rgba(var(--surface-rgb), 0.72);
+  --panel-border: var(--line);
+  --modal-bg: var(--surface);
+  --modal-border: var(--line);
+  --overlay: rgba(var(--scrim-rgb), 0.62);
+  --shadow-modal: 0 18px 60px rgba(60, 54, 44, 0.18);
+
+  /* 焦点 */
+  --focus-ring: var(--accent-hover);
+  --selection-bg: rgba(var(--accent-rgb), 0.28);
+
+  /* 滚动条 */
+  --scrollbar: rgba(var(--line-rgb), 0.55);
+  --scrollbar-hover: rgba(var(--line-rgb), 0.85);
+}
+
+/* ---------------------------------- 暗色 ---------------------------------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --paper: var(--c-paper-dark);
+  --paper-rgb: 17, 24, 27;
+  --surface: var(--c-surface-dark);
+  --surface-rgb: 24, 32, 36;
+  --field: var(--c-surface2-dark);
+  --field-rgb: 32, 43, 48;
+  --scrim-rgb: 9, 13, 15;
+
+  --ink: var(--c-ink-dark);
+  --ink-rgb: 224, 227, 220;
+  --ink-muted: var(--c-muted-dark);
+  --ink-muted-rgb: 166, 176, 177;
+  --ink-faint: var(--c-faint-dark);
+  --ink-faint-rgb: 125, 138, 142;
+
+  --line: var(--c-line-dark);
+  --line-rgb: 83, 97, 102;
+  --line-soft: rgba(var(--line-rgb), 0.38);
+  --line-strong: rgba(var(--line-rgb), 0.72);
+
+  --accent: var(--c-amber);
+  --accent-rgb: 197, 161, 107;
+  --accent-hover: var(--c-amber-light);
+  --accent-hover-rgb: 216, 181, 127;
+  --accent-pressed: var(--c-amber-deep);
+  --accent-ink: #1a1712;
+  --accent-wash: rgba(var(--accent-rgb), 0.16);
+  --accent-line: rgba(var(--accent-rgb), 0.8);
+  --accent-text: var(--c-amber-text-dark);
+  --accent-text-hover: #e6c99b;
+
+  --signal-live: var(--accent);
+  --signal-live-rgb: 197, 161, 107;
+  --signal-warn: var(--c-warn-dark);
+  --signal-error: var(--c-error-dark);
+  --signal-idle: var(--c-faint-dark);
+
+  --invert-bg: var(--ink);
+  --invert-fg: var(--paper);
+
+  --grid-line: rgba(var(--line-rgb), 0.13);
+  --grid-line-strong: rgba(var(--line-rgb), 0.36);
+  --hair: var(--line);
+  --hair-soft: var(--line-soft);
+
+  --panel-bg: rgba(var(--surface-rgb), 0.66);
+  --panel-border: var(--line);
+  --modal-bg: var(--c-surface2-dark);
+  --modal-border: var(--line);
+  --overlay: rgba(var(--scrim-rgb), 0.7);
+  --shadow-modal: 0 22px 70px rgba(0, 0, 0, 0.55);
+
+  --focus-ring: var(--accent);
+  --selection-bg: rgba(var(--accent-rgb), 0.3);
+
+  --scrollbar: rgba(var(--line-rgb), 0.6);
+  --scrollbar-hover: rgba(var(--line-rgb), 0.9);
+}
+
+/* 主题切换时的背景与文字过渡：只过渡色彩，不动布局 */
+:root {
+  transition: background-color var(--mo-theme) var(--ease-smooth),
+              color var(--mo-theme) var(--ease-smooth);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { transition: none; }
+}

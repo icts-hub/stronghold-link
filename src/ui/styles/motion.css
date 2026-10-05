@@ -1,0 +1,110 @@
+/* ============================================================================
+   Stronghold Link — Motion
+   ----------------------------------------------------------------------------
+   原则（对齐 RhineLabUI）：精确、机械、克制。
+   * 只做透明度、位移（8–16px）、线条生长、单次扫描、数字滚动。
+   * 禁止回弹/弹性/缩放爆炸/霓虹发光/故障闪烁。
+   * 动画服务于信息层级：进入比退出慢，数字比容器慢。
+   时长与缓动 token 在 design-tokens.css。
+   ========================================================================= */
+
+/* ------------------------------- 关键帧 --------------------------------- */
+/* 进入：淡入 + 上浮 8px */
+@keyframes sl-rise {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sl-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* 分区细线从左生长 */
+@keyframes sl-line-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+/* 单次扫描：1px 琥珀横线扫过（只用于激活态与 hover，播一次） */
+@keyframes sl-scan {
+  from { transform: translateX(-100%); opacity: 0; }
+  15%  { opacity: 0.9; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+/* 数字滚动：向上滚入（配合 3 位数字槽） */
+@keyframes sl-roll-up {
+  from { transform: translateY(0.72em); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+/* 状态方块低强度呼吸（仅 live） */
+@keyframes sl-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.42; }
+}
+/* 数据流：日志追加 */
+@keyframes sl-stream { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* 路由扫过：沿路径的一次 dashoffset 动画在 SVG 内联样式里实现，这里只留透明度包络 */
+@keyframes sl-route-sweep { from { opacity: 0.15; } 50% { opacity: 1; } to { opacity: 0.15; } }
+
+/* ------------------------------- 工具类 --------------------------------- */
+.mo-in   { animation: sl-rise var(--mo-enter) var(--ease-out) both; }
+.mo-fade { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
+.mo-roll { animation: sl-roll-up var(--mo-enter) var(--ease-out) both; }
+.mo-stream { animation: sl-stream var(--mo-fast) var(--ease-smooth) both; }
+/* 分区线：进入时生长一次 */
+.mo-rule { position: relative; overflow: hidden; }
+.mo-rule::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: var(--hair);
+  transform-origin: left;
+  animation: sl-line-grow var(--mo-enter) var(--ease-line) both;
+}
+
+/* 视图切换：旧内容 200ms 淡出由脚本控制，新内容按 --i 依次进入 */
+.view { display: none; }
+.view.active { display: block; }
+.view.active > * { animation: sl-rise var(--mo-enter) var(--ease-out) both; }
+.view.active > *:nth-child(1) { animation-delay: 0ms; }
+.view.active > *:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+.view.active > *:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.view.active > *:nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.view.active > *:nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.view.active > *:nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+.view.active > *:nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+
+/* 列表逐行：给子项加 --i 即可 */
+.stagger > * { animation: sl-rise var(--mo-enter) var(--ease-out) both; animation-delay: calc(var(--stagger) * var(--i, 0)); }
+
+/* 扫描线：hover / 激活时播一次（放在相对定位容器里） */
+.scan-once { position: relative; overflow: hidden; }
+.scan-once::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.22), transparent);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.scan-once:hover::after,
+.scan-once.is-active::after { animation: sl-scan 520ms var(--ease-line) 1; }
+
+/* 状态呼吸（仅 live 状态使用） */
+.live-pulse { animation: sl-pulse 3.2s var(--ease-smooth) infinite; }
+
+/* 数值变化的一次强调：由脚本加类，播完即止 */
+.tick { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
+
+/* --------------------- 减少动态效果：直达终值 --------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .live-pulse, .scan-once::after { animation: none !important; }
+  .boot, .boot * { animation: none !important; }
+}

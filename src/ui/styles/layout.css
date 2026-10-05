@@ -1,0 +1,99 @@
+/* ============================================================================
+   Stronghold Link — Layout
+   ----------------------------------------------------------------------------
+   设计基准 1440×900；12 列网格、8px 基线、外侧留白 40px。
+   结构（与参考项目同一套区域逻辑，但做成可滚动的桌面应用而不是全屏壁纸）：
+     ┌ 顶栏 52px：品牌锁 · 系统状态 · 主题 ┐
+     ├ 左导航 92px：编号档案索引            │
+     │   工作区：单列档案流 + 右侧遥测栏    │
+     └ 底部状态条 30px：会话状态 · 路由 · 时间 ┘
+   ========================================================================= */
+
+/* ------------------------------- 外壳 ----------------------------------- */
+.shell {
+  position: relative;
+  z-index: var(--z-base);
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+}
+
+.main { min-width: 0; display: flex; flex-direction: column; }
+
+.wrap {
+  flex: 1;
+  width: 100%;
+  max-width: var(--work-max);
+  margin: 0 auto;
+  padding: var(--sp-7) var(--gutter) var(--sp-8);
+  min-width: 0;
+}
+
+/* ------------------------------- 栅格 ----------------------------------- */
+.cols-12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--sp-5); }
+.cols-2  { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-6); }
+.cols-3  { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-5); }
+
+/* 主栏 + 侧栏：主栏走档案流，侧栏放遥测/规格 */
+.cols-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.72fr);
+  gap: var(--sp-8);
+  align-items: start;
+}
+.side { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+
+/* 区块节奏：区块之间 56px，区块头与内容之间 24px */
+.section + .section { margin-top: var(--sp-8); }
+.section__body { margin-top: var(--sp-5); }
+
+/* ------------------------------- 页头 ----------------------------------- */
+/* 页头是「编号 + 大标题 + 右侧计数 + 一条横贯细线」，不是卡片 */
+.pagehead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-6);
+  padding-bottom: var(--sp-4);
+  border-bottom: var(--bw) solid var(--hair);
+  margin-bottom: var(--sp-6);
+}
+.pagehead__actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+
+/* ------------------------------- 工具条 --------------------------------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  border-bottom: var(--bw) solid var(--hair-soft);
+}
+
+/* ------------------------------- 响应式 --------------------------------- */
+@media (max-width: 1360px) {
+  :root { --gutter: 32px; --rail-w: 84px; }
+  .cols-main { gap: var(--sp-7); }
+}
+@media (max-width: 1180px) {
+  :root { --work-max: 100%; }
+  .cols-main, .cols-2, .cols-3 { grid-template-columns: minmax(0, 1fr); }
+  .cols-main { gap: var(--sp-7); }
+}
+@media (max-width: 1000px) {
+  :root { --gutter: 24px; }
+  .wrap { padding: var(--sp-6) var(--gutter) var(--sp-7); }
+}
+@media (max-width: 860px) {
+  :root { --rail-w: 68px; }
+}
+@media (max-width: 640px) {
+  :root { --gutter: 16px; }
+  .pagehead { flex-direction: column; align-items: flex-start; gap: var(--sp-4); }
+  .toolbar { flex-wrap: wrap; }
+}
+
+/* 窗口很宽时（1920+）不拉长行宽，靠留白而非放大内容 */
+@media (min-width: 1600px) {
+  :root { --work-max: 1420px; }
+}

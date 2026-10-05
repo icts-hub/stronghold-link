@@ -128,7 +128,7 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 │  └─ session.cjs         会话控制器：多通道状态机、端口预检、邀请码、批量启动与回滚
 ├─ src/ui/index.html      界面外壳与全部视图（单文件 + 单块内联脚本，便于 DOM 桩测试）
 ├─ src/ui/styles/         设计系统：tokens / base / components / views 四个 CSS
-├─ src/ui/fonts/          内置字体子集（Inter + IBM Plex Mono，OFL 许可，见同目录 LICENSE）
+├─ src/ui/fonts/          内置字体子集（MiSans 免费商用 + Inter/Plex OFL，见同目录许可与 SOURCE.txt）
 ├─ test/                  node:test 测试（124 例）
 ├─ tools/                 开发工具：Steam 探针、CI 测试运行器、便携版打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告（PHASE1 ~ PHASE6 + 排错与 Steam 步骤）

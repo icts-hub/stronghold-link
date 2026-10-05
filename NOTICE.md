@@ -9,6 +9,18 @@
 | [koffi](https://koffi.dev/) | MIT | FFI 运行时（steamworks-ffi-node 依赖） |
 | [Steamworks SDK](https://partner.steamgames.com/) | Valve 专有 | **不随本项目分发**，需使用者自行获取 |
 
+## 内置字体
+
+界面字体全部随应用本地分发（不访问网络），并按下面的许可保留署名：
+
+| 字体 | 许可 | 说明 |
+| --- | --- | --- |
+| [MiSans](https://hyperos.mi.com/font/zh/) | 免费商用（版权归北京小米移动软件有限公司） | 中文正文/标题。本项目按界面字符集裁剪子集，未修改字形；子集由 `tools/prepare-misans.cjs` 生成，来源为 npm 包 misans-webfont@4.3.1（Apache-2.0）与其分包工具 cn-font-split |
+| [Inter](https://rsms.me/inter/) | SIL OFL 1.1 | 拉丁与数字；许可全文见 `src/ui/fonts/LICENSE-Inter.txt` |
+| [IBM Plex Mono](https://www.ibm.com/plex/) | SIL OFL 1.1 | 技术信息、数据、日志；许可全文见 `src/ui/fonts/LICENSE-IBM-Plex-Mono.txt` |
+
+字体文件位置与再生成步骤见 `src/ui/fonts/misans/SOURCE.txt`。上游 MiSans 完整分包（约 117 MB）不随本项目分发。
+
 ## 不随本项目分发的内容
 
 - **Steamworks SDK redistributable**（`steam_api64.dll`、`libsteam_api.so`、`libsteam_api.dylib` 等）：

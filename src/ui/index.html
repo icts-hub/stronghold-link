@@ -4,7 +4,11 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Stronghold Link — Network Control System</title>
-<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/design-tokens.css">
+<link rel="stylesheet" href="styles/theme.css">
+<link rel="stylesheet" href="styles/typography.css">
+<link rel="stylesheet" href="styles/layout.css">
+<link rel="stylesheet" href="styles/motion.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/components.css">
 <link rel="stylesheet" href="styles/views.css">
@@ -32,6 +36,7 @@
 <div class="top__meta">
 <span class="top__cell"><b>BUILD</b><span id="appVersion">—</span></span>
 <span class="top__cell optional"><b>LOCAL</b><span id="topNode">—</span></span>
+<span class="theme-switch" role="group" aria-label="界面配色"><button type="button" id="themeLight" data-theme="light" aria-pressed="true">Light</button><button type="button" id="themeDark" data-theme="dark" aria-pressed="false">Dark</button></span>
 <span class="status is-warn" id="globalStatusWrap"><i class="status__dot" id="statusDot"></i><span id="globalStatus">READY / LOCAL</span></span>
 </div>
 </header>
@@ -453,6 +458,20 @@
    单块内联脚本：DOM 桩测试直接执行这一块（见 test/ui-logic.test.cjs），
    所以业务逻辑保持在同一个 <script> 里，只通过 id 访问 DOM。
    ========================================================================= */
+/* ---- 主题：默认亮色，选择存在本地；脚本一执行就应用，避免启动闪色 ---- */
+const THEME_KEY='stronghold-link-theme';
+function readTheme(){try{const v=localStorage.getItem(THEME_KEY);return v==='dark'?'dark':'light'}catch(e){return 'light'}}
+function applyTheme(name,remember){
+ const theme=name==='dark'?'dark':'light';
+ const root=document.documentElement;
+ if(root&&root.setAttribute)root.setAttribute('data-theme',theme);
+ const light=$('themeLight'),dark=$('themeDark');
+ if(light&&light.setAttribute)light.setAttribute('aria-pressed',String(theme==='light'));
+ if(dark&&dark.setAttribute)dark.setAttribute('aria-pressed',String(theme==='dark'));
+ if(remember){try{localStorage.setItem(THEME_KEY,theme)}catch(e){/* 隐私模式等场景忽略 */}}
+}
+applyTheme(readTheme(),false);
+
 const DEFAULTS=[
 {id:'sample-web',name:'本地 Web / HTTP 服务（示例）',transport:'TCP',port:8080,remotePort:8081,host:'127.0.0.1',path:'',args:'',favorite:true,recipe:'local-web',description:'把本机 8080 的网页服务开放给好友：对好友开放 8081，加入者浏览器打开 http://127.0.0.1:8080 即可（页面与 WebSocket 都经隧道）。'},
 {id:'sample-rdp',name:'远程桌面 RDP（示例）',transport:'TCP',port:3389,remotePort:3390,host:'127.0.0.1',path:'',args:'',favorite:false,recipe:'local-ports',description:'把本机 3389 的远程桌面开放给好友（中继端口用 3390 避免与本机 RDP 冲突）。加入者用 mstsc 连接 127.0.0.1:3389。'},
@@ -552,7 +571,9 @@ function openEditor(id=null){editingId=id;const p=profiles.find(x=>x.id===id);$(
 function editProfile(id){openEditor(id)}
 function closeOverlays(){document.querySelectorAll('.overlay').forEach(x=>x.classList.remove('open'))}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeOverlays);document.querySelectorAll('.overlay').forEach(x=>x.addEventListener('click',e=>{if(e.target===x)closeOverlays()}));document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlays()});
-$('addGame').onclick=()=>openEditor();$('saveProfile').onclick=async()=>{
+$('addGame').onclick=()=>openEditor();
+$('themeLight').onclick=()=>applyTheme('light',true);
+$('themeDark').onclick=()=>applyTheme('dark',true);$('saveProfile').onclick=async()=>{
  const name=$('fName').value.trim(),rawRules=$('fPort').value.trim().split(/\r?\n/).filter(Boolean),remote=$('fRemote').value.trim();
  const ports=[];
  for(const line of rawRules){const parts=line.split(',').map(s=>s.trim());if(parts.length<2||parts.length>3){toast('端口规则格式：协议,本地端口,远端端口');return}const protocol=parts[0].toUpperCase(),localPort=Number(parts[1]),remotePort=Number(parts[2]||parts[1]);if(!['TCP','UDP'].includes(protocol)||![localPort,remotePort].every(n=>Number.isInteger(n)&&n>=1&&n<=65535)){toast('请检查协议与端口范围');return}ports.push({protocol,localPort,remotePort})}
@@ -737,6 +758,8 @@ function drawWave(){
  const ctx=canvas.getContext('2d');if(!ctx)return;
  ctx.setTransform(dpr,0,0,dpr,0,0);
  ctx.clearRect(0,0,cssW,cssH);
+ // 从 design token 读色，亮/暗主题自动跟随（不写死颜色）
+ const tokens=(()=>{try{const cs=getComputedStyle(document.documentElement);const pick=(n,f)=>(cs.getPropertyValue(n)||'').trim()||f;return{up:pick('--accent-rgb','197, 161, 107'),down:pick('--ink-muted-rgb','119, 117, 109'),axis:pick('--line-rgb','170, 165, 154')}}catch(e){return{up:'197, 161, 107',down:'119, 117, 109',axis:'170, 165, 154'}}})();
  const pad=6,base=cssH-pad,h=cssH-pad*2;
  const n=Math.max(24,samples.length);
  const slot=cssW/n,barW=Math.max(2,slot*0.34);
@@ -745,10 +768,10 @@ function drawWave(){
   const s=samples[i],x=i*slot+slot*0.12;
   const upH=Math.max(1,Math.round(((s.up||0)/maxRate)*h));
   const downH=Math.max(1,Math.round(((s.down||0)/maxRate)*h));
-  ctx.fillStyle='rgba(61,169,255,0.55)';ctx.fillRect(x,base-upH,barW,upH);
-  ctx.fillStyle='rgba(126,146,170,0.45)';ctx.fillRect(x+barW+1,base-downH,barW,downH);
+  ctx.fillStyle=`rgba(${tokens.up},0.85)`;ctx.fillRect(x,base-upH,barW,upH);
+  ctx.fillStyle=`rgba(${tokens.down},0.5)`;ctx.fillRect(x+barW+1,base-downH,barW,downH);
  }
- ctx.fillStyle='rgba(126,146,170,0.35)';ctx.fillRect(0,base,cssW,1);
+ ctx.fillStyle=`rgba(${tokens.axis},0.35)`;ctx.fillRect(0,base,cssW,1);
 }
 const SEQ_STEPS=['INITIALIZING','BINDING PORT','PEER LINK','ESTABLISHED'];
 function renderSeq(){

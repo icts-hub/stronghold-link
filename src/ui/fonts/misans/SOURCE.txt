@@ -1,0 +1,20 @@
+MiSans webfont 子集 —— 来源与许可
+
+字体：MiSans（Version 4.003）
+版权：Copyright © 2020-2023 Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved.
+设计：Beijing Xiaomi Mobile Software Co.,Ltd & Hanyi Fonts
+许可：MiSans 由小米免费提供，允许免费商用；本项目保留版权署名，未修改字形。
+
+分包来源：npm 包 misans-webfont@4.3.1（Apache-2.0）
+  仓库 https://github.com/mobeicanyue/misans-webfont
+  分包工具 cn-font-split@7.5.4（https://github.com/KonghaYao/cn-font-split）
+
+本目录内容为按界面字符集裁剪后的子集，不是上游完整分包：
+  字重 300 (light)：保留 39/188 个子集
+  字重 400 (regular)：保留 39/188 个子集
+  字重 600 (demibold)：保留 39/188 个子集
+
+复现步骤：
+  npm i --no-save misans-webfont@4.3.1
+  node tools/prepare-misans.cjs
+  npm uninstall --no-save misans-webfont

@@ -1,0 +1,199 @@
+/* ============================================================================
+   Stronghold Link — Typography
+   ----------------------------------------------------------------------------
+   字体组成：
+     SL MiSans   中文正文/标题（MiSans 子集，见 fonts/misans/SOURCE.txt）
+     SL Inter    拉丁与数字（已内置，OFL）
+     SL Plex Mono 技术信息、数据、日志（已内置，OFL）
+   字阶 token 在 design-tokens.css；这里给出 @font-face、基础文本规则与
+   可直接使用的排版类（.t-*）。
+   ========================================================================= */
+
+/* MiSans 子集（按界面字符集裁剪，117 个子集 @font-face） */
+@import url("../fonts/misans/misans.css");
+
+/* 拉丁：Inter */
+@font-face {
+  font-family: "SL Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/inter-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/inter-600.woff2") format("woff2");
+}
+
+/* 等宽：IBM Plex Mono */
+@font-face {
+  font-family: "SL Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "SL Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/plex-mono-500.woff2") format("woff2");
+}
+
+:root {
+  /* 中文在前：让 MiSans 接管汉字，拉丁与数字交给 Inter */
+  --font-sans: "SL MiSans", "SL Inter", "PingFang SC", "Microsoft YaHei UI",
+               "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "SL Plex Mono", ui-monospace, "Cascadia Mono", "Consolas",
+               "SFMono-Regular", "Microsoft YaHei UI", monospace;
+  /* 纯拉丁场景（品牌锁、编号、单位）用 Inter，避免中文字面拉宽字距 */
+  --font-latin: "SL Inter", "SL MiSans", system-ui, sans-serif;
+}
+
+/* ------------------------------- 基础文本 -------------------------------- */
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-ui);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-ui);
+  letter-spacing: var(--ls-none);
+  color: var(--ink);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, p, figure { margin: 0; }
+
+/* 页面主标题：轻字重 + 负字距（对应参考里 ANALYSIS OS / 22:10 的调性） */
+h1 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-light);
+  line-height: var(--lh-title);
+  letter-spacing: var(--ls-title);
+  color: var(--ink);
+}
+h2 {
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-none);
+}
+h3 {
+  font-size: var(--fs-data);
+  font-weight: var(--fw-demibold);
+  line-height: var(--lh-heading);
+}
+small { font-size: var(--fs-label); }
+
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color var(--mo-base) var(--ease-smooth), border-color var(--mo-base) var(--ease-smooth);
+}
+a:hover { color: var(--accent); border-bottom-color: var(--accent-line); }
+
+/* ------------------------------- 排版类 --------------------------------- */
+/* 技术标签：11px / 1px 字距 / 大写 —— 全套界面的“系统语言” */
+.t-label {
+  font-family: var(--font-latin);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-regular);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  line-height: var(--lh-label);
+  color: var(--ink-muted);
+}
+/* 更小的字段名 / 角标 */
+.t-tech {
+  font-family: var(--font-latin);
+  font-size: var(--fs-tech);
+  letter-spacing: var(--ls-tech);
+  text-transform: uppercase;
+  line-height: var(--lh-label);
+  color: var(--ink-muted);
+}
+.t-micro {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-micro);
+  text-transform: uppercase;
+  line-height: var(--lh-label);
+  color: var(--ink-faint);
+}
+/* 数据值：等宽 + 表格数字 */
+.t-data {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  line-height: var(--lh-data);
+  color: var(--ink);
+}
+.t-mono-sm {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-ui);
+  color: var(--ink);
+}
+/* 展示级数字：300 字重 + 紧凑行高（会话时长、字节总量） */
+.t-display {
+  font-family: var(--font-mono);
+  font-size: var(--fs-display);
+  font-weight: var(--fw-light);
+  line-height: var(--lh-display);
+  letter-spacing: var(--ls-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+/* 区块标题（对应参考的「时间日期」26px/400） */
+.t-heading {
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-heading);
+  color: var(--ink);
+}
+/* 品牌锁：重字重 + 负字距 */
+.t-brand {
+  font-family: var(--font-latin);
+  font-size: var(--fs-brand);
+  font-weight: var(--fw-heavy);
+  line-height: 0.95;
+  letter-spacing: var(--ls-brand);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+/* 反白块：黑底纸字，用于「当前」这类强标记，避免滥用琥珀 */
+.t-invert {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--invert-bg);
+  color: var(--invert-fg);
+  font-family: var(--font-latin);
+  font-size: var(--fs-label);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  line-height: 1.45;
+}
+
+/* 数字与拉丁：强制用 Inter/Plex，避免中文面拉宽 */
+.num, .latin { font-family: var(--font-latin); font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "zero" 1; }
+.muted { color: var(--ink-muted); }
+.faint { color: var(--ink-faint); }
+.accent { color: var(--accent-text); }
+.measure { max-width: var(--measure); }
