@@ -17,13 +17,8 @@ html { height: 100%; }
 body {
   margin: 0;
   min-height: 100%;
-  /* 画布 = 纸面 + 48px 极弱网格（没有渐变、没有噪声、没有光晕） */
+  /* 画布只有纸色；网格是独立的动效层（.bg__grid，会缓慢漂移），不画在 body 上 */
   background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: var(--grid-cell) var(--grid-cell);
-  background-position: -1px -1px;
   color: var(--ink);
   overflow-x: hidden;
 }

@@ -14,6 +14,12 @@
 <link rel="stylesheet" href="styles/views.css">
 </head>
 <body>
+<!-- L1 · 背景运动层：远层网格漂移 + 扫描带 + 亮度渐隐（纯装饰，不参与交互） -->
+<div class="bg" aria-hidden="true">
+<div class="bg__layer bg__layer--far"><div class="bg__grid"></div></div>
+<div class="bg__layer bg__layer--mid"><div class="bg__scan"></div></div>
+<div class="bg__vignette"></div>
+</div>
 <div class="shell">
 <aside class="rail">
 <div class="mark" aria-hidden="true"><svg viewBox="0 0 34 34"><polygon class="mark__out" points="17,2 30.8,9.7 30.8,24.3 17,32 3.2,24.3 3.2,9.7"/><polygon class="mark__in" points="17,8.5 25.4,13.3 25.4,20.7 17,25.5 8.6,20.7 8.6,13.3"/><rect class="mark__core" x="15.6" y="15.6" width="2.8" height="2.8"/></svg></div>
@@ -199,6 +205,7 @@
 <div class="wave" style="margin-top:var(--sp-4)">
 <div class="wave__axis"></div>
 <canvas id="trafficWave" width="600" height="92"></canvas>
+<div class="wave__cursor" id="waveCursor"></div>
 </div>
 <p class="tech tech-dim" style="margin-top:8px">每秒对真实累计字节取差分，最多 60 点</p>
 
@@ -432,6 +439,16 @@
 <div class="dialog__actions"><button class="btn ghost" data-close>取消</button><button class="btn primary" id="confirmJoin">继续 →</button></div>
 </div></div>
 
+<!-- L9 · 启动序列：逐行检查真实环境，可就跳过 -->
+<div class="boot" id="bootScreen" aria-hidden="true">
+<div class="boot__head">
+<div class="boot__brand"><b>Stronghold</b><span class="slash">/</span><b>Link</b><em>Network Control System</em></div>
+<span class="boot__count" id="bootCount">00 / 06</span>
+</div>
+<div class="boot__body" id="bootSteps"></div>
+<div class="boot__foot"><span id="bootStatus">Initializing core</span><span class="boot__ready" id="bootReady" hidden>System online</span></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -541,9 +558,101 @@ function renderNetSummary(){
   <span class="spec__k">Rule ${String(i+1).padStart(2,'0')}</span>
   <span class="spec__v"><span class="mono">${esc(r.protocol)} · local ${esc(r.localPort)} → relay ${esc(r.remotePort)}</span></span></div>`).join('');
 }
-function showView(name){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===name+'View'));document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
+/* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
+   动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
+   对 DOM 桩（测试环境）无害：浏览器 API 一律先探测再用。 */
+const isForceMotion=()=>{try{return typeof location!=='undefined'&&String(location.search||'').includes('motion=force')}catch(e){return false}};
+const canMotion=()=>{
+ if(isForceMotion()){ // 仅调试用：同时解除 CSS 层的减少动效覆盖，便于实测
+  try{const r=document.documentElement;if(r&&r.classList)r.classList.add('force-motion')}catch(e){}
+  return true;
+ }
+ if(typeof matchMedia==='function'){try{if(matchMedia('(prefers-reduced-motion: reduce)').matches)return false}catch(e){}}
+ return true;
+};
+const isCapture=()=>{try{return typeof location!=='undefined'&&String(location.search||'').includes('capture=1')}catch(e){return false}};
+
+/* L4 · 视差：指针 → --px/--py（-1..1），远层 0.25×、中层 0.5×；窗口隐藏时暂停 */
+function initParallax(){
+ if(typeof requestAnimationFrame!=='function'||!canMotion())return;
+ const root=document.documentElement;if(!root||!root.style)return;
+ let tx=0,ty=0,rx=0,ry=0,queued=0;
+ const step=()=>{queued=0;rx+=(tx-rx)*0.12;ry+=(ty-ry)*0.12;
+  root.style.setProperty('--px',rx.toFixed(3));root.style.setProperty('--py',ry.toFixed(3));
+  if(Math.abs(tx-rx)>0.002||Math.abs(ty-ry)>0.002)queued=requestAnimationFrame(step)};
+ const onMove=(e)=>{if(!e)return;const w=(typeof window!=='undefined'&&window.innerWidth)||1,h=(typeof window!=='undefined'&&window.innerHeight)||1;
+  tx=Math.max(-1,Math.min(1,(e.clientX/w)*2-1));ty=Math.max(-1,Math.min(1,(e.clientY/h)*2-1));
+  if(!queued)queued=requestAnimationFrame(step)};
+ try{window.addEventListener('pointermove',onMove,{passive:true})}catch(e){}
+ try{document.addEventListener('visibilitychange',()=>{if(document.body&&document.body.classList)document.body.classList.toggle('is-hidden',!!document.hidden)})}catch(e){}
+}
+
+/* L8 · 页面转场：旧页 180ms 淡出 → 新页子块按 28ms 递延进入 */
+function switchViewNow(name){
+ document.querySelectorAll('.view').forEach(v=>v.classList.remove('active','is-leaving'));
+ const next=document.getElementById(name+'View');if(next)next.classList.add('active');
+ document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
  // 好友列表懒加载：进页面时才初始化 Steam，别拖慢启动
- if(name==='friends'&&!window.__friendsLoaded){window.__friendsLoaded=true;refreshLobby().then(()=>refreshFriends()).catch(()=>{})}}
+ if(name==='friends'&&!window.__friendsLoaded){window.__friendsLoaded=true;refreshLobby().then(()=>refreshFriends()).catch(()=>{})}
+}
+function showView(name){
+ const pick=(sel)=>(document.querySelector?document.querySelector(sel):null);
+ const current=pick('.view.active');
+ const next=document.getElementById(name+'View');
+ if(!next)return;
+ if(current===next){switchViewNow(name);return}
+ if(current&&canMotion()){
+  current.classList.add('is-leaving');
+  setTimeout(()=>{current.classList.remove('is-leaving');switchViewNow(name)},180);
+ } else switchViewNow(name);
+}
+
+/* L9 · 启动序列：逐行检查真实环境；CHECKING ROUTES 如实标注未实现 */
+function bootRow(label,state,detail){
+ const box=$('bootSteps');if(!box)return;
+ const mark=state==='ok'?'✓':state==='na'?'·':state==='err'?'✕':'▸';
+ const rows=box.innerHTML.split('boot__row').length-1;
+ box.innerHTML+=`<div class="boot__row ${state==='ok'?'is-done':state==='pending'?'is-active':''}"><span>${mark} ${esc(label)}</span><b>${esc(detail||(state==='pending'?'…':String(state).toUpperCase()))}</b></div>`;
+ const count=$('bootCount');if(count)count.textContent=String(Math.min(rows+1,6)).padStart(2,'0')+' / 06';
+ const status=$('bootStatus');if(status)status.textContent=state==='pending'?(label+'…'):label;
+}
+function dismissBoot(){
+ const screen=$('bootScreen');if(!screen||!screen.classList||!screen.classList.contains('open'))return;
+ const ready=$('bootReady');if(ready)ready.hidden=false;
+ const status=$('bootStatus');if(status)status.textContent='System online';
+ setTimeout(()=>{screen.classList.remove('open');setTimeout(()=>{if(screen.style)screen.style.display='none'},400)},420);
+}
+async function runBoot(){
+ const screen=$('bootScreen');
+ if(!screen||isCapture()||!canMotion()){if(screen&&screen.style)screen.style.display='none';return}
+ screen.classList.add('open');
+ const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
+ try{
+  bootRow('Initializing core','pending');
+  const info=await window.strongholdLink.app.info();
+  await wait(300);bootRow('Verifying environment','ok',`v${info.version} · Electron ${info.electron}`);
+  const adapters=await window.strongholdLink.adapters.list();
+  await wait(300);bootRow('Loading network providers','ok',`${adapters.filter(a=>a.status==='ready'||a.status==='running').length}/${adapters.length} ready`);
+  const recipes=await window.strongholdLink.adapters.recipes();
+  await wait(300);bootRow('Loading game adapters','ok',`${recipes.filter(r=>r.available).length}/${recipes.length} available`);
+  await wait(300);bootRow('Checking local interface','ok',info.localNode||'127.0.0.1');
+  await wait(300);bootRow('Checking routes','na','not implemented · 路由层未落地');
+  const snap=await window.strongholdLink.session.status();
+  await wait(300);bootRow('Session engine ready','ok',String(snap.state||'idle').toUpperCase());
+ }catch(e){bootRow('Boot check','err',(e&&e.message)||'unknown')}
+ dismissBoot();
+}
+function initBoot(){
+ const screen=$('bootScreen');
+ if(isCapture()){if(screen&&screen.style)screen.style.display='none';return}
+ const fire=()=>{
+  const p=runBoot();if(p&&p.catch)p.catch(()=>dismissBoot());
+  const skip=()=>dismissBoot();
+  try{document.addEventListener('keydown',skip,{once:true});if(screen&&screen.addEventListener)screen.addEventListener('click',skip,{once:true})}catch(e){}
+  setTimeout(dismissBoot,4000);
+ };
+ if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>requestAnimationFrame(fire));else setTimeout(fire,0);
+}
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
 $('backLibrary').onclick=()=>showView('library');$('search').addEventListener('input',render);
 function openEditor(id=null){editingId=id;const p=profiles.find(x=>x.id===id);$('editorTitle').textContent=p?'编辑端口配置':'添加端口配置';$('fName').value=p?.name||'';$('fTransport').value=p?.transport||'UDP';$('fPort').value=p?(p.ports||[{protocol:p.transport==='TCP'?'TCP':'UDP',localPort:p.port,remotePort:p.remotePort||p.port}]).map(r=>`${r.protocol},${r.localPort},${r.remotePort}`).join('\n'):'';$('fHost').value=p?.host||'127.0.0.1';$('fRemote').value=p?.remotePort||'';$('fPath').value=p?.path||'';$('fArgs').value=p?.args||'';$('fRecipe').innerHTML=recipes.map(r=>`<option value="${esc(r.id)}"${r.available?'':' disabled'}>${esc(r.name)}${r.available?'':'（不可用）'}</option>`).join('');
@@ -756,6 +865,9 @@ function drawWave(){
   ctx.fillStyle=`rgba(${tokens.down},0.5)`;ctx.fillRect(x+barW+1,base-downH,barW,downH);
  }
  ctx.fillStyle=`rgba(${tokens.axis},0.35)`;ctx.fillRect(0,base,cssW,1);
+ // 最新样本游标（1px 琥珀竖线，随采样平滑移动）
+ const cursor=$('waveCursor');
+ if(cursor&&cursor.style)cursor.style.left=Math.round(Math.min(cssW-1,samples.length*slot))+'px';
 }
 const SEQ_STEPS=['INITIALIZING','BINDING PORT','PEER LINK','ESTABLISHED'];
 function renderSeq(){
@@ -783,7 +895,11 @@ function renderSession(){
  const sec=s.security;
  $('sessionSecurity').textContent=sec?(sec.mode==='psk-aead'?`已加密 · ${sec.cipher} + X25519`:sec.mode==='steam-transport'?'Steam 传输层加密':'明文 · 未设置口令'):'—';
  $('sessionRoleText').textContent=s.role?(s.role==='host'?'HOST / 房主':'JOINER / 加入者'):'—';
- $('sessionConnections').textContent=String(s.connections||0);
+ const connEl=$('sessionConnections'),connText=String(s.connections||0);
+ if(connEl){
+  if(connEl.textContent!==connText&&connEl.classList){connEl.classList.remove('roll');void connEl.offsetWidth;connEl.classList.add('roll')}
+  connEl.textContent=connText;
+ }
  $('sessionTraffic').textContent=fmtBytes(s.bytesToPeer)+' / '+fmtBytes(s.bytesFromPeer);
  $('sessionPackets').textContent=(s.packetsToPeer||0)+' / '+(s.packetsFromPeer||0);
  $('sessionRejected').textContent=(s.rejected||0)+' / '+(s.failed||0);
@@ -806,7 +922,7 @@ function renderSession(){
    :(c.protocol==='UDP'
     ?`${st.connections||0} 会话 · 包 ↑${st.packetsToPeer||0}/↓${st.packetsFromPeer||0} · ${fmtBytes(st.bytesToPeer)}/${fmtBytes(st.bytesFromPeer)}`
     :`${st.connections||0} 连接 · 共 ${st.totalConnections||0} · ${st.encrypted?'已加密':'明文'} · ${fmtBytes(st.bytesToPeer)}/${fmtBytes(st.bytesFromPeer)}`);
-  return `<div class="chanrow"><span class="proto${steam?' udp':''}">${esc(c.protocol)}</span><span class="mono">${esc(listen)}</span><span class="mono">→ ${esc(peer)}</span><span class="chanstat">${esc(detail)}</span></div>`;
+  return `<div class="chanrow" style="--i:${channels.indexOf(c)}"><span class="proto${steam?' udp':''}">${esc(c.protocol)}</span><span class="mono">${esc(listen)}</span><span class="mono">→ ${esc(peer)}</span><span class="chanstat">${esc(detail)}</span></div>`;
  }).join(''):'<div class="chanempty">尚未启动。每条端口规则会生成一条通道。</div>';
  const errBox=$('sessionError');
  if(s.lastError){errBox.hidden=false;errBox.textContent='最近一次错误：'+s.lastError}else{errBox.hidden=true;errBox.textContent=''}
@@ -824,6 +940,8 @@ function renderSession(){
  const wrap=$('globalStatusWrap');
  wrap.className='status '+(state==='running'?'is-online':state==='error'?'is-error':busy?'is-warn':'');
  $('globalStatus').textContent=state==='running'?(s.role==='host'?'HOST / LISTENING':'JOINER / BRIDGING'):state==='error'?'SESSION ERROR':busy?state.toUpperCase():'READY / LOCAL';
+ const view=$('sessionView');
+ if(view&&view.classList){view.classList.remove('state-running','state-error','state-busy');view.classList.add(state==='running'?'state-running':state==='error'?'state-error':busy?'state-busy':'state-idle')}
  if($('statusDot'))$('statusDot').style.background=state==='running'?'var(--state-online)':state==='error'?'var(--state-error)':'var(--state-warn)';
  void cfg;
 }
@@ -1019,5 +1137,7 @@ if(window.addEventListener)window.addEventListener('resize',()=>drawWave());
 render();
 applyRole();
 bootProfiles();
+initParallax();   // L4 视差（减少动效/触屏环境自动跳过）
+initBoot();       // L9 启动序列（截图模式与减少动效下直接跳过）
 </script>
 </body></html>

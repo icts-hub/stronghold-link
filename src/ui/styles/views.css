@@ -230,7 +230,21 @@
   background: var(--paper);
 }
 .boot.open { display: flex; }
-.boot__brand { animation: sl-rise var(--mo-enter) var(--ease-out) both; }
+body:has(.boot.open) { overflow: hidden; }
+.boot__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding-bottom: var(--sp-4);
+  border-bottom: var(--bw) solid var(--hair);
+  animation: sl-rise var(--mo-enter) var(--ease-out) both;
+}
+.boot__brand { display: flex; align-items: baseline; gap: var(--sp-2); font-family: var(--font-latin); font-size: var(--fs-label); letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--ink); }
+.boot__brand b { font-weight: var(--fw-heavy); }
+.boot__brand .slash { color: var(--ink-faint); }
+.boot__brand em { font-style: normal; font-size: var(--fs-micro); letter-spacing: var(--ls-micro); color: var(--ink-faint); padding-left: var(--sp-3); border-left: var(--bw) solid var(--hair); }
+.boot__count { font-family: var(--font-mono); font-size: var(--fs-tech); letter-spacing: var(--ls-tech); color: var(--ink-faint); }
 .boot__body {
   flex: 1;
   display: flex;
@@ -238,8 +252,7 @@
   justify-content: center;
   gap: 2px;
   width: 100%;
-  max-width: 520px;
-  margin: 0 auto;
+  max-width: 560px;   /* 与品牌锁、页脚共用同一条左侧轴线 */
 }
 .boot__row {
   display: grid;

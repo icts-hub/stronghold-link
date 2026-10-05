@@ -1,52 +1,157 @@
 /* ============================================================================
-   Stronghold Link — Motion
+   Stronghold Link — Motion Design
    ----------------------------------------------------------------------------
-   原则（对齐 RhineLabUI）：精确、机械、克制。
-   * 只做透明度、位移（8–16px）、线条生长、单次扫描、数字滚动。
-   * 禁止回弹/弹性/缩放爆炸/霓虹发光/故障闪烁。
-   * 动画服务于信息层级：进入比退出慢，数字比容器慢。
-   时长与缓动 token 在 design-tokens.css。
+   不是"给按钮加 transition"，而是一套持续运行的视觉系统，分 9 层：
+     L1 Background Motion  背景网格漂移 / 扫描带 / 亮度渐隐
+     L2 Glass              面板与顶栏的玻璃层（backdrop-filter）
+     L3 Depth              4 级层次（远层 → 内容 → 面板 → 弹窗 → 启动）
+     L4 Parallax           指针驱动的三层视差（transform-only）
+     L5 Micro Interaction  焦点线生长 / 下划线生长 / 按下位移 / 当前线缩放
+     L6 Data Animation     日志流入 / 速率柱与游标 / 计数滚动 / 数值变化
+     L7 State Transition   五态状态、通道逐行、告警滑入
+     L8 Page Transition    旧页淡出 → 新页进入 + 子块递延
+     L9 Boot Sequence      启动逐行检查（见 views.css 的 .boot）
+   原则：精确、机械、克制；只用透明度/位移/线条生长/单次扫描；
+        无回弹、无弹性、无缩放爆炸、无霓虹发光、无故障闪烁。
    ========================================================================= */
 
-/* ------------------------------- 关键帧 --------------------------------- */
+/* ==========================================================================
+   L1 · Background Motion
+   ========================================================================== */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+/* 远层：整片网格缓慢漂移一个格距，肉眼几乎察觉不到，但画面"活着" */
+.bg__layer { position: absolute; inset: -10%; }
+.bg__layer--far { transform: translate3d(calc(var(--px, 0) * var(--parallax-far) * var(--parallax-px)), calc(var(--py, 0) * var(--parallax-far) * var(--parallax-px)), 0); }
+.bg__layer--mid { transform: translate3d(calc(var(--px, 0) * var(--parallax-mid) * var(--parallax-px)), calc(var(--py, 0) * var(--parallax-mid) * var(--parallax-px)), 0); }
+.bg__grid {
+  position: absolute;
+  inset: 0;
+  opacity: var(--bg-far-opacity);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: var(--grid-cell) var(--grid-cell);
+  animation: sl-drift var(--mo-bg-drift) linear infinite;
+  will-change: transform;
+}
+/* 扫描带：1px 细线自上而下横穿，12s 一次，亮暗各一档亮度 */
+.bg__scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--bg-scan) 22%, var(--bg-scan) 78%, transparent);
+  animation: sl-scan-y var(--mo-bg-scan) var(--ease-smooth) infinite;
+  will-change: transform;
+}
+/* 亮度渐隐：只压暗边缘，不加颜色 */
+.bg__vignette { position: absolute; inset: 0; background: var(--bg-vignette); }
+
+@keyframes sl-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(calc(var(--grid-cell) * -1), calc(var(--grid-cell) * -1), 0); }
+}
+@keyframes sl-scan-y {
+  0%   { transform: translateY(0); opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* 窗口不可见时暂停装饰性运动（数据更新照旧） */
+body.is-hidden .bg__grid,
+body.is-hidden .bg__scan { animation-play-state: paused; }
+
+/* ==========================================================================
+   L2 · Glass（玻璃层：只用 backdrop-filter，厚度由 token 控制）
+   ========================================================================== */
+.panel,
+.lobby,
+.terminal-modal,
+.chanlist,
+.term,
+.invite {
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+.dialog { backdrop-filter: blur(var(--depth-modal-blur)) saturate(var(--glass-saturate)); }
+
+/* ==========================================================================
+   L3 · Depth（层次 = 亮度 + 模糊，不是阴影）
+   ========================================================================== */
+/* 顶层内容始终在背景层之上；背景层按系数降低不透明度 */
+.shell { position: relative; z-index: var(--z-base); }
+.overlay { backdrop-filter: blur(2px); }
+
+/* ==========================================================================
+   L4 · Parallax（指针驱动；仅 transform，不动布局）
+   ========================================================================== */
+/* 变量 --px / --py 由脚本写入 :root，取值 -1..1；减少动效与触屏时脚本不启动 */
+@media (prefers-reduced-motion: reduce) {
+  html:not(.force-motion) .bg__layer--far,
+  html:not(.force-motion) .bg__layer--mid { transform: none !important; }
+}
+
+/* ==========================================================================
+   L5 · Micro Interaction
+   ========================================================================== */
 /* 进入：淡入 + 上浮 8px */
 @keyframes sl-rise {
   from { opacity: 0; transform: translate3d(0, 8px, 0); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes sl-fade { from { opacity: 0; } to { opacity: 1; } }
-
 /* 分区细线从左生长 */
-@keyframes sl-line-grow {
-  from { transform: scaleX(0); }
-  to   { transform: scaleX(1); }
-}
-/* 单次扫描：1px 琥珀横线扫过（只用于激活态与 hover，播一次） */
+@keyframes sl-line-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* 当前线纵向生长（导航/列表的"当前项"） */
+@keyframes sl-line-down { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+/* 单次扫描：1px 琥珀线扫过（激活态与关键动作，播一次） */
 @keyframes sl-scan {
   from { transform: translateX(-100%); opacity: 0; }
   15%  { opacity: 0.9; }
   to   { transform: translateX(100%); opacity: 0; }
 }
-/* 数字滚动：向上滚入（配合 3 位数字槽） */
+/* 数字滚动：向上滚入 */
 @keyframes sl-roll-up {
-  from { transform: translateY(0.72em); opacity: 0; }
+  from { transform: translateY(0.7em); opacity: 0; }
   to   { transform: none; opacity: 1; }
 }
-/* 状态方块低强度呼吸（仅 live） */
+/* 状态方块呼吸（仅 live） */
 @keyframes sl-pulse {
   0%, 100% { opacity: 1; }
-  50%      { opacity: 0.42; }
+  50%      { opacity: 0.4; }
 }
-/* 数据流：日志追加 */
+/* 数据流：日志/序列追加 */
 @keyframes sl-stream { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-/* 路由扫过：沿路径的一次 dashoffset 动画在 SVG 内联样式里实现，这里只留透明度包络 */
-@keyframes sl-route-sweep { from { opacity: 0.15; } 50% { opacity: 1; } to { opacity: 0.15; } }
 
-/* ------------------------------- 工具类 --------------------------------- */
-.mo-in   { animation: sl-rise var(--mo-enter) var(--ease-out) both; }
-.mo-fade { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
-.mo-roll { animation: sl-roll-up var(--mo-enter) var(--ease-out) both; }
-.mo-stream { animation: sl-stream var(--mo-fast) var(--ease-smooth) both; }
+/* 焦点与命令的下划线机制写在 components.css（组件层），这里只提供关键帧与时序 */
+
+/* 按钮按下：1px 位移（机械感，不是弹跳） */
+.btn:active { transform: translateY(1px); }
+
+/* 导航当前项：左线纵向生长 */
+.nav button { border-left-color: transparent; }
+.nav button.active { animation: none; }
+.nav button.active::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  transform-origin: top;
+  animation: sl-line-down var(--mo-slow) var(--ease-line) both;
+}
+
+/* 列表行"当前项"：左线纵向生长 */
+.trow.is-selected::before { transform: scaleY(1); animation: sl-line-down var(--mo-base) var(--ease-line) both; }
+
 /* 分区线：进入时生长一次 */
 .mo-rule { position: relative; overflow: hidden; }
 .mo-rule::after {
@@ -59,10 +164,53 @@
   animation: sl-line-grow var(--mo-enter) var(--ease-line) both;
 }
 
-/* 视图切换：旧内容 200ms 淡出由脚本控制，新内容按 --i 依次进入 */
+/* ==========================================================================
+   L6 · Data Animation
+   ========================================================================== */
+/* 数值变化：一次淡入强调（由脚本加 .tick，播完即止） */
+.tick { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
+/* 整数计数：向上滚动（由脚本加 .roll） */
+.roll { animation: sl-roll-up var(--mo-enter) var(--ease-out) both; }
+/* 日志与序列：逐行流入 */
+.term > div, .seq__row, .boot__row { animation: sl-stream var(--mo-fast) var(--ease-smooth) both; }
+/* 速率柱：最新样本游标（画布右侧的 1px 琥珀竖线由 canvas 绘制，这里给它一个呼吸包络） */
+.wave__cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+  opacity: 0.9;
+  transition: left var(--mo-wave-head) var(--ease-smooth);
+  pointer-events: none;
+}
+/* 通道行逐行出现：由脚本写 --i */
+.chanrow { animation: sl-rise var(--mo-slow) var(--ease-out) both; animation-delay: calc(var(--stagger) * var(--i, 0)); }
+
+/* ==========================================================================
+   L7 · State Transition
+   ========================================================================== */
+/* 视图级状态类（由脚本写在 #sessionView 上）：只影响强度，不改变布局 */
+.state-running .status__dot { animation: sl-pulse var(--mo-breathe) var(--ease-smooth) infinite; }
+.state-error .status__dot { animation: none; }
+/* 告警/错误条：从左侧线生长 + 内容淡入 */
+.note { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
+/* 通道列表整体进入 */
+.chanlist { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
+
+/* ==========================================================================
+   L8 · Page Transition
+   ========================================================================== */
 .view { display: none; }
 .view.active { display: block; }
-.view.active > * { animation: sl-rise var(--mo-enter) var(--ease-out) both; }
+/* 旧页：180ms 淡出并轻微上移（由脚本加 .is-leaving，再切换） */
+.view.is-leaving { display: block; animation: sl-leave var(--mo-swap) var(--ease-smooth) both; pointer-events: none; }
+@keyframes sl-leave {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translate3d(0, -4px, 0); }
+}
+/* 新页：子块按 28ms 递延进入 */
+.view.active > * { animation: sl-rise var(--mo-slow) var(--ease-out) both; }
 .view.active > *:nth-child(1) { animation-delay: 0ms; }
 .view.active > *:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
 .view.active > *:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
@@ -70,41 +218,44 @@
 .view.active > *:nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
 .view.active > *:nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
 .view.active > *:nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+.view.active > *:nth-child(8) { animation-delay: calc(var(--stagger) * 7); }
 
-/* 列表逐行：给子项加 --i 即可 */
-.stagger > * { animation: sl-rise var(--mo-enter) var(--ease-out) both; animation-delay: calc(var(--stagger) * var(--i, 0)); }
-
-/* 扫描线：hover / 激活时播一次（放在相对定位容器里） */
+/* 通用工具类 */
+.mo-in   { animation: sl-rise var(--mo-enter) var(--ease-out) both; }
+.mo-fade { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
+.mo-stream { animation: sl-stream var(--mo-fast) var(--ease-smooth) both; }
+.stagger > * { animation: sl-rise var(--mo-slow) var(--ease-out) both; animation-delay: calc(var(--stagger) * var(--i, 0)); }
 .scan-once { position: relative; overflow: hidden; }
 .scan-once::after {
   content: "";
   position: absolute;
   top: 0; bottom: 0;
   width: 34%;
-  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.22), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.2), transparent);
   transform: translateX(-120%);
   pointer-events: none;
 }
-.scan-once:hover::after,
-.scan-once.is-active::after { animation: sl-scan 520ms var(--ease-line) 1; }
+.scan-once:hover::after, .scan-once.is-active::after { animation: sl-scan 520ms var(--ease-line) 1; }
+.live-pulse { animation: sl-pulse var(--mo-breathe) var(--ease-smooth) infinite; }
 
-/* 状态呼吸（仅 live 状态使用） */
-.live-pulse { animation: sl-pulse 3.2s var(--ease-smooth) infinite; }
-
-/* 数值变化的一次强调：由脚本加类，播完即止 */
-.tick { animation: sl-fade var(--mo-slow) var(--ease-smooth) both; }
-
-/* --------------------- 减少动态效果：直达终值 --------------------------- */
+/* ==========================================================================
+   减少动态效果：保留信息，去掉运动
+   ========================================================================== */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  /* html.force-motion 是调试开关（?motion=force），正常使用不会出现 */
+  html:not(.force-motion) *,
+  html:not(.force-motion) *::before,
+  html:not(.force-motion) *::after {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     animation-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
-  .live-pulse, .scan-once::after { animation: none !important; }
-  .boot, .boot * { animation: none !important; }
+  html:not(.force-motion) .live-pulse,
+  html:not(.force-motion) .scan-once::after { animation: none !important; }
+  html:not(.force-motion) .bg__grid,
+  html:not(.force-motion) .bg__scan { animation: none !important; opacity: 0; }
+  html:not(.force-motion) .view.is-leaving { display: none !important; }
+  html:not(.force-motion) .wave__cursor { transition: none !important; }
 }

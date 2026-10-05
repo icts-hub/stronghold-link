@@ -217,7 +217,9 @@
 .trow__side { display: flex; align-items: center; gap: var(--sp-2); }
 
 /* ------------------------------- 命令 / 按钮 ---------------------------- */
-/* 文字型命令：默认无边框，hover 只加一条底线 */
+/* 文字型命令：下划线从左生长（机制写在组件层，动效层只给时长与关键帧；
+   注意不能用 background 简写，否则会把 background-size 重置成 auto，
+   实心渐变就会铺满整个元素） */
 .cmd {
   font-family: var(--font-latin);
   font-size: var(--fs-tech);
@@ -225,16 +227,24 @@
   text-transform: uppercase;
   color: var(--ink-muted);
   padding: 4px 2px;
-  background: none;
+  background-color: transparent;
+  background-image: linear-gradient(var(--line-strong), var(--line-strong));
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 0% 1px;
   border: 0;
-  border-bottom: 1px solid transparent;
-  transition: color var(--mo-base) var(--ease-smooth), border-color var(--mo-base) var(--ease-smooth);
+  transition: color var(--mo-base) var(--ease-smooth),
+              background-size var(--mo-fast) var(--ease-line);
   white-space: nowrap;
 }
-.cmd:hover { color: var(--ink); border-bottom-color: var(--line-strong); }
-.cmd.is-accent { color: var(--accent-text); }
-.cmd.is-accent:hover { color: var(--accent-text-hover); border-bottom-color: var(--accent-line); }
-.cmd.is-danger:hover { color: var(--signal-error); border-bottom-color: var(--signal-error); }
+.cmd:hover { color: var(--ink); background-size: 100% 1px; }
+.cmd.is-accent {
+  color: var(--accent-text);
+  background-image: linear-gradient(var(--accent-line), var(--accent-line));
+}
+.cmd.is-accent:hover { color: var(--accent-text-hover); }
+.cmd.is-danger { background-image: linear-gradient(var(--signal-error), var(--signal-error)); }
+.cmd.is-danger:hover { color: var(--signal-error); }
 
 /* 按钮：方形、极小圆角、1px 细线、透明底；无渐变、无发光 */
 .btn {
@@ -283,19 +293,27 @@
 }
 .field .hint { font-size: var(--fs-ui); color: var(--ink-muted); }
 
-/* 输入：去边框，只留底部 1px 线；聚焦线变琥珀 */
+/* 输入：静态 1px 底线 + 聚焦时琥珀线从左生长（同样避免 background 简写） */
 .inp, .sel, .ta {
   width: 100%;
   padding: 7px 0;
-  background: transparent;
+  background-color: transparent;
   border: 0;
   border-bottom: var(--bw) solid var(--line-soft);
   border-radius: var(--radius-none);
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--fs-ui);
-  transition: border-color var(--mo-base) var(--ease-smooth);
+  transition: border-color var(--mo-base) var(--ease-smooth),
+              background-size var(--mo-base) var(--ease-line);
 }
+.inp, .ta {
+  background-image: linear-gradient(var(--accent-line), var(--accent-line));
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 0% 1px;
+}
+.inp:focus, .ta:focus { background-size: 100% 1px; }
 .inp.mono, .ta.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-mono-sm); }
 .ta { resize: vertical; min-height: 72px; line-height: 1.7; }
 .sel {

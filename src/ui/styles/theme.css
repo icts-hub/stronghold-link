@@ -75,6 +75,12 @@
   --overlay: rgba(var(--scrim-rgb), 0.62);
   --shadow-modal: 0 18px 60px rgba(60, 54, 44, 0.18);
 
+  /* 深度：层次用亮度与模糊表达，不用阴影 */
+  --bg-far-opacity: 0.55;
+  --bg-vignette: radial-gradient(120% 85% at 50% -10%, transparent 52%, rgba(var(--ink-rgb), 0.045) 100%);
+  --bg-scan: rgba(var(--ink-rgb), 0.05);
+  --glass-blur: 6px;
+
   /* 焦点 */
   --focus-ring: var(--accent-hover);
   --selection-bg: rgba(var(--accent-rgb), 0.28);
@@ -153,5 +159,5 @@
               color var(--mo-theme) var(--ease-smooth);
 }
 @media (prefers-reduced-motion: reduce) {
-  :root { transition: none; }
+  html:not(.force-motion) { transition: none; }
 }

@@ -34,6 +34,12 @@ const CAPTURE_DIR = (() => {
   return hit ? hit.slice('--capture='.length) : null;
 })();
 const CAPTURE_SESSION = process.argv.includes('--capture-session');
+// --capture-motion：连拍两帧做像素差分，用来实测"界面是否真的在动"
+const CAPTURE_MOTION = process.argv.includes('--capture-motion');
+const CAPTURE_PROBE = process.argv.includes('--capture-probe');
+const CAPTURE_STYLE = process.argv.includes('--capture-style');
+// --force-motion：截图时忽略系统"减少动效"偏好（本机系统默认开启，实测动效需要它）
+const FORCE_MOTION = process.argv.includes('--force-motion');
 // 截图可指定主题：--capture-theme=light|dark（默认用应用当前设置）
 const CAPTURE_THEME = (() => {
   const hit = process.argv.find((arg) => arg.startsWith('--capture-theme='));
@@ -445,7 +451,7 @@ function registerIpc() {
 // 窗口
 // ---------------------------------------------------------------------------
 
-function createWindow({ show = true } = {}) {
+function createWindow({ show = true, query = null } = {}) {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -453,7 +459,7 @@ function createWindow({ show = true } = {}) {
     minHeight: 650,
     show,
     title: 'Stronghold Link',
-    backgroundColor: '#101217',
+    backgroundColor: '#11181b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -464,7 +470,9 @@ function createWindow({ show = true } = {}) {
       backgroundThrottling: false,
     },
   });
-  win.loadFile(path.join(__dirname, '../src/ui/index.html'));
+  // query.capture=1 时渲染进程会跳过启动序列（截图与自检需要立即看到主界面）
+  if (query) win.loadFile(path.join(__dirname, '../src/ui/index.html'), { query });
+  else win.loadFile(path.join(__dirname, '../src/ui/index.html'));
   win.webContents.on('did-finish-load', () => logLine('渲染进程加载完成'));
   win.webContents.on('did-fail-load', (_event, code, description, url) => logLine('渲染进程加载失败', `code=${code}`, `desc=${description}`, `url=${url}`));
   win.webContents.on('render-process-gone', (_event, details) => logLine('窗口渲染进程退出', JSON.stringify(details)));
@@ -504,6 +512,89 @@ function reachable(port, host = '127.0.0.1', timeoutMs = 800) {
  * 打开不可见窗口，逐个视图截图，同时记录渲染进程控制台错误与横向溢出情况。
  * 这是给 UI 改动做验收用的工具，正常启动路径不会走到这里。
  */
+
+/**
+ * 动效探针（开发期）：--capture-probe
+ * 用真实运行时数据验证视差、页面转场与启动序列，而不是靠"看代码觉得对"。
+ */
+
+/** 样式探针（开发期）：--capture-style 打印关键控件的计算样式，避免靠猜 */
+/** 样式探针（开发期）：--capture-style 打印关键控件的计算样式，避免靠猜 */
+async function runStyleProbe() {
+  const win = createWindow({ show: false, query: { capture: "1" } });
+  await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+  await new Promise((r) => setTimeout(r, 1500));
+  const code = [
+    "(function(){",
+    "var sels=[[\".cmd.is-accent\",[\"background-image\",\"background-size\",\"background-color\",\"color\"]],",
+    "[\".cmd\",[\"background-image\",\"background-size\"]],",
+    "[\".btn.primary\",[\"background-color\",\"color\",\"border-color\"]],",
+    "[\".inp\",[\"background-image\",\"background-size\"]],",
+    "[\".trow.is-selected\",[\"background-color\"]],",
+    "[\".bg__grid\",[\"animation-name\",\"animation-duration\"]],",
+    "[\".top\",[\"backdrop-filter\"]]];",
+    "var out=[];",
+    "for(var i=0;i<sels.length;i++){var el=document.querySelector(sels[i][0]);",
+    "if(!el){out.push(sels[i][0]+\" -> not found\");continue}",
+    "var cs=getComputedStyle(el);var line=sels[i][0]+\" -> \";",
+    "for(var j=0;j<sels[i][1].length;j++){line+=sels[i][1][j]+\"=\"+cs.getPropertyValue(sels[i][1][j])+\"  \"}",
+    "out.push(line)}",
+    "return out.join(\"\\n\")})()"
+  ].join("");
+  const dump = await win.webContents.executeJavaScript(code);
+  console.log("[style]\n" + dump);
+  app.exit(0);
+}
+async function runProbe(dir) {
+  await fs.mkdir(dir, { recursive: true });
+  const win = createWindow({ show: true, query: FORCE_MOTION ? { motion: 'force' } : null });
+  mainWindow = win;
+  win.setContentSize(1440, 900);
+  win.setPosition(24, 24);
+  win.setAlwaysOnTop(true);
+  const issues = [];
+  win.webContents.on('console-message', (_e, level, message, line, source) => { if (level >= 2) issues.push(source + ':' + line + ' ' + message); });
+  await new Promise((resolve, reject) => {
+    win.webContents.once('did-finish-load', resolve);
+    win.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error('load ' + code + ' ' + desc)));
+  });
+  try {
+    // 1) 启动序列：截到中途，并读出真实步骤文本
+    await new Promise((r) => setTimeout(r, 1500));
+    const boot = await win.webContents.executeJavaScript(`({
+      open: !!(document.getElementById('bootScreen')||{}).classList && document.getElementById('bootScreen').classList.contains('open'),
+      rows: Array.from(document.querySelectorAll('.boot__row')).map(function(r){return r.textContent.trim()}),
+      count: (document.getElementById('bootCount')||{}).textContent,
+      status: (document.getElementById('bootStatus')||{}).textContent
+    })`);
+    await fs.writeFile(path.join(dir, 'boot-mid.png'), (await win.webContents.capturePage()).toPNG());
+    // 2) 等启动序列结束
+    await new Promise((r) => setTimeout(r, 2600));
+    const afterBoot = await win.webContents.executeJavaScript("(document.getElementById('bootScreen')||{}).className || ''");
+    // 3) 视差：派发一次指针移动，看 --px/--py 是否被写入
+    await win.webContents.executeJavaScript("document.dispatchEvent(new MouseEvent('mousemove',{clientX:0,clientY:0}));window.dispatchEvent(Object.assign(new Event('pointermove'),{clientX:0,clientY:0}))");
+    await win.webContents.executeJavaScript("window.dispatchEvent(new PointerEvent('pointermove',{clientX:window.innerWidth*0.9,clientY:window.innerHeight*0.2}))");
+    await new Promise((r) => setTimeout(r, 400));
+    const parallax = await win.webContents.executeJavaScript("({px:getComputedStyle(document.documentElement).getPropertyValue('--px'),py:getComputedStyle(document.documentElement).getPropertyValue('--py'),far:getComputedStyle(document.querySelector('.bg__layer--far')).transform})");
+    // 4) 页面转场：切换视图，读 is-leaving 与最终激活视图
+    const leaving = await win.webContents.executeJavaScript("(function(){showView('network');var v=document.querySelector('.view.is-leaving');return v?v.id:null})()");
+    await new Promise((r) => setTimeout(r, 420));
+    const active = await win.webContents.executeJavaScript("(function(){var v=document.querySelector('.view.active');return {id:v?v.id:null,nav:document.querySelector('[data-view].active').dataset.view}})()");
+    await fs.writeFile(path.join(dir, 'after-transition.png'), (await win.webContents.capturePage()).toPNG());
+    console.log('[probe] 启动序列进行中 = ' + boot.open + '  计数 = ' + boot.count + '  当前行 = ' + boot.status);
+    for (const row of boot.rows) console.log('         ' + row);
+    console.log('[probe] 启动结束后 className = "' + afterBoot + '"（应不含 open）');
+    console.log('[probe] 视差 --px = ' + String(parallax.px).trim() + '  --py = ' + String(parallax.py).trim() + '  远层 transform = ' + parallax.far);
+    console.log('[probe] 转场离场视图 = ' + (leaving || '（未捕获到，可能已切完）') + ' → 最终激活 = ' + active.id + ' / 导航高亮 = ' + active.nav);
+  } catch (err) {
+    console.error('[probe] failed', err);
+  } finally {
+    if (issues.length) { console.log('[probe] 渲染进程控制台问题：'); for (const line of issues.slice(0, 10)) console.log('  ' + line); }
+    else console.log('[probe] 渲染进程控制台无错误/警告');
+    app.exit(0);
+  }
+}
+
 async function runCapture(dir) {
   await fs.mkdir(dir, { recursive: true });
   const consoleIssues = [];
@@ -527,7 +618,7 @@ async function runCapture(dir) {
     }
 
     // 不可见窗口的合成器不会重绘，capturePage 会拿到过期帧 —— 所以截图用可见窗口
-    const win = createWindow({ show: true });
+    const win = createWindow({ show: true, query: FORCE_MOTION ? { capture: '1', motion: 'force' } : { capture: '1' } });
     mainWindow = win;
     win.setContentSize(1440, 900);
     win.setPosition(24, 24);
@@ -545,6 +636,43 @@ async function runCapture(dir) {
       await new Promise((r) => setTimeout(r, 400));
     }
 
+    if (CAPTURE_MOTION) {
+      // 先等首屏动画结束，再连拍两帧比较像素
+      await new Promise((r) => setTimeout(r, 2500));
+      const shotA = await win.webContents.capturePage();
+      await new Promise((r) => setTimeout(r, 1300));
+      const shotB = await win.webContents.capturePage();
+      const a = shotA.toBitmap();
+      const b = shotB.toBitmap();
+      const len = Math.min(a.length, b.length);
+      let changed = 0;
+      let sum = 0;
+      for (let i = 0; i < len; i += 4) {
+        const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+        if (d > 6) changed += 1;
+        sum += d;
+      }
+      const pixels = len / 4;
+      const pct = (changed / pixels) * 100;
+      const info = await win.webContents.executeJavaScript(`({
+        scan: getComputedStyle(document.querySelector('.bg__scan')).animationName + ' ' + getComputedStyle(document.querySelector('.bg__scan')).animationDuration,
+        drift: getComputedStyle(document.querySelector('.bg__grid')).animationName + ' ' + getComputedStyle(document.querySelector('.bg__grid')).animationDuration,
+        px: getComputedStyle(document.documentElement).getPropertyValue('--px'),
+        reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        glass: getComputedStyle(document.querySelector('.top')).backdropFilter,
+        depth: getComputedStyle(document.querySelector('.top')).backgroundColor
+      })`);
+      console.log('[motion] 画面变化像素占比 = ' + pct.toFixed(2) + '%  （变化像素 ' + changed + ' / ' + pixels + '）');
+      console.log('[motion] 平均亮度差 = ' + (sum / pixels).toFixed(3) + ' / 765');
+      console.log('[motion] 扫描带动画 = ' + info.scan + ' ；网格漂移 = ' + info.drift);
+      console.log('[motion] 视差变量 --px = ' + String(info.px).trim() + ' ；玻璃层 = ' + info.glass);
+      console.log('[motion] 减少动效偏好 = ' + info.reduced);
+      const files = path.join(dir, 'motion');
+      await fs.mkdir(files, { recursive: true });
+      await fs.writeFile(path.join(files, 'frame-a.png'), shotA.toPNG());
+      await fs.writeFile(path.join(files, 'frame-b.png'), shotB.toPNG());
+      console.log('[motion] 两帧已存到 ' + files);
+    } else {
     for (let index = 0; index < CAPTURE_VIEWS.length; index += 1) {
       const view = CAPTURE_VIEWS[index];
       // 切换视图（渲染进程里的 showView 是全局函数）
@@ -569,6 +697,7 @@ async function runCapture(dir) {
       const overflow = metrics.scrollWidth - metrics.clientWidth;
       console.log(`[capture] ${view} -> ${file}  横向溢出=${overflow}px  导航高亮=${metrics.navActive}  内容高=${metrics.bodyHeight}`);
       if (overflow > 0) console.log(`[capture] !! ${view} 出现横向滚动 ${overflow}px`);
+    }
     }
 
     if (consoleIssues.length) {
@@ -595,7 +724,7 @@ async function runSmoke() {
     const echoPort = await new Promise((resolve) => echo.listen(0, '127.0.0.1', () => resolve(echo.address().port)));
     const relayPort = await freePort();
 
-    const win = createWindow({ show: false });
+    const win = createWindow({ show: false, query: { capture: '1' } });
     mainWindow = win; // 让会话事件也走真实的主进程 -> 渲染进程推送通道
     await new Promise((resolve, reject) => {
       win.webContents.once('did-finish-load', resolve);
@@ -701,6 +830,12 @@ if (!gotLock) {
     if (IS_SMOKE) {
       const ok = await runSmoke();
       app.exit(ok ? 0 : 1);
+      return;
+    }
+    if (CAPTURE_STYLE) { await runStyleProbe(); return; }
+    if (CAPTURE_PROBE) {
+      logLine('动效探针模式');
+      await runProbe(CAPTURE_DIR || path.join(APP_DIR, 'probe-out'));
       return;
     }
     if (CAPTURE_DIR) {

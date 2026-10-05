@@ -129,6 +129,20 @@
   --mo-theme: 850ms;   /* 主题切换背景 */
   --stagger: 28ms;     /* 列表逐行 */
 
+  /* ---------------------------------------------------------------------
+     Motion Design 参数（不是"按钮过渡"，是持续运行的视觉系统）
+     --------------------------------------------------------------------- */
+  --mo-bg-drift: 120s;     /* 背景网格漂移一个格距（48px），无缝循环 */
+  --mo-bg-scan: 12s;       /* 扫描带横穿工作区一次 */
+  --mo-breathe: 7.5s;      /* live 状态方块呼吸 */
+  --mo-wave-head: 900ms;   /* 速率柱最新样本游标 */
+  --parallax-far: 0.25;    /* 远层（背景网格）位移系数 */
+  --parallax-mid: 0.5;     /* 中层（分区线/次要装饰） */
+  --parallax-px: 6px;      /* 视差最大位移 */
+  --glass-blur: 8px;
+  --glass-saturate: 115%;
+  --depth-modal-blur: 14px;
+
   --ease-smooth: cubic-bezier(0.6, 0.05, 0.2, 1);  /* smootherstep 近似，无回弹 */
   --ease-line: cubic-bezier(0.2, 0, 0, 1);         /* 线条生长 / 扫过 */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
