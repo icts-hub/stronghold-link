@@ -6,7 +6,7 @@
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![tests](https://img.shields.io/badge/tests-140%20passing-brightgreen)
-![version](https://img.shields.io/badge/version-0.10.0-informational)
+![version](https://img.shields.io/badge/version-0.11.0-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密（X25519 + AES-256-GCM）
 - **Steam P2P 隧道**：基于 Steam Networking Sockets，跨网络无需端口转发（需自备 Steamworks SDK）
@@ -127,10 +127,10 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 │  ├─ steam-lobby.cjs     Steam 大厅与好友：邀请、成员、房主信息交换
 │  └─ session.cjs         会话控制器：多通道状态机、端口预检、邀请码、批量启动与回滚
 ├─ src/ui/index.html      界面外壳与全部视图（单文件 + 单块内联脚本，便于 DOM 桩测试）
-├─ src/ui/styles/         设计系统：tokens / base / components / views 四个 CSS
+├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集（MiSans 免费商用 + Inter/Plex OFL，见同目录许可与 SOURCE.txt）
 ├─ test/                  node:test 测试（124 例）
-├─ tools/                 开发工具：Steam 探针、CI 测试运行器、便携版打包、CHANGELOG 截取
+├─ tools/                 开发工具：Steam 探针、MiSans 子集裁剪、CI 测试运行器、便携版打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告（PHASE1 ~ PHASE6 + 排错与 Steam 步骤）
 ```
 

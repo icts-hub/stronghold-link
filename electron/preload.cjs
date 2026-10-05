@@ -9,7 +9,7 @@ const SESSION_EVENT_CHANNEL = 'session:event';
 const LOBBY_EVENT_CHANNEL = 'lobby:event';
 
 contextBridge.exposeInMainWorld('strongholdLink', {
-  version: '0.10.0',
+  version: '0.11.0',
   profiles: {
     load: () => ipcRenderer.invoke('profiles:load'),
     save: (profiles) => ipcRenderer.invoke('profiles:save', profiles),

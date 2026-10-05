@@ -23,7 +23,7 @@ const APP_DIR = path.resolve(__dirname, '..');
 const appIdFromEnv = () => (process.env.SH_LINK_STEAM_APP_ID ? Number(process.env.SH_LINK_STEAM_APP_ID) : null);
 const localAddress = () => require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.10.0';
+const APP_VERSION = '0.11.0';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
@@ -38,6 +38,13 @@ const CAPTURE_SESSION = process.argv.includes('--capture-session');
 const CAPTURE_MOTION = process.argv.includes('--capture-motion');
 const CAPTURE_PROBE = process.argv.includes('--capture-probe');
 const CAPTURE_STYLE = process.argv.includes('--capture-style');
+const CAPTURE_MATRIX = process.argv.includes('--capture-matrix');
+const CAPTURE_STEAM = process.argv.includes('--capture-steam');
+// PHASE 6 分辨率矩阵：设计基准 1440×900，验收下面四档
+const MATRIX_SIZES = [[1200, 800], [1366, 768], [1600, 900], [1920, 1080]];
+const MATRIX_THEMES = ['light', 'dark'];
+// 窗口缩放扫描（只查溢出，不截图）
+const SWEEP_WIDTHS = [1000, 1100, 1200, 1280, 1366, 1440, 1600, 1760, 1920];
 // --force-motion：截图时忽略系统"减少动效"偏好（本机系统默认开启，实测动效需要它）
 const FORCE_MOTION = process.argv.includes('--force-motion');
 // 截图可指定主题：--capture-theme=light|dark（默认用应用当前设置）
@@ -520,6 +527,107 @@ function reachable(port, host = '127.0.0.1', timeoutMs = 800) {
 
 /** 样式探针（开发期）：--capture-style 打印关键控件的计算样式，避免靠猜 */
 /** 样式探针（开发期）：--capture-style 打印关键控件的计算样式，避免靠猜 */
+/** Steam 真实链路探针：--capture-steam（需要本机 Steam 已登录） */
+async function runSteamProbe() {
+  const win = createWindow({ show: false, query: { capture: "1" } });
+  await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+  await new Promise((r) => setTimeout(r, 1200));
+  const code = [
+    "(async function(){",
+    "  const out={};",
+    "  const d=await window.strongholdLink.steam.diagnose();",
+    "  out.available=d.available; out.blockers=d.blockers;",
+    "  out.steps=(d.steps||[]).map(function(s){return (s.ok?\"OK  \":\"FAIL\")+\" \"+s.title+\" — \"+s.detail});",
+    "  try{ const f=await window.strongholdLink.lobby.friends(); out.friends=f.length; out.online=f.filter(function(x){return x.online}).length; }catch(e){ out.friendsError=String((e&&e.message)||e); }",
+    "  const st=await window.strongholdLink.lobby.status();",
+    "  out.lobbyReady=st.ready; out.persona=st.name; out.steamId=st.steamId; out.lobbyId=st.lobbyId;",
+    "  return out;",
+    "})()"
+  ].join("\n");
+  try {
+    const out = await win.webContents.executeJavaScript(code);
+    console.log("[steam] Steam 环境可用 = " + out.available);
+    for (const line of out.steps || []) console.log("        " + line);
+    if (out.blockers && out.blockers.length) console.log("[steam] 阻塞项：" + out.blockers.join("；"));
+    console.log("[steam] 大厅就绪 = " + out.lobbyReady + "  账号 = " + out.persona + " / " + out.steamId);
+    console.log("[steam] 好友列表 = " + (out.friendsError ? "读取失败：" + out.friendsError : out.friends + " 人（在线 " + out.online + "）"));
+  } catch (err) { console.error("[steam] failed", err); }
+  app.exit(0);
+}
+
+/** 分辨率矩阵 + 窗口缩放扫描：--capture-matrix */
+/** 分辨率矩阵 + 窗口缩放扫描：--capture-matrix
+ *  溢出检查覆盖全部 6 页（便宜）；截图只给最复杂的 2 页（昂贵）。
+ *  每一步单独容错：单页失败不影响整轮。 */
+async function runMatrix(dir) {
+  await fs.mkdir(dir, { recursive: true });
+  const issues = [];
+  const shotViews = ["library", "session"];
+  const win = createWindow({ show: true, query: { capture: "1", ...(FORCE_MOTION ? { motion: "force" } : {}) } });
+  mainWindow = win;
+  win.setPosition(20, 20);
+  win.setAlwaysOnTop(true);
+  win.webContents.on("console-message", (_e, level, message, line, source) => { if (level >= 2) issues.push(source + ":" + line + " " + message); });
+  await new Promise((resolve, reject) => {
+    win.webContents.once("did-finish-load", resolve);
+    win.webContents.once("did-fail-load", (_e, code, desc) => reject(new Error("load " + code + " " + desc)));
+  });
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  let measured = 0;
+  let overflow = 0;
+  let shots = 0;
+  const failures = [];
+  try {
+    for (const [w, h] of MATRIX_SIZES) {
+      win.setContentSize(w, h);
+      await settle(320);
+      for (const theme of MATRIX_THEMES) {
+        try { await win.webContents.executeJavaScript("applyTheme(\"" + theme + "\", false)"); } catch (e) { failures.push(w + "x" + h + " " + theme + " theme: " + e.message); }
+        const outDir = path.join(dir, w + "x" + h, theme);
+        await fs.mkdir(outDir, { recursive: true });
+        for (let i = 0; i < CAPTURE_VIEWS.length; i += 1) {
+          const view = CAPTURE_VIEWS[i];
+          try {
+            await win.webContents.executeJavaScript("showView(\"" + view + "\")");
+            // 页面转场：180ms 淡出 + 300ms 进入 + 28ms 递延，等足够久再截图/测量
+            await settle(900);
+            const mt = await win.webContents.executeJavaScript("({sw:document.documentElement.scrollWidth,cw:document.documentElement.clientWidth})");
+            const over = mt.sw - mt.cw;
+            measured += 1;
+            if (over > 0) { overflow += 1; console.log("[matrix] !! " + w + "x" + h + " " + theme + " " + view + " 横向溢出 " + over + "px"); }
+            if (shotViews.includes(view)) {
+              const image = await win.webContents.capturePage();
+              await fs.writeFile(path.join(outDir, String(i + 1).padStart(2, "0") + "-" + view + ".png"), image.toPNG());
+              shots += 1;
+            }
+          } catch (err) {
+            failures.push(w + "x" + h + " " + theme + " " + view + ": " + (err && err.message ? err.message : String(err)));
+          }
+        }
+        console.log("[matrix] " + w + "x" + h + " " + theme + " 已完成（累计测量 " + measured + " 次 / 截图 " + shots + " 张）");
+      }
+    }
+    const sweep = [];
+    try {
+      await win.webContents.executeJavaScript("showView(\"library\")");
+      for (const w of SWEEP_WIDTHS) {
+        win.setContentSize(w, 900);
+        await settle(240);
+        const mt = await win.webContents.executeJavaScript("({sw:document.documentElement.scrollWidth,cw:document.documentElement.clientWidth})");
+        sweep.push(w + ":" + (mt.sw - mt.cw));
+      }
+    } catch (err) { failures.push("sweep: " + (err && err.message ? err.message : String(err))); }
+    console.log("[matrix] 缩放扫描（宽:溢出px） " + sweep.join("  "));
+    console.log("[matrix] 合计：测量 " + measured + " 次，截图 " + shots + " 张，横向溢出 " + overflow + " 次");
+    if (failures.length) { console.log("[matrix] 单步失败 " + failures.length + " 次："); for (const f of failures.slice(0, 12)) console.log("    " + f); }
+  } catch (err) {
+    console.error("[matrix] failed", err);
+  } finally {
+    if (issues.length) { console.log("[matrix] 渲染进程控制台问题："); for (const line of issues.slice(0, 10)) console.log("  " + line); }
+    else console.log("[matrix] 渲染进程控制台无错误/警告");
+    app.exit(0);
+  }
+}
 async function runStyleProbe() {
   const win = createWindow({ show: false, query: { capture: "1" } });
   await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
@@ -832,6 +940,8 @@ if (!gotLock) {
       app.exit(ok ? 0 : 1);
       return;
     }
+    if (CAPTURE_STEAM) { await runSteamProbe(); return; }
+    if (CAPTURE_MATRIX) { await runMatrix(CAPTURE_DIR || path.join(APP_DIR, 'matrix-out')); return; }
     if (CAPTURE_STYLE) { await runStyleProbe(); return; }
     if (CAPTURE_PROBE) {
       logLine('动效探针模式');
