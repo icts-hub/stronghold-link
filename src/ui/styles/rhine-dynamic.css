@@ -1070,3 +1070,110 @@ html.has-3d .ribbon-wrap { display: none; }
 .wrap::before {
   background: radial-gradient(125% 92% at 50% 45%, rgba(var(--paper-rgb), 0.80) 0%, rgba(var(--paper-rgb), 0.44) 55%, rgba(var(--paper-rgb), 0.14) 82%, rgba(var(--paper-rgb), 0) 100%);
 }
+
+/* ==========================================================================
+   OWN IDENTITY MARK —— Stronghold Link 自有 ∞ 符号（不使用任何第三方标识）
+   设计：连续笔画的双环 ∞ + 交叉处一枚方形节点（取自"网络节点"语义），
+         线条与编号体系同源；用 mask-image + background-color: currentColor，
+         因此自动跟随主题与所在元素的文字颜色。
+   ========================================================================== */
+:root {
+  --shl-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 44'%3E%3Cpath d='M36 22c-7.5-11-13-16-19.5-16C9.5 6 4 12.5 4 22s5.5 16 12.5 16C23 38 28.5 33 36 22c7.5-11 13-16 19.5-16C62.5 6 68 12.5 68 22s-5.5 16-12.5 16C49 38 43.5 33 36 22z' fill='none' stroke='%23000' stroke-width='5.5' stroke-linejoin='round'/%3E%3Crect x='32.6' y='17.4' width='6.8' height='9.2' fill='%23000'/%3E%3C/svg%3E");
+}
+.shl-mark {
+  -webkit-mask-image: var(--shl-mark);
+  mask-image: var(--shl-mark);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: currentColor;
+  display: block;
+}
+
+/* 1) 每个页头一枚大号浅水印 —— 翻到哪一页都能看到这个符号 */
+.pagehead { position: relative; }
+.pagehead::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -6px;
+  width: 168px;
+  height: 104px;
+  opacity: 0.07;
+  pointer-events: none;
+  -webkit-mask-image: var(--shl-mark);
+  mask-image: var(--shl-mark);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: right top;
+  mask-position: right top;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: currentColor;
+}
+[data-theme='dark'] .pagehead::after { opacity: 0.10; }
+
+/* 2) 侧栏底部一枚小号实心符号 */
+.rail__foot { position: relative; }
+.rail__foot::before {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 25px;
+  margin: 0 0 8px 2px;
+  opacity: 0.55;
+  -webkit-mask-image: var(--shl-mark);
+  mask-image: var(--shl-mark);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: currentColor;
+}
+
+/* 3) 启动序列中央一枚符号（进入系统前的身份确认） */
+#bootScreen { position: relative; }
+#bootScreen::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220px;
+  height: 134px;
+  margin: -67px 0 0 -110px;
+  opacity: 0.12;
+  pointer-events: none;
+  -webkit-mask-image: var(--shl-mark);
+  mask-image: var(--shl-mark);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: currentColor;
+}
+html.force-motion #bootScreen::before { animation: shl-mark-breathe 4.5s cubic-bezier(0.2, 0.8, 0.2, 1) infinite alternate; }
+@keyframes shl-mark-breathe { from { opacity: 0.08; } to { opacity: 0.16; } }
+
+/* 4) 顶栏品牌位：把原有小图标替换为同一枚符号（保持尺寸与位置） */
+.top__brand svg,
+.top svg.brand,
+.brand svg { display: none; }
+.top__brand::before,
+.top .brand::before {
+  content: '';
+  display: inline-block;
+  width: 26px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: middle;
+  -webkit-mask-image: var(--shl-mark);
+  mask-image: var(--shl-mark);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: currentColor;
+}
