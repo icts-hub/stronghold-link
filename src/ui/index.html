@@ -429,6 +429,7 @@
     <span class="tech" id="lobbyPortOut">房主：选一个进程 → 自动配好隧道与大厅 → 好友只需点接受</span>
   </div>
   <div class="spec" id="lobbyPortBody" style="margin-top:8px"></div>
+  <div class="spec" id="roomSteps" style="margin-top:10px"></div>
 </div>
 <div class="friends" id="friendList"></div>
 <p class="note" id="friendsHint" style="margin-top:var(--sp-4)"></p>
@@ -766,6 +767,38 @@ function refreshRouteCandidates(measure){
     if(out&&out.ok){renderRouteCandidates(out.candidates);renderRouteDiag(out.decision);renderRoutePolicy(out.routePolicy);}
   }).catch(function(){/* 拿不到保持原样，不显示假数据 */});
 }
+function renderRoomSteps(s){
+  var box=$('roomSteps');if(!box)return;
+  s=s||{};
+  var steps=[
+    {n:'01',t:'创建房间',d:s.port?('已就绪 · 本机服务端口 '+s.port):'点上方「创建房间」，从进程里挑一个端口',ok:!!s.port},
+    {n:'02',t:'邀请好友',d:s.lobbyId?('大厅已就绪 '+(s.lobbyId||'')):'点好友右侧 INVITE（没有大厅会自动创建）',ok:!!s.lobbyId},
+    {n:'03',t:'好友接受并加入',d:s.members!=null?('大厅内 '+s.members+' 人'):'好友点接受后自动建立隧道，不需要他填任何端口',ok:!!(s.members&&s.members>1)},
+    {n:'04',t:'在游戏内创建房间',d:s.gameUrl?('你打开 '+s.gameUrl+' 建房，然后把房间码发给好友'):'隧道就绪后，用本机地址打开游戏建房',ok:false}
+  ];
+  box.innerHTML=steps.map(function(x){
+    return '<div class="trow" style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(var(--ink-rgb),0.10)">'
+      + '<span class="step__idx">'+x.n+'</span>'
+      + '<span class="trow__title" style="min-width:150px">'+x.t+'</span>'
+      + '<span class="tech" style="flex:1">'+x.d+'</span>'
+      + (x.ok?'<span class="t-invert">就绪</span>':'<span class="tech">待办</span>')
+      + '</div>';
+  }).join('');
+  if(s.entryUrl){
+    box.innerHTML='<div class="tech" style="display:block;margin-bottom:8px">好友端：先打开游戏连上房主的服务器，等房主建房后进入房间</div>'
+      + '<div style="margin-bottom:8px"><button class="cmd is-accent" type="button" data-open-url="'+s.entryUrl+'">复制游戏地址 '+s.entryUrl+'</button></div>'
+      + box.innerHTML;
+  }
+  if(s.gameUrl){
+    box.innerHTML+='<div style="margin-top:8px"><button class="cmd" type="button" data-open-url="'+s.gameUrl+'">复制本机游戏地址 '+s.gameUrl+'</button></div>';
+  }
+  box.onclick=function(e){
+    var b=e.target&&e.target.closest?e.target.closest('[data-open-url]'):null;if(!b)return;
+    var u=b.getAttribute('data-open-url');
+    try{if(navigator.clipboard)navigator.clipboard.writeText(u)}catch(_){}
+    toast('已复制 '+u+' · 用浏览器打开它');
+  };
+}
 function renderLobbyPorts(data){
   var out=$('lobbyPortOut'),body=$('lobbyPortBody');if(!out||!body)return;
   if(!data){out.textContent='房主：选一个进程 → 自动配好隧道与大厅 → 好友只需点接受';body.innerHTML='';return;}
@@ -810,6 +843,7 @@ function initLobbyPort(){
         lobbyLog('已选定端口 '+port+(r.lobbyOk?(' · 大厅已就绪 '+(r.lobbyId||'')):(' · 大厅创建失败：'+(r.lobbyReason||''))),r.lobbyOk?'ok':'error');
         if(out)out.textContent='已就绪：本机服务端口 '+port+' · 好友点「接受邀请」即可加入';
         toast(r.lobbyOk?('已配好 · 端口 '+port+' · 可以去邀请好友了'):('隧道已起，但大厅创建失败：'+(r.lobbyReason||'')));
+        renderRoomSteps({port:Number(port),lobbyId:r.lobbyId,gameUrl:'http://127.0.0.1:'+port});
         await refreshLobby();
       }else{
         if(out)out.textContent='配置失败：'+((r&&r.reason)||'未知原因');
@@ -1012,7 +1046,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();pollRouteWatch();refreshRouteCandidates(false);
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();renderRoomSteps({});pollRouteWatch();refreshRouteCandidates(false);
 }
 /* ---- Motion Design 驱动层（L4 视差 / L8 转场 / L9 启动）----
    动画本身全部交给 CSS；脚本只写变量与切类名，不逐帧绘制布局。
@@ -1520,6 +1554,7 @@ async function lobbyConnect(){
    if(r&&r.ok){
     lobbyLog('已通过大厅建立隧道：'+(r.reason||''),'ok');
     if(r.entryHint)lobbyLog(r.entryHint,'ok');
+    if(r.entryUrl)renderRoomSteps({entryUrl:r.entryUrl});
     (r.notes||[]).forEach(x=>lobbyLog(x,''));
     toast(r.entryHint?('隧道已建立 · '+r.entryHint):'隧道已建立');
     await refreshLobby();

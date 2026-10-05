@@ -804,7 +804,10 @@ ipcMain.handle('lobby:connect', async (_event, raw) => {
     return {
       ok: true, action: 'start', reason: plan.reason, notes: plan.notes,
       entryPort: entry,
-      entryHint: plan.options.role === 'joiner' && entry ? ('客户端请连 127.0.0.1:' + entry) : null,
+      entryUrl: plan.options.role === 'joiner' && entry ? ('http://127.0.0.1:' + entry) : null,
+      entryHint: plan.options.role === 'joiner' && entry
+        ? ('用浏览器打开 http://127.0.0.1:' + entry + ' —— 这个入口端口和房主的游戏端口无关，也不需要和房主填一样的数字；房主在游戏里建好房间后把房间码发给你即可')
+        : null,
       snapshot,
       status: snap,
     };

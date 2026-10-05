@@ -619,9 +619,34 @@ class SessionManager {
 
   async _preflight(rules, role, bindHost) {
     for (const rule of rules) {
+      // 抢端口拦截（房主）：本机服务端口 == 对好友开放的端口时，房主会在本机监听这个端口，
+      // 而本机服务（例如游戏自带的 3000）也在用同一个端口 -> 必然 EADDRINUSE。
+      // 直接自动避让到下一个空闲端口，并明确告知：本机服务端口不变，变的只是"对好友开放"的那个。
+      if (role === 'host' && Number(rule.remotePort) === Number(rule.localPort)) {
+        const original = Number(rule.localPort);
+        let next = original + 1;
+        let picked = 0;
+        while (next <= 65535) {
+          const probeFree = await this.checkPort({ port: next, host: bindHost, protocol: rule.protocol });
+          if (probeFree.free) { picked = next; break; }
+          next += 1;
+        }
+        if (!picked) fail('EADDRINUSE', `${rule.protocol} 端口 ${original} 既是本机服务端口又要对好友开放，且找不到可用替代端口，请手动改「对好友开放的端口」`);
+        rule.remotePort = picked;
+        this.warnings.push(
+          `${rule.protocol} 端口 ${original} 同时是本机服务端口和对外开放端口：房主会在本机监听它，必然和你本机的服务（例如游戏）抢占同一个端口。` +
+          `已自动把「对好友开放」的端口改为 ${picked}；你本机的服务端口仍然是 ${original}，邀请码里带的也是 ${picked}。`
+        );
+      }
       const listenPort = role === 'host' ? rule.remotePort : rule.localPort;
       const result = await this.checkPort({ port: listenPort, host: bindHost, protocol: rule.protocol });
-      if (!result.free) fail(result.code || 'EADDRINUSE', withPortOwner(`${rule.protocol} 端口 ${listenPort} 无法使用：${result.friendly}`, listenPort));
+      if (!result.free) {
+        const base = `${rule.protocol} 端口 ${listenPort} 无法使用：${result.friendly}`;
+        const hint = role === 'joiner'
+          ? '。入口端口随便换一个即可（例如 8080）：它只是你本机的入口，和房主的游戏端口不需要相同，也不用和房主填一样的数字。'
+          : '。请把「对好友开放的端口」换成别的（例如 ' + (listenPort + 1) + '）。';
+        fail(result.code || 'EADDRINUSE', withPortOwner(base + hint, listenPort));
+      }
     }
   }
 

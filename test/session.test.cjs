@@ -661,3 +661,14 @@ test('网络参数：可配置空闲/连接超时，并在快照里给出真实�
     await echo.close();
   }
 });
+
+test('抢端口避让：房主把服务端口与开放端口填成同一个时，_preflight 自动改掉开放端口并告警', async () => {
+  // 不创建任何监听：只验证避让逻辑本身（避免测试挂住）
+  const s = makeManager();
+  const p = 45999;
+  const rules = [{ protocol: 'TCP', localPort: p, remotePort: p }];
+  await s._preflight(rules, 'host', '127.0.0.1');
+  assert.notEqual(rules[0].remotePort, p, '对好友开放的端口必须被自动改掉');
+  assert.equal(rules[0].localPort, p, '本机服务端口不能被改');
+  assert.ok(s.warnings.some((w) => /同时是本机服务端口/.test(w)), '必须告警说明已自动避让');
+});
