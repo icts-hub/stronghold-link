@@ -1243,7 +1243,7 @@ function renderNetworkPage(){
  const local=$('netLocal');if(local)local.textContent=info.localNode||'—';
  const motion=$('setMotion');
  if(motion)motion.textContent=canMotion()?'FULL':'REDUCED（跟随系统）';
- renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyPort();initRoomCode();initSelfTest();
+ renderRoute();renderNetEvents();initRelaySelfTest();initRouteWatch();initNatType();initPortScan();initProcList();initLobbyLogCopy();initLobbyPort();initRoomCode();initSelfTest();
 // 首屏就把两种角色的入口都画出来：房主看"复制连接信息"，加入者看"直连框"
 renderRoomSteps({port:(lobbySnapshot&&lobbySnapshot.port)||null,hostPort:(lobbySnapshot&&lobbySnapshot.port)||null});
 setTimeout(function(){try{renderRoomSteps({port:(lobbySnapshot&&lobbySnapshot.port)||null,hostPort:(lobbySnapshot&&lobbySnapshot.port)||null});}catch(_){}},1500);pollRouteWatch();refreshRouteCandidates(false);
@@ -1730,16 +1730,36 @@ $('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=asyn
 
 /* ---- 05 Friends & Lobby（Steam 大厅）---- */
 let lobbySnapshot=null,lobbyLogLines=[];
+function initLobbyLogCopy(){
+  var box=$('lobbyLog');if(!box||box.__copyBound)return;
+  box.__copyBound=true;
+  box.addEventListener('click',function(e){
+    var t=e.target&&e.target.closest?e.target.closest('[data-copy-text]'):null;if(!t)return;
+    var v=t.getAttribute('data-copy-text')||'';
+    try{if(navigator.clipboard)navigator.clipboard.writeText(v)}catch(_){}
+    toast('已复制：'+v);
+  });
+}
 function logConnectionAddresses(port, role){
   if(!port)return;
   var ip=(($('topNode')&&$('topNode').textContent)||'').trim();
   var hasIp=/^\d+\.\d+\.\d+\.\d+$/.test(ip);
-  lobbyLog('—— 连接地址 · 端口 ' + port + ' ——','');
-  lobbyLog('本机自己（房主）：127.0.0.1:' + port,'');
-  if(hasIp)lobbyLog('局域网同网好友：' + ip + ':' + port + '（同一路由器/同网段时用这个）','');
-  lobbyLog('跨网好友（Steam 隧道）：他那台机器填 127.0.0.1:' + port + '　※ 入口端口已强制与房主同号','ok');
-  if(role==='joiner')lobbyLog('你在 Minecraft 里填：127.0.0.1:' + port + '（不要填房主的局域网/公网 IP）','ok');
-  else lobbyLog('Minecraft Java 版：房主自己在"直接连接"里填 127.0.0.1:' + port,'');
+  var addr='127.0.0.1:'+port;
+  var btn=function(v){return ' <button class="cmd" type="button" data-copy-text="'+v+'">复制</button>';};
+  if(role==='joiner'){
+    lobbyLogRaw('<span class="tech">★ 你在 Minecraft 里填这个（直接连接）</span><br>' + bold(addr) + btn(addr));
+    lobbyLogRaw('<span class="tech">他本机入口端口已与房主同号；不要填房主的局域网/公网 IP</span>');
+  }else{
+    lobbyLogRaw('<span class="tech">★ 告诉好友：在 Minecraft 里填这个</span><br>' + bold(addr) + btn(addr));
+    lobbyLogRaw('<span class="tech">★ 你自己在 Minecraft 里填</span><br>' + bold(addr) + btn(addr));
+    if(hasIp)lobbyLogRaw('<span class="tech">同一 Wi-Fi 才用（不用隧道时）</span><br>' + ip + ':' + port + btn(ip+':'+port));
+  }
+}
+function lobbyLogRaw(html){
+  lobbyLogLines.push({t:new Date().toLocaleTimeString('zh-CN',{hour12:false}),raw:String(html)});
+  if(lobbyLogLines.length>40)lobbyLogLines.splice(0,lobbyLogLines.length-40);
+  const box=$('lobbyLog');
+  if(box)box.innerHTML=lobbyLogLines.map(l=>'<div class="'+(l.raw?'':(l.level==='error'?'is-error':(l.level==='ok'?'is-ok':'')))+'">'+(l.raw?l.raw:(l.t?('<span class="tech">'+l.t+'</span> '):'')+esc(l.text))+'</div>').join('');
 }
 function lobbyLog(text,level){
  lobbyLogLines.push({t:new Date().toLocaleTimeString('zh-CN',{hour12:false}),text:String(text),level:level||''});
