@@ -129,7 +129,7 @@ npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本
 ├─ src/ui/index.html      界面外壳与全部视图（单文件 + 单块内联脚本，便于 DOM 桩测试）
 ├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集（MiSans 免费商用 + Inter/Plex OFL，见同目录许可与 SOURCE.txt）
-├─ test/                  node:test 测试（124 例）
+├─ test/                  node:test 测试（158 例）
 ├─ tools/                 开发工具：Steam 探针、MiSans 子集裁剪、CI 测试运行器、便携版打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告（PHASE1 ~ PHASE6 + 排错与 Steam 步骤）
 ```
@@ -193,9 +193,9 @@ node steam-userdir-probe.cjs "D:\某个安装目录"    # 用指定目录里的 
 
 - **跨两台电脑的真实数据往返**：本环境只有一台机器、一个 Steam 账号，无法构造第二端。
   同一账号自连**不可用**（实测 `sendReliable` 返回 `result=8` 并断开），这是 Steam 侧限制。
-- Steam Lobby / 好友邀请 UI 未实现（当前靠手工交换 SteamID）。
+- Steam 好友邀请需要两台机器、两个账号，端到端未在本机验证（大厅与好友页已实现，真实数据可读）。
 - NSIS 安装包未在本机产出（下载组件被网络代理拦截），配置已就绪；便携版已可用。
-- 跨公网时若不用 Steam 通道，本工具**不会**假装能穿透 NAT——那需要端口映射或 VPN。
+- 跨公网不用 Steam 通道时需要端口映射或 VPN；打洞与自有中继尚未实现。
 
 ## 排错
 
