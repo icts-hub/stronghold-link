@@ -1374,3 +1374,21 @@ body, .tech, .desc, .hint, .note, p {
 html:not(.has-3d) .ribbon-wrap { display: block; }
 html:not(.has-3d) .ribbon-strand { stroke: rgba(var(--ink-rgb), 0.62); }
 html:not(.has-3d) .ribbon-wrap { opacity: 0.86; }
+
+/* 实心 ∞ 扫掠带：外描边 / 带面 / 同心细线 / 高光 / 交叉断口 */
+.ribbon-outline { stroke: rgba(var(--ink-rgb), 0.30); fill: none; }
+.ribbon-base { stroke: rgba(var(--paper-rgb), 0.97); fill: none; }
+.ribbon-band-line { stroke: rgba(var(--ink-rgb), 0.85); fill: none; }
+.ribbon-highlight { stroke: rgba(255, 255, 255, 0.85); fill: none; }
+.ribbon-notch { stroke: rgba(var(--paper-rgb), 1); fill: none; }
+[data-theme='dark'] .ribbon-base { stroke: rgba(32, 43, 48, 0.97); }
+[data-theme='dark'] .ribbon-notch { stroke: rgba(32, 43, 48, 1); }
+[data-theme='dark'] .ribbon-outline { stroke: rgba(var(--paper-rgb), 0.22); }
+[data-theme='dark'] .ribbon-highlight { stroke: rgba(255, 255, 255, 0.10); }
+.ribbon-wrap { opacity: 0.55; }
+.ribbon-wrap svg { transform: scale(1.1); }
+.ribbon-group { animation: ribbon-drift 34s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate; }
+@media (prefers-reduced-motion: reduce) { .ribbon-group { animation: none; } }
+
+/* 带内同心线为连续线（虚线+圆头会变成椭圆点链，实测如此） */
+.ribbon-band-line { stroke-linecap: butt; }

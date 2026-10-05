@@ -189,6 +189,29 @@ function sendLobbyEvent(type, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lobby:event', lastLobbyEvent);
 }
 
+/**
+ * 大厅要写进 shl_port 的端口：显式传入 > 当前会话配置 > 本机探测（自动认出正在监听的游戏服务）
+ * 这样房主不必手填端口，好友加入后就能直接建立隧道。
+ */
+function resolveLobbyPort(input, config) {
+  const explicit = Number(input && input.port) > 0 ? Number(input.port) : 0;
+  if (explicit) return explicit;
+  const fromSession = Number(config && config.targetPort) || 0;
+  if (fromSession) return fromSession;
+  try {
+    const ports = require('../network/listening-ports.cjs');
+    const found = ports.listListeningPorts({});
+    if (found && found.ok) {
+      const pick = ports.suggestSteamGamePort(found.entries, {});
+      if (pick && Number(pick.port) > 0) {
+        logLine('大厅未指定端口：已自动探测到本机服务端口 ' + pick.port + (pick.process ? '（' + pick.process + '）' : ''));
+        return Number(pick.port);
+      }
+    }
+  } catch (err) { /* 探测失败就不写端口，界面会提示原因 */ }
+  return null;
+}
+
 function getLobby() {
   if (!lobbyManager) {
     lobbyManager = createLobbyManager({
@@ -231,7 +254,7 @@ async function openLobbyForSession(snapshot) {
     const result = await manager.create({
       maxMembers: Number(config.maxConnections) > 0 ? Math.min(Number(config.maxConnections) + 1, 64) : 4,
       hostSteamId: (snapshot.channels && snapshot.channels[0] && snapshot.channels[0].steamId) || null,
-      port: Number(config.targetPort) || null,
+      port: resolveLobbyPort({}, config),
       game: String(config.game || ''),
       version: APP_VERSION,
     });
@@ -539,7 +562,7 @@ ipcMain.handle('steam:diagnose', () => {
       const result = await manager.create({
         maxMembers: Number(input.maxMembers) > 0 ? Number(input.maxMembers) : 4,
         hostSteamId: input.hostSteamId ? String(input.hostSteamId).slice(0, 32) : null,
-        port: Number(input.port) > 0 ? Number(input.port) : Number(config.targetPort) || null,
+        port: resolveLobbyPort(input, config),
         game: input.game ? String(input.game).slice(0, 64) : String(config.game || ''),
         version: APP_VERSION,
       });

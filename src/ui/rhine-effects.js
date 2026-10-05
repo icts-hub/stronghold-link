@@ -377,7 +377,7 @@
   else init();
 })();
 
-﻿  /* ---------- 6) 签名层：∞ 流动带（背景主视觉，替代原立方体阵列） ---------- */
+﻿  ﻿  /* ---------- 6) 签名层：实心 ∞ 扫掠带（带内同心细线 + 交叉断口） ---------- */
   (function () {
     'use strict';
     if (typeof document === 'undefined') return;
@@ -393,70 +393,56 @@
       wrap.className = 'ribbon-wrap';
       wrap.setAttribute('aria-hidden', 'true');
       var svg = document.createElementNS(NS, 'svg');
-      svg.setAttribute('viewBox', '-100 -100 200 200');
+      svg.setAttribute('viewBox', '-110 -62 220 124');
       svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-      var band = document.createElementNS(NS, 'g');
-      band.setAttribute('class', 'ribbon-band');
       var g = document.createElementNS(NS, 'g');
       g.setAttribute('class', 'ribbon-group');
 
-      var STRANDS = 72;      // 固定数量：静态 DOM，无逐帧 JS
-      var STEPS = 150;
-      var A = 68;
-      var B2 = 38;
-      var WIDTH = 48;
-      var TWIST = 1.75;
-
-      function point(t, u) {
+      // 同一条 ∞ 参数曲线，重复描边：由粗到细 -> 带内出现等距同心线（参考图的叠层边缘）
+      var STEPS = 260;
+      var A = 86;     // 横向半径
+      var B = 30;     // 纵向半径（Gerono 双纽线）
+      var d = '';
+      for (var s = 0; s <= STEPS; s += 1) {
+        var t = (s / STEPS) * Math.PI * 2;
         var x = A * Math.sin(t);
-        var y = (B2 * Math.sin(2 * t)) / 1.6;
-        var dx = A * Math.cos(t);
-        var dy = (B2 * 2 * Math.cos(2 * t)) / 1.6;
-        var len = Math.sqrt(dx * dx + dy * dy) || 1;
-        var nx = -dy / len;
-        var ny = dx / len;
-        var twist = Math.cos(2 * t + (u - 0.5) * Math.PI * TWIST);
-        var w = ((u - 0.5) * WIDTH) * (0.5 + 0.5 * twist);
-        return { x: x + nx * w, y: y + ny * w, depth: twist };
+        var y = (B * Math.sin(2 * t)) / 1.35;
+        d += (s === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2);
       }
 
-      for (var b = 0; b < 9; b += 1) {
-        var ub = b / 8;
-        var db = '';
-        for (var sb = 0; sb <= STEPS; sb += 1) {
-          var pb = point((sb / STEPS) * Math.PI * 2, ub);
-          db += (sb === 0 ? 'M' : 'L') + pb.x.toFixed(2) + ' ' + pb.y.toFixed(2);
-        }
-        var pathB = document.createElementNS(NS, 'path');
-        pathB.setAttribute('class', 'ribbon-band-line');
-        pathB.setAttribute('d', db);
-        pathB.style.opacity = (0.10 + 0.10 * Math.sin(ub * Math.PI)).toFixed(3);
-        band.appendChild(pathB);
-      }
-
-      for (var i = 0; i < STRANDS; i += 1) {
-        var u = i / (STRANDS - 1);
-        var d = '';
-        var depthSum = 0;
-        for (var s = 0; s <= STEPS; s += 1) {
-          var pt = point((s / STEPS) * Math.PI * 2, u);
-          depthSum += pt.depth;
-          d += (s === 0 ? 'M' : 'L') + pt.x.toFixed(2) + ' ' + pt.y.toFixed(2);
-        }
-        var shade = (depthSum / (STEPS + 1)) * 0.5 + 0.5;
-        var accent = (i % 17 === 8);
+      function stroke(cls, width, opacity, dash) {
         var p = document.createElementNS(NS, 'path');
-        p.setAttribute('class', 'ribbon-strand' + (accent ? ' is-accent' : ''));
+        p.setAttribute('class', cls);
         p.setAttribute('d', d);
-        p.setAttribute('stroke-dasharray', '2 6');
-        p.style.animationDelay = (-(i * 0.33)).toFixed(2) + 's';
-        p.style.opacity = accent ? '0.55' : (0.18 + 0.42 * shade).toFixed(3);
-        p.style.strokeWidth = accent ? '0.7' : (0.34 + 0.30 * shade).toFixed(2);
+        p.setAttribute('fill', 'none');
+        p.setAttribute('stroke-width', String(width));
+        p.setAttribute('stroke-linejoin', 'round');
+        p.setAttribute('stroke-linecap', 'round');
+        if (opacity !== null && opacity !== undefined) p.style.opacity = String(opacity);
+        if (dash) p.setAttribute('stroke-dasharray', dash);
         g.appendChild(p);
+        return p;
       }
 
-      svg.appendChild(band);
+      // 1) 外描边（细墨线）-> 2) 实心带 -> 3) 带内同心细线 -> 4) 高光
+      stroke('ribbon-outline', 30.5, 0.45);
+      stroke('ribbon-base', 28, 1);
+      var LINES = 9;
+      for (var i = 1; i <= LINES; i += 1) {
+        var w = 28 - (28 - 8) * (i / (LINES + 1));
+        stroke('ribbon-band-line', w, (0.045 + 0.035 * (i / LINES)).toFixed(3));   // 连续线：等距同心，秩序感来自均匀而非断续
+      }
+      stroke('ribbon-highlight', 7, 0.5);
+
+      // 5) 交叉处断口：右上方切一道，做出上下穿插的层次（与标志同一语言）
+      var notch = document.createElementNS(NS, 'path');
+      notch.setAttribute('class', 'ribbon-notch');
+      notch.setAttribute('d', 'M2 -13 L34 12');
+      notch.setAttribute('stroke-width', '26');
+      notch.setAttribute('stroke-linecap', 'butt');
+      g.appendChild(notch);
+
       svg.appendChild(g);
       wrap.appendChild(svg);
       host.insertBefore(wrap, host.firstChild);
