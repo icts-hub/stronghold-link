@@ -69,7 +69,10 @@ const CAPTURE_THEME = (() => {
   const hit = process.argv.find((arg) => arg.startsWith('--capture-theme='));
   return hit ? hit.slice('--capture-theme='.length) : null;
 })();
-const CAPTURE_VIEWS = ['library', 'session', 'network', 'adapters', 'friends', 'settings'];
+const CAPTURE_VIEWS = ['home', 'library', 'session', 'network', 'adapters', 'friends', 'settings'];
+
+// 内存看护的启动钩子：真实实现在下面的生命周期块里，块作用域外看不到，所以用钩子暴露。
+let startMemoryWatchHook = null;
 
 // ---------------------------------------------------------------------------
 // 启动日志：解决「双击后闪退、什么都看不到」的问题
@@ -78,6 +81,12 @@ const CAPTURE_VIEWS = ['library', 'session', 'network', 'adapters', 'friends', '
 
 const STARTUP_LOG = path.join(app.getPath('userData'), 'startup.log');
 const LOG_LIMIT = 256 * 1024;
+
+// 打包版从控制台启动时，父进程一旦退出，stdout 管道就断了。Node 会把 EPIPE
+// 作为异步 error 事件抛在 process.stdout 上，try/catch 拦不住，会直接
+// uncaughtException 把整个应用带走。这里显式吞掉管道错误。
+try { process.stdout.on('error', () => {}); } catch { /* 无 stdout */ }
+try { process.stderr.on('error', () => {}); } catch { /* 无 stderr */ }
 
 function logLine(...parts) {
   const text = `[${new Date().toISOString()}] ${parts.map((part) => (typeof part === 'string' ? part : JSON.stringify(part))).join(' ')}`;
@@ -1134,6 +1143,19 @@ ipcMain.handle('lobby:stop', async () => {
     shell.showItemInFolder(CONFIG_PATH());
     return true;
   });
+  // 真实进程内存，界面底部状态条直接读这个值，不做估算
+  ipcMain.handle('app:metrics', () => {
+    let procs = [];
+    try {
+      procs = app.getAppMetrics().map((x) => ({
+        type: String((x.type || 'unknown')),
+        mb: Number((((x.memory && x.memory.workingSetSize) || 0) / 1024).toFixed(1)),
+        cpu: Number(((x.cpu && x.cpu.percentCPUUsage) || 0).toFixed(1)),
+      }));
+    } catch (err) { procs = []; }
+    const totalMB = Number(procs.reduce((sum, p) => sum + p.mb, 0).toFixed(0));
+    return { totalMB, processes: procs };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1245,11 +1267,10 @@ async function runSteamProbe() {
 async function runMatrix(dir) {
   await fs.mkdir(dir, { recursive: true });
   const issues = [];
-  const shotViews = ["library", "session"];
+  const shotViews = CAPTURE_VIEWS.slice();
   const win = createWindow({ show: true, query: { capture: "1", ...(FORCE_MOTION ? { motion: "force" } : {}) } });
   mainWindow = win;
-  startMemoryWatch();
-
+  if (typeof startMemoryWatchHook === 'function') startMemoryWatchHook();
   // 最小化 / 隐藏 / 失焦时通知渲染进程停掉所有动画（省电、省 CPU/内存）
   const notifyActivity = (active) => {
     try { if (win && !win.isDestroyed()) win.webContents.send('app:activity', { active: Boolean(active) }); } catch (err) { /* 忽略 */ }
@@ -1728,6 +1749,7 @@ function startMemoryWatch() {
   }, 10000);
   if (memWatchTimer.unref) memWatchTimer.unref();
 }
+startMemoryWatchHook = startMemoryWatch;
 app.on('will-quit', () => { if (memWatchTimer) { clearInterval(memWatchTimer); memWatchTimer = null; } });
 
 app.whenReady().then(async () => {

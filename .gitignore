@@ -40,3 +40,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# 矩阵截图产物
+matrix-out/

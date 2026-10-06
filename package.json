@@ -10,7 +10,7 @@
     "smoke:restricted": "electron . --smoke --no-sandbox",
     "test": "node --test test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs test/providers.test.cjs test/quality.test.cjs test/steam-netdiag.test.cjs test/steam-framing.test.cjs test/stun.test.cjs test/natpmp.test.cjs test/upnp.test.cjs test/punch.test.cjs test/direct-udp.test.cjs test/relay-server.test.cjs test/relay-client.test.cjs test/relay-selftest.test.cjs test/routes.test.cjs test/relay-throughput.test.cjs test/sl-relay-provider.test.cjs test/route-score.test.cjs test/route-manager.test.cjs test/route-supervisor.test.cjs test/route-watch.test.cjs test/route-policy.test.cjs test/route-standby.test.cjs test/route-migrate.test.cjs test/session-migrate.test.cjs test/auto-migrate.test.cjs test/lobby-connect.test.cjs test/listening-ports.test.cjs test/game-detect.test.cjs",
     "test:single": "node --test --test-isolation=none test/adapters.test.cjs test/crypto.test.cjs test/secure-stream.test.cjs test/steam-env.test.cjs test/steam-adapter.test.cjs test/steam-lobby.test.cjs test/secure-datagram.test.cjs test/tcp-relay.test.cjs test/udp-relay.test.cjs test/session.test.cjs test/main-ipc.test.cjs test/ui-logic.test.cjs test/providers.test.cjs test/quality.test.cjs test/steam-netdiag.test.cjs test/steam-framing.test.cjs test/stun.test.cjs test/natpmp.test.cjs test/upnp.test.cjs test/punch.test.cjs test/direct-udp.test.cjs test/relay-server.test.cjs test/relay-client.test.cjs test/relay-selftest.test.cjs test/routes.test.cjs test/relay-throughput.test.cjs test/sl-relay-provider.test.cjs test/route-score.test.cjs test/route-manager.test.cjs test/route-supervisor.test.cjs test/route-watch.test.cjs test/route-policy.test.cjs test/route-standby.test.cjs test/route-migrate.test.cjs test/session-migrate.test.cjs test/auto-migrate.test.cjs test/lobby-connect.test.cjs test/listening-ports.test.cjs test/game-detect.test.cjs",
-    "build": "electron-builder --win nsis",
+    "build": "electron-builder --win",
     "build:dir": "electron-builder --win --dir",
     "vendor:three": "node tools/vendor-three.cjs"
   },
@@ -57,6 +57,10 @@
         ]
       }
     ],
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
     "win": {
       "target": [
         {
@@ -64,11 +68,22 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "artifactName": "Stronghold-Link-Setup-${version}.${ext}"
+      "artifactName": "Stronghold-Link-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Stronghold-Link-${version}-portable-${arch}.${ext}",
+      "requestExecutionLevel": "user"
     },
     "nsis": {
+      "artifactName": "Stronghold-Link-Setup-${version}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

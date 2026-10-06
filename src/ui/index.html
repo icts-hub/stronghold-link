@@ -13,41 +13,46 @@
 <link rel="stylesheet" href="styles/components.css">
 <link rel="stylesheet" href="styles/views.css">
 <link rel="stylesheet" href="styles/rhine-dynamic.css">
+<link rel="stylesheet" href="styles/spatial-os.css">
 </head>
 <body>
 <!-- L1 · 背景运动层：远层网格漂移 + 扫描带 + 亮度渐隐（纯装饰，不参与交互） -->
 <!-- Three.js 单文件产物（构建期生成，见 tools/vendor-three.cjs） -->
 <script src="vendor/three.min.js"></script>
 <div class="bg" aria-hidden="true">
-<div class="bg__layer bg__layer--far"><div class="bg__grid"></div></div>
-<div class="bg__layer bg__layer--mid"><div class="bg__scan"></div></div>
 <div class="bg__vignette"></div>
-<div class="ambient-system" aria-hidden="true">
-  <div class="ambient-glow ambient-glow--a"></div>
-  <div class="ambient-glow ambient-glow--b"></div>
-  <div class="ambient-orbit ambient-orbit--a"></div>
-  <div class="ambient-orbit ambient-orbit--b"></div>
-  <div class="ambient-orbit ambient-orbit--c"></div>
-  <div class="ambient-flow ambient-flow--a"><i></i><i></i><i></i></div>
-  <div class="ambient-flow ambient-flow--b"><i></i><i></i><i></i></div>
-  <div class="ambient-flow ambient-flow--c"><i></i><i></i><i></i></div>
-  <div class="ambient-node ambient-node--a"></div>
-  <div class="ambient-node ambient-node--b"></div>
-  <div class="ambient-node ambient-node--c"></div>
-  <div class="ambient-cross ambient-cross--a"></div>
-  <div class="ambient-cross ambient-cross--b"></div>
-</div>
 </div>
 <div class="shell">
-<aside class="rail">
+
+<!-- ═══ L2 · 空间桌面持久层：品牌 / 时间 / 进行中 / 工作区 ═══ -->
+<header class="osbrand" id="osBrand">
+<h1 class="osbrand__name">STRONGHOLD LINK</h1>
+<p class="osbrand__sub">NETWORK INFRASTRUCTURE</p>
+<p class="osbrand__os"><span>NETWORK</span><span>ANALYSIS</span><span>SYSTEM</span></p>
+<div class="osbrand__mark" aria-hidden="true"><svg viewBox="0 0 100 56"><circle class="mark__ring" cx="29" cy="28" r="21"/><path class="mark__ring" d="M52.8 17.5A21 21 0 1 1 52.8 38.5"/><rect class="mark__bar" x="20.7" y="25.7" width="16.6" height="4.6"/><rect class="mark__bar" x="26.7" y="19.7" width="4.6" height="16.6"/><rect class="mark__bar" x="62.7" y="25.7" width="16.6" height="4.6"/></svg><span class="osbrand__maketag">RHINE LAB</span></div>
+</header>
+
+<section class="osclock" aria-label="系统时间">
+<div class="osclock__k">STRONGHOLD / DAILY TERMINAL</div>
+<div class="osclock__t"><span id="osClockTime">--:--</span></div>
+<div class="osclock__d"><span id="osClockDate">—</span><i></i><span id="osClockWeek">—</span></div>
+</section>
+
+<section class="ostoday" aria-label="进行中的项目">
+<div class="ostoday__h"><span>ACTIVE PROJECTS</span><span id="osTodayCount">0 / 3</span></div>
+<div class="ostoday__l" id="osTodayList"></div>
+</section>
+
+<aside class="rail dock">
 <div class="mark" aria-hidden="true"><svg viewBox="0 0 34 34"><polygon class="mark__out" points="17,2 30.8,9.7 30.8,24.3 17,32 3.2,24.3 3.2,9.7"/><polygon class="mark__in" points="17,8.5 25.4,13.3 25.4,20.7 17,25.5 8.6,20.7 8.6,13.3"/><rect class="mark__core" x="15.6" y="15.6" width="2.8" height="2.8"/></svg></div>
 <nav class="nav">
-<button class="active" data-view="library" title="服务库 / LIBRARY" aria-label="服务库"><span class="n-idx">01</span><span class="n-name">Library</span></button>
-<button data-view="session" title="会话 / SESSIONS" aria-label="会话"><span class="n-idx">02</span><span class="n-name">Session</span></button>
-<button data-view="network" title="网络 / NETWORK" aria-label="网络"><span class="n-idx">03</span><span class="n-name">Network</span></button>
-<button data-view="adapters" title="适配器 / ADAPTERS" aria-label="适配器"><span class="n-idx">04</span><span class="n-name">Adapter</span></button>
-<button data-view="friends" title="好友与大厅 / FRIENDS" aria-label="好友与大厅"><span class="n-idx">05</span><span class="n-name">Friends</span></button>
-<button data-view="settings" title="设置 / SETTINGS" aria-label="设置"><span class="n-idx">06</span><span class="n-name">System</span></button>
+<button class="active" data-view="home" title="主页 / HOME" aria-label="主页"><span class="n-idx">01</span><span class="n-name">Home</span><i class="n-go" aria-hidden="true"></i></button>
+<button data-view="library" title="服务库 / LIBRARY" aria-label="服务库"><span class="n-idx">02</span><span class="n-name">Library</span><i class="n-go" aria-hidden="true"></i></button>
+<button data-view="session" title="会话 / SESSIONS" aria-label="会话"><span class="n-idx">03</span><span class="n-name">Session</span><i class="n-go" aria-hidden="true"></i></button>
+<button data-view="network" title="网络 / NETWORK" aria-label="网络"><span class="n-idx">04</span><span class="n-name">Network</span><i class="n-go" aria-hidden="true"></i></button>
+<button data-view="adapters" title="适配器 / ADAPTERS" aria-label="适配器"><span class="n-idx">05</span><span class="n-name">Adapters</span><i class="n-go" aria-hidden="true"></i></button>
+<button data-view="friends" title="好友与大厅 / FRIENDS" aria-label="好友与大厅"><span class="n-idx">06</span><span class="n-name">Friends</span><i class="n-go" aria-hidden="true"></i></button>
+<button data-view="settings" title="设置 / SETTINGS" aria-label="设置"><span class="n-idx">07</span><span class="n-name">Settings</span><i class="n-go" aria-hidden="true"></i></button>
 </nav>
 <div class="rail__foot">
 <span class="tech">SL / LINK</span>
@@ -64,10 +69,59 @@
 <span class="status is-warn" id="globalStatusWrap"><i class="status__dot" id="statusDot"></i><span id="globalStatus">READY / LOCAL</span></span>
 </div>
 </header>
+
+<!-- L2 · 右侧工作区模块：年份为真实系统年份，下面是真实运行读数 -->
+<section class="oswork" aria-label="系统工作区">
+<div class="oswork__h"><span>SYSTEM WORKSPACE</span><span id="osWorkIndex">HOME</span></div>
+<div class="oswork__k">CURRENT YEAR</div>
+<div class="oswork__big" id="osWorkBig">—</div>
+<div class="oswork__year"><span id="osWorkDayOfYear">—</span><i id="osWorkBar"></i></div>
+<div class="oswork__rows">
+<div class="oswork__row"><span>LOCAL ENDPOINT</span><b class="mono" id="osNetLocal">—</b></div>
+<div class="oswork__row"><span>SESSION</span><b class="mono" id="osSessionState">IDLE</b></div>
+<div class="oswork__row"><span>PROFILES</span><b class="mono" id="osProfiles">0</b></div>
+<div class="oswork__row"><span>UPTIME</span><b class="mono" id="osUptime">00:00:00</b></div>
+</div>
+</section>
+
 <div class="wrap">
 
+<!-- ═══ 00 HOME ═══ -->
+<section class="view active" id="homeView">
+<div class="home">
+<div class="home__lede">
+<div class="eyebrow">00 / Home</div>
+<h2 class="home__title">空间化网络基础设施终端</h2>
+<p class="home__sub">七个模块浮在同一层空间里。下方导航切换，背景与玻璃层保持连续。</p>
+</div>
+<div class="home__grid">
+<div class="home__cell">
+<span class="home__k">STATE</span>
+<b class="home__v" id="homeState">IDLE</b>
+</div>
+<div class="home__cell">
+<span class="home__k">ENDPOINT</span>
+<b class="home__v mono" id="homeEndpoint">—</b>
+</div>
+<div class="home__cell">
+<span class="home__k">PROFILES</span>
+<b class="home__v" id="homeProfiles">0</b>
+</div>
+<div class="home__cell">
+<span class="home__k">PROVIDERS</span>
+<b class="home__v" id="homeProviders">0 / 0</b>
+</div>
+</div>
+<div class="home__actions">
+<button class="btn primary" id="homeHost">Host</button>
+<button class="btn" id="homeJoin">Join</button>
+<button class="btn ghost" id="homeLibrary">Open library →</button>
+</div>
+</div>
+</section>
+
 <!-- ═══ 01 LIBRARY ═══ -->
-<section class="view active" id="libraryView">
+<section class="view" id="libraryView">
 <div class="pagehead">
 <div>
 <div class="eyebrow">01 / Library</div>
@@ -522,6 +576,23 @@
 </span>
 </footer>
 </main>
+
+<!-- L5 · 系统状态条：全部为真实读数，取不到就显示 — -->
+<footer class="osstatus" aria-label="系统状态">
+<span class="osstatus__g"><i class="osstatus__dot" id="osDot"></i><b id="osAuth">LOCAL READY</b></span>
+<span class="osstatus__sep"></span>
+<span class="osstatus__c">3D <b id="os3d">—</b></span>
+<span class="osstatus__sep"></span>
+<span class="osstatus__c">ENGINE <b id="osEngine">TCP / UDP / P2P</b></span>
+<span class="osstatus__sep"></span>
+<span class="osstatus__c">PROC <b id="osProc">—</b></span>
+<span class="osstatus__sep"></span>
+<span class="osstatus__c">FPS <b id="osFps">—</b></span>
+<span class="osstatus__sep"></span>
+<span class="osstatus__c">UPTIME <b id="osUptimeStrip">00:00:00</b></span>
+<span class="osstatus__grow"></span>
+<span class="osstatus__c dim" id="osFootBuild">BUILD —</span>
+</footer>
 </div>
 
 <!-- ── Profile Editor ── -->
@@ -1936,5 +2007,5 @@ initParallax();   // L4 视差（减少动效/触屏环境自动跳过）
 initBoot();       // L9 启动序列（截图模式与减少动效下直接跳过）
 </script>
 <script src="stage.js"></script>
-<script src="rhine-effects.js"></script>
+<script src="os-motion.js"></script>
 </body></html>

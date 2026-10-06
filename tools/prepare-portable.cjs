@@ -88,9 +88,16 @@ if (left.length) { console.error('[portable] 仍有 Valve SDK 残留：', left);
 step('校验通过：包内无任何 Valve SDK 运行库');
 
 // 5) 打 zip（用 .NET 压缩，保持长路径与中文文件名）
+//    --no-zip 时跳过，交给 tools/pack-lzma.cjs 产体积更小的 tar.xz
+const noZip = process.argv.includes('--no-zip');
 const zipName = `Stronghold-Link-${pkg.version}-portable-win-x64.zip`;
 const zipPath = path.join(outDir, zipName);
 fs.mkdirSync(outDir, { recursive: true });
+if (noZip) {
+  step('已跳过 zip 打包');
+  console.log(appDir);
+  process.exit(0);
+}
 fs.rmSync(zipPath, { force: true });
 step('压缩中（约 1 分钟）...');
 const ps = spawnSync('powershell', [

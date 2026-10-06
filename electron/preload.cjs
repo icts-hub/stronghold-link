@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('strongholdLink', {
   app: {
     info: () => ipcRenderer.invoke('app:info'),
     revealConfig: () => ipcRenderer.invoke('app:reveal-config'),
+    /** 真实进程内存占用，供底部状态条显示 */
+    metrics: () => ipcRenderer.invoke('app:metrics'),
   },
   session: {
     start: (options) => ipcRenderer.invoke('session:start', options),
