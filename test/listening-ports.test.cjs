@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // 端口探测单测：解析、过滤系统噪声、排序、建议规则（全部用固定文本，不依赖真机）
 
 const test = require('node:test');
@@ -104,6 +104,13 @@ test('真机探测：返回结构正确（有端口就带进程名，失败也�
   const out = P.listListeningPorts({ timeoutMs: 8000 });
   assert.equal(typeof out.ok, 'boolean');
   assert.ok(Array.isArray(out.entries));
+  if (process.platform !== 'win32') {
+    // 解析器只认 Windows 的 netstat -ano 与 tasklist 输出，其他平台必须如实报不支持
+    assert.equal(out.ok, false, '非 Windows 上不应声称探测成功');
+    assert.equal(out.entries.length, 0);
+    assert.ok(out.reason && out.reason.length > 4);
+    return;
+  }
   if (out.ok) {
     assert.ok(out.entries.length > 0, '本机至少应有若干监听端口');
     assert.ok(out.entries.every((e) => Number(e.port) > 0 && Number(e.pid) >= 0));

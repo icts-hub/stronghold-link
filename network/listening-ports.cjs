@@ -136,6 +136,12 @@ function suggestSteamGamePort(entries, { exclude = [] } = {}) {
  * @returns {{ ok:boolean, entries:Array, reason:string|null }}
  */
 function listListeningPorts({ timeoutMs = 12000 } = {}) {
+  // 这个探测只解析 Windows 的 netstat -ano 与 tasklist 输出。Linux 的 netstat 把状态写成 LISTEN
+  // 而不是 LISTENING，解析结果会是空表；execFileSync 本身并不报错，于是会返回"成功但没有任何端口"。
+  // 与其在非 Windows 上假装成功，不如如实报不支持。
+  if (process.platform !== 'win32') {
+    return { ok: false, entries: [], reason: '端口探测目前只支持 Windows：依赖 netstat -ano 与 tasklist 的输出格式' };
+  }
   try {
     const tcp = execFileSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', windowsHide: true, timeout: timeoutMs });
     const udp = execFileSync('netstat', ['-ano', '-p', 'UDP'], { encoding: 'utf8', windowsHide: true, timeout: timeoutMs });
