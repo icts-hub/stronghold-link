@@ -1,4 +1,4 @@
-﻿Stronghold Link (portable, v0.9.0) — universal tunnel / 通用内网穿透
+Stronghold Link (portable, v0.12.0) — universal tunnel / 通用内网穿透
 
 HOW TO START / 怎么启动
 -----------------------
