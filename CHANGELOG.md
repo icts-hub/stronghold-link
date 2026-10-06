@@ -1,6 +1,14 @@
 # 更新日志
 
-## v0.12.0（2026-10-05）
+## v0.12.0
+
+界面
+- 空间化桌面重构：三维档案阵列背景、浮动玻璃模块、底部编号导航、底部系统状态条
+- 七个页面共用同一层三维空间，切页只换信息模块，背景与玻璃层不重建
+- 外壳按 1600x900 设计尺寸等比缩放，窗口大小变化时逻辑视口不变
+- 去掉原生标题栏，右上角自绘最小化 / 最大化 / 全屏 / 关闭，F11 接管全屏
+- 三维背景改成真开关：关闭时销毁几何、材质、环境贴图与渲染器并交还 WebGL 上下文；最小化可延迟释放
+- 修窄面板里读数被推出面板外、首页文字贴边两处版式问题
 
 网络
 - 新增 Provider 契约（start/stop/send/getStats/getCapabilities + 状态机 + 能力声明）
@@ -13,14 +21,23 @@
 - 新增直连 UDP 相关：STUN、NAT-PMP、UPnP IGD、双向打洞状态机、DirectUDPProvider
 - 新增 Stronghold Relay：服务端（口令入会、会话内转发、限速、包上限、空闲逐出）与客户端
 - 中继服务端已实现并本机端到端跑通，但尚未部署公网实例
+- 新增线路报告：按连接信息里的中继 POP 是否非零判定走的是 Steam 中继还是直连
+- 会话页显示 Current route / Remote POP / Relay POP / Ping / Remote address，Steam RX 与 Raw socket RX 对照
+- 新增 tools/net-bench.cjs，测直连 TCP、Stronghold Relay、Steam SDR 三条链路的吞吐与分片开销账
+- 实测本机加密中继 80 到 119 MB/s；Steam SDR 需要第二台机器与第二个账号，标注 NOT MEASURED
 
 界面（NETWORK 页）
 - 新增 RELAY SELF-TEST：本机起中继服务端与两个客户端，实测 RTT/抖动/丢包并显示
 - 候选路径按真实清单渲染：已测量显示分数与理由，未测量显示原因
 - 新增路由诊断块：状态、当前路径、排名、策略、本次决策与原因、最近日志
 
+打包
+- 新增 full 与 lite 双版本：dist:full / dist:lite / dist:both
+- 精简版把 three.min.js、gltf-loader.js、stage.js 换成空壳并排除 GLB，界面只保留 CSS 动效与玻璃层
+
 测试
-- 140 → 300 例；新增部分全部使用真实回环端口与真实数据往返
+- 40 个测试文件 405 例；新增部分全部使用真实回环端口与真实数据往返
+
 ## v0.11.0
 
 界面
