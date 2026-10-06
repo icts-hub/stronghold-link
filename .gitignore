@@ -43,3 +43,6 @@ desktop.ini
 
 # 矩阵截图产物
 matrix-out/
+
+# 链路测速产物
+bench-*.json

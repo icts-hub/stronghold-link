@@ -21,10 +21,20 @@
     try { return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; }
     catch (e) { return false; }
   }
-  var REDUCED = reduce();
+  /* 设置页里的动效强度优先于系统偏好，读的是 <html data-motion> */
+  function userReduced() {
+    try { return document.documentElement.getAttribute('data-motion') === 'reduced'; }
+    catch (e) { return false; }
+  }
+  var REDUCED = reduce() || userReduced();
   /* 本机系统默认开启"减少动效"，截图与实测需要 --force-motion（等价于 URL 带 motion=force） */
   try {
     if (typeof location !== 'undefined' && String(location.search || '').indexOf('motion=force') >= 0) REDUCED = false;
+  } catch (e) { /* 忽略 */ }
+  try {
+    window.addEventListener('shl-motion', function (ev) {
+      REDUCED = (!(ev && ev.detail === 'full')) && (userReduced() || reduce());
+    });
   } catch (e) { /* 忽略 */ }
 
   /* 活动状态广播：stage.js 订阅，最小化时确实停帧 */

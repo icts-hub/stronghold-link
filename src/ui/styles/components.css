@@ -359,7 +359,7 @@
 /* 键值行：技术文档式排版 */
 .kv {
   display: grid;
-  grid-template-columns: minmax(120px, auto) 1fr auto;
+  grid-template-columns: minmax(120px, auto) 1fr minmax(72px, auto);
   align-items: baseline;
   gap: var(--sp-3);
   padding: 8px 0;
@@ -639,7 +639,7 @@
 .spec { display: flex; flex-direction: column; }
 .spec__row {
   display: grid;
-  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  grid-template-columns: minmax(140px, 200px) minmax(160px, 1fr);
   gap: var(--sp-4);
   align-items: center;
   padding: var(--sp-3) 0;
@@ -822,7 +822,7 @@
 .readout__k { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: var(--ls-micro); text-transform: uppercase; color: var(--ink-faint); }
 .readout__v {
   font-family: var(--font-mono);
-  font-size: clamp(30px, 3.1vw, 44px);
+  font-size: 40px;
   font-weight: var(--fw-light);
   line-height: 1.02;
   letter-spacing: -0.02em;

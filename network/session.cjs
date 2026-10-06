@@ -449,6 +449,57 @@ class SessionManager {
     };
   }
 
+  /**
+   * 线路报告：把所有通道的 Provider 线路判定汇总成一份可显示结构。
+   *
+   * 这是"到底走没走 Steam 中继"的唯一答案来源。判定全部来自 Steam 自己的
+   * m_idPOPRelay / m_idPOPRemote，不做任何推测；拿不到就报 UNKNOWN，
+   * 绝不用"应该"填数。rawSocket 是本地 socket 的真实字节计数，用来区分
+   * "线路真的慢"和"只是统计口径不对"。
+   */
+  getRouteReport(at = Date.now()) {
+    const channels = [];
+    for (const channel of this.channels) {
+      const provider = channel.provider;
+      let report = null;
+      if (provider && typeof provider.route === 'function') {
+        try {
+          report = provider.route();
+        } catch (err) {
+          report = { ok: false, reason: `线路读取失败：${err.message}`, route: 'UNKNOWN', routeLabel: 'UNKNOWN' };
+        }
+      }
+      channels.push({
+        protocol: channel.rule.protocol,
+        listenPort: channel.listen.port,
+        provider: provider ? provider.id : null,
+        ...(report || { ok: false, reason: 'NO_PROVIDER', route: 'UNKNOWN', routeLabel: 'UNKNOWN' }),
+      });
+    }
+    const primary = channels.find((c) => c.route === 'STEAM_SDR_RELAY')
+      || channels.find((c) => c.route === 'DIRECT_P2P')
+      || channels[0]
+      || null;
+    const pick = (key) => (primary && primary[key] !== undefined ? primary[key] : null);
+    return {
+      at,
+      state: this.state,
+      role: this.role,
+      running: this.state === STATES.RUNNING,
+      route: primary ? primary.route : 'UNKNOWN',
+      routeLabel: primary ? primary.routeLabel : 'UNKNOWN',
+      relayed: primary ? Boolean(primary.relayed) : false,
+      relayPop: pick('relayPop'),
+      remotePop: pick('remotePop'),
+      remoteAddress: pick('remoteAddress'),
+      ping: pick('ping'),
+      steamInBytesPerSec: pick('steamInBytesPerSec'),
+      steamOutBytesPerSec: pick('steamOutBytesPerSec'),
+      rawSocket: pick('rawSocket'),
+      channels,
+    };
+  }
+
   _label(channel) {
     return `[${channel.rule.protocol}:${channel.listen.port}]`;
   }

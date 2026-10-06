@@ -16,6 +16,7 @@
 
 const { createProvider, PROVIDER_STATES } = require('./provider.cjs');
 const { mirrorStats } = require('../stats.cjs');
+const { createRawSocketMeter } = require('../route-report.cjs');
 
 /**
  * @param {object} options
@@ -109,6 +110,32 @@ function createKernelProvider({
   /** 内核的真实统计对象（供需要直读的调用方使用，例如测试断言）。 */
   provider.getKernelStats = () => (kernel && kernel.stats ? kernel.stats : null);
   provider.getKernel = () => kernel;
+
+  /**
+   * 线路报告。内核自己有 route() 就用内核的；没有就按 Provider 类型如实标注。
+   * 本地中继与直连 TCP 是单一链路，不存在直连/中继之分，不冒充 UNKNOWN。
+   * 无论走哪条分支都附带 rawSocket：直接数本地 socket 的收发字节，
+   * 这是"RAW SOCKET RX"，用来和 Steam 侧自报的速率对照。
+   */
+  const rawMeter = createRawSocketMeter();
+  provider.route = () => {
+    const raw = rawMeter.read(kernel && kernel.stats ? kernel.stats : {});
+    if (kernel && typeof kernel.route === 'function') {
+      try {
+        const report = kernel.route();
+        if (report && typeof report === 'object') {
+          // 内核自己给了 rawSocket 就用内核的，否则用本地 socket 计数
+          return { ok: true, provider: id, ...report, rawSocket: report.rawSocket || raw };
+        }
+      } catch (err) {
+        return { ok: false, provider: id, reason: `线路读取失败：${err.message}`, route: 'UNKNOWN', routeLabel: 'UNKNOWN', rawSocket: raw };
+      }
+    }
+    if (id.startsWith('local-')) return { ok: true, provider: id, route: 'LOCAL_TCP', routeLabel: 'LOCAL TCP', relayed: false, rawSocket: raw, peers: [] };
+    if (id.startsWith('direct-')) return { ok: true, provider: id, route: 'DIRECT_TCP', routeLabel: 'DIRECT TCP', relayed: false, rawSocket: raw, peers: [] };
+    return { ok: false, provider: id, reason: 'PROVIDER_HAS_NO_ROUTE', route: 'UNKNOWN', routeLabel: 'UNKNOWN', rawSocket: raw, peers: [] };
+  };
+
   provider.ready = Promise.resolve({});
 
   return provider;

@@ -90,6 +90,18 @@ npm run build:dir   # 免安装便携版 -> ../release/win-unpacked/
 npm run build       # NSIS 安装包 -> ../release/Stronghold-Link-Setup-<版本>.exe（需能访问 GitHub）
 ```
 
+两个版本，一次出一版：
+
+```powershell
+npm run dist:full   # 完整版 -> ../release/lzma/Stronghold-Link-<版本>-win-x64.tar.xz
+npm run dist:lite   # 精简版 -> ../release-lite/lzma/Stronghold-Link-Lite-<版本>-win-x64.tar.xz
+npm run dist:both   # 两版依次产出
+```
+
+完整版含三维档案背景：three.js r186、GLB 档案模块、288 实例的实例化阵列。设置页可以把三维背景关掉，也可以选择最小化时释放渲染器。
+精简版不含三维渲染：没有 three.js、没有 GLB、没有 WebGL 画布，只保留 CSS 动效、玻璃层、数字滚动、导航与状态条。适合集成显卡与低配机器。
+两版的 exe 名都叫 `Stronghold Link.exe`，包根目录的 `EDITION.txt` 写明是哪一版。
+
 便携版已实测「解压即用」：解压到干净目录后运行 `--smoke` 返回 `ok: true`、界面正常、stderr 无输出。
 打包细节、以及打包版里 Steamworks SDK 该放在哪，即 exe 同级 `steamworks_sdk/`，见 [docs/PHASE6-BUILD.md](docs/PHASE6-BUILD.md)。
 

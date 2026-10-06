@@ -57,8 +57,9 @@ const CAPTURE_PROBE = process.argv.includes('--capture-probe');
 const CAPTURE_STYLE = process.argv.includes('--capture-style');
 const CAPTURE_MATRIX = process.argv.includes('--capture-matrix');
 const CAPTURE_STEAM = process.argv.includes('--capture-steam');
-// PHASE 6 分辨率矩阵：设计基准 1440×900，验收下面四档
-const MATRIX_SIZES = [[1200, 800], [1366, 768], [1600, 900], [1920, 1080]];
+// PHASE 6 分辨率矩阵：设计基准 1600×900，验收下面五档。
+// 900×650 是窗口最小值（见 createWindow 的 minWidth/minHeight），必须和其余四档一起过。
+const MATRIX_SIZES = [[900, 650], [1200, 800], [1366, 768], [1600, 900], [1920, 1080]];
 const MATRIX_THEMES = ['light', 'dark'];
 // 窗口缩放扫描（只查溢出，不截图）
 const SWEEP_WIDTHS = [1000, 1100, 1200, 1280, 1366, 1440, 1600, 1760, 1920];
@@ -71,8 +72,30 @@ const CAPTURE_THEME = (() => {
 })();
 const CAPTURE_VIEWS = ['home', 'library', 'session', 'network', 'adapters', 'friends', 'settings'];
 
+// 内存占用实测的三个批处理模式。单点读数只能说明"现在多大"，
+// 所以探针改成同一进程内逐项开关的成对比较，排除轮次之间上百兆的噪声。
+const MEM_PROBE = (() => {
+  const hit = process.argv.find((arg) => arg.startsWith('--mem-probe='));
+  return hit ? hit.slice('--mem-probe='.length) : null;
+})();
+const MEM_FLOOR = (() => {
+  const hit = process.argv.find((arg) => arg.startsWith('--mem-floor='));
+  return hit ? hit.slice('--mem-floor='.length) : null;
+})();
+const MEM_SOAK = (() => {
+  const hit = process.argv.find((arg) => arg.startsWith('--mem-soak='));
+  return hit ? hit.slice('--mem-soak='.length) : null;
+})();
+// 探针用的两个开关：--stage3d=0 以关闭状态启动，--stage-release=1 最小化后释放三维
+const STAGE3D_OFF = process.argv.includes('--stage3d=0');
+const STAGE_RELEASE = process.argv.includes('--stage-release=1');
+
 // 内存看护的启动钩子：真实实现在下面的生命周期块里，块作用域外看不到，所以用钩子暴露。
+// totalWorkingSetMB 同理——它和 startMemoryWatch 定义在同一个 else 块里，
+// 模块顶层的探针直接调用会报 ReferenceError: totalWorkingSetMB is not defined。
 let startMemoryWatchHook = null;
+let totalWorkingSetHook = null;
+const totalWorkingSetMBProbe = () => Math.round(totalWorkingSetHook ? totalWorkingSetHook() : 0);
 
 // ---------------------------------------------------------------------------
 // 启动日志：解决「双击后闪退、什么都看不到」的问题
@@ -476,6 +499,15 @@ function registerIpc() {
   ipcMain.handle('session:status', () => {
     const snapshot = session.getSnapshot();
     return { ...snapshot, inviteText: snapshot.invite ? inviteText(snapshot.invite) : '' };
+  });
+  // 活连接的线路报告：走的是 Steam 中继还是点对点直连，两端 POP 各是哪个，
+  // 以及原始 socket 计数与 Steam 自报速率的对照。空转时如实回 UNKNOWN，不冒充直连。
+  ipcMain.handle('session:route', () => {
+    try {
+      return session.getRouteReport();
+    } catch (err) {
+      return { ok: false, route: 'UNKNOWN', routeLabel: 'UNKNOWN', reason: err.message, channels: [] };
+    }
   });
   ipcMain.handle('session:check-port', async (_event, raw) => {
     try {
@@ -1156,6 +1188,36 @@ ipcMain.handle('lobby:stop', async () => {
     const totalMB = Number(procs.reduce((sum, p) => sum + p.mb, 0).toFixed(0));
     return { totalMB, processes: procs };
   });
+  // 无边框窗口的自绘窗口按钮。全部只操作主窗口，拿不到窗口时如实返回 ok:false。
+  const windowAction = (fn) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, reason: 'NO_WINDOW' };
+    try { fn(mainWindow); } catch (err) { return { ok: false, reason: String((err && err.message) || err) }; }
+    return { ok: true, ...readWindowState() };
+  };
+  // 只读窗口状态，任何一步失败都落 false，绝不让界面因为读状态而报错。
+  // 测试桩里的 mainWindow 是个只有少数字段的对象，所以每个方法都要先看存在性。
+  const readWindowState = () => {
+    const w = mainWindow;
+    const alive = w != null && typeof w.isDestroyed === 'function' && !w.isDestroyed();
+    const call = (fn) => { try { return !!fn(); } catch (err) { return false; } };
+    return {
+      maximized: alive && typeof w.isMaximized === 'function' ? call(() => w.isMaximized()) : false,
+      fullscreen: alive && typeof w.isFullScreen === 'function' ? call(() => w.isFullScreen()) : false,
+    };
+  };
+  ipcMain.handle('window:minimize', () => windowAction((w) => w.minimize()));
+  ipcMain.handle('window:toggle-maximize', () => windowAction((w) => {
+    if (w.isMaximized()) w.unmaximize(); else w.maximize();
+  }));
+  ipcMain.handle('window:toggle-fullscreen', () => windowAction((w) => {
+    w.setFullScreen(!w.isFullScreen());
+  }));
+  ipcMain.handle('window:close', () => windowAction((w) => w.close()));
+  ipcMain.handle('window:state', () => {
+    const state = readWindowState();
+    const ready = mainWindow != null;
+    return { ok: ready, ...state };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1165,6 +1227,10 @@ ipcMain.handle('lobby:stop', async () => {
 function createWindow({ show = true, query = null } = {}) {
   const win = new BrowserWindow({
     autoHideMenuBar: true,          // 不显示原生菜单栏（界面自带导航）
+    // 去掉原生标题栏：那一条深色横条与整体空间化界面冲突，且白占 32px 高度。
+    // 代价是窗口按钮要自己画，最小化/最大化/全屏/关闭四个按钮在界面右上角，
+    // 顶部留一条 30px 拖动区。原生 Aero Snap 仍然可用，拖动标题区到屏幕边缘即可。
+    frame: false,
     width: 1200,
     height: 800,
     minWidth: 900,
@@ -1180,12 +1246,25 @@ function createWindow({ show = true, query = null } = {}) {
       // 窗口最小化/被遮挡时不要节流：会话状态轮询与日志推送要继续跑，
       // 否则回到前台会看到一段「时间静止」的旧数据。
       backgroundThrottling: false,
+      // 界面里没有一个可编辑的文本域，拼写检查只会在渲染进程常驻一套词典与后台请求。
+      spellcheck: false,
     },
   });
   // query.capture=1 时渲染进程会跳过启动序列（截图与自检需要立即看到主界面）
   if (query) win.loadFile(path.join(__dirname, '../src/ui/index.html'), { query });
   else win.loadFile(path.join(__dirname, '../src/ui/index.html'));
   win.webContents.on('did-finish-load', () => logLine('渲染进程加载完成'));
+  // 无边框窗口：窗口状态改变后要主动告诉渲染进程，界面上的最大化/全屏按钮
+  // 才能显示正确的图标与 pressed 状态。原生拖动、双击标题区、Win+方向键、
+  // 以及系统全屏切换都会走到这里。
+  const pushWindowState = () => {
+    if (win.isDestroyed()) return;
+    const state = { maximized: win.isMaximized(), fullscreen: win.isFullScreen() };
+    try { win.webContents.send('window:state', state); } catch (err) { /* 忽略 */ }
+  };
+  for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
+    win.on(ev, pushWindowState);
+  }
   win.webContents.on('did-fail-load', (_event, code, description, url) => logLine('渲染进程加载失败', `code=${code}`, `desc=${description}`, `url=${url}`));
   win.webContents.on('render-process-gone', (_event, details) => logLine('窗口渲染进程退出', JSON.stringify(details)));
   win.on('unresponsive', () => logLine('窗口无响应'));
@@ -1694,10 +1773,242 @@ async function runSmoke() {
 }
 
 // ---------------------------------------------------------------------------
+// 内存实测三件套
+// 所有数字都取自 app.getAppMetrics() 的 workingSetSize，与任务管理器同源。
+//   --mem-floor=<json>  空壳基线：同样的 webPreferences，页面换成一张白纸
+//   --mem-soak=<json>   长稳序列：正常界面挂机，每 30 秒一采样，看内存涨不涨
+//   --mem-probe=<json>  成对比较：同进程内逐项开关三维与模糊，取改前改后的差值
+// ---------------------------------------------------------------------------
+
+// 空壳基线。用来把「Electron 自身的地板」与「本应用多出来的部分」分开报数，
+// 否则无法判断某个内存目标到底能不能达到。
+async function runMemFloor(outPath) {
+  const floorWin = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    show: true,
+    backgroundColor: '#11181b',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+      spellcheck: false
+    }
+  });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  await floorWin.loadURL('data:text/html,<title>floor</title><body style="background:%2311181b"></body>');
+  await wait(14000);
+  const procs = app.getAppMetrics().map((x) => ({
+    type: x.type,
+    service: x.serviceName || null,
+    mb: Math.round(((x.memory && x.memory.workingSetSize) || 0) / 1024)
+  })).sort((a, b) => b.mb - a.mb);
+  const total = totalWorkingSetMBProbe();
+  console.log('[mem] floor blank  total=' + total + ' MB  ' +
+    procs.map((p) => p.type + (p.service ? '(' + p.service + ')' : '') + ':' + p.mb).join(' '));
+  try {
+    nodeFs.writeFileSync(outPath, JSON.stringify({
+      samples: [{ label: 'blank', totalMB: total, procs: procs }],
+      note: '空壳基线：同样的 webPreferences，页面替换成一张白纸，用来分离 Electron 地板与应用自身开销'
+    }, null, 2), 'utf8');
+    console.log('[mem] 写出 ' + outPath);
+  } catch (err) { console.log('[mem] 写出失败 ' + err.message); }
+  try { floorWin.destroy(); } catch (err) { /* 忽略 */ }
+}
+
+// 长稳序列。单点读数只能说明"现在多大"，涨不涨要靠时间序列。
+async function runMemSoak(outPath) {
+  const soakWin = createWindow({ show: true, query: FORCE_MOTION ? { motion: 'force' } : undefined });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const rows = [];
+  const take = async (t) => {
+    const procs = app.getAppMetrics().map((x) => ({
+      type: x.type,
+      service: x.serviceName || null,
+      mb: Math.round(((x.memory && x.memory.workingSetSize) || 0) / 1024)
+    })).sort((a, b) => b.mb - a.mb);
+    const total = totalWorkingSetMBProbe();
+    // 关键对照：workingSetSize 含共享页，会被系统与别的进程带偏；
+    // 只有渲染进程自己的 JS 堆与 DOM 数才是"我们分配的"。
+    // 三个数一起看才能分清「我们自己涨了」与「系统记账变了」。
+    let heap = null;
+    let dom = null;
+    try {
+      const js = await soakWin.webContents.executeJavaScript(
+        "({heap:(performance.memory&&Math.round(performance.memory.usedJSHeapSize/1048576))||null," +
+        "dom:document.getElementsByTagName('*').length})"
+      );
+      heap = js.heap;
+      dom = js.dom;
+    } catch (err) { /* 采样失败不打断序列 */ }
+    console.log('[soak] t=' + t + 's  total=' + total + ' MB  ' +
+      procs.map((p) => p.type + ':' + p.mb).join(' ') +
+      '  | jsHeap=' + heap + 'MB dom=' + dom);
+    rows.push({ at: t, totalMB: total, procs: procs, jsHeapMB: heap, domNodes: dom });
+  };
+  await new Promise((resolve) => soakWin.webContents.once('did-finish-load', resolve));
+  const minutes = Math.max(1, Number(process.env.SHL_SOAK_MIN || 5));
+  const step = 30;
+  for (let t = 0; t <= minutes * 60; t += step) {
+    if (t > 0) await wait(step * 1000);
+    await take(t);
+  }
+  const first = rows[0].totalMB;
+  const last = rows[rows.length - 1].totalMB;
+  const peak = rows.reduce((m, r) => Math.max(m, r.totalMB), 0);
+  console.log('[soak] 起 ' + first + ' MB  末 ' + last + ' MB  峰 ' + peak + ' MB  净增 ' + (last - first) + ' MB');
+  try {
+    nodeFs.writeFileSync(outPath, JSON.stringify({
+      minutes: minutes, stepSeconds: step, samples: rows,
+      firstMB: first, lastMB: last, peakMB: peak, netGrowthMB: last - first,
+      note: '正常界面挂机序列，用来判断内存是否随时间上涨'
+    }, null, 2), 'utf8');
+    console.log('[soak] 写出 ' + outPath);
+  } catch (err) { console.log('[soak] 写出失败 ' + err.message); }
+  try { soakWin.destroy(); } catch (err) { /* 忽略 */ }
+}
+
+// 成对比较。逐轮单独跑不同配置没有可比性，同一配置两轮之间能差 100MB 以上，
+// 所以把开关搬进同一个进程，每项都是"改之前 / 改之后"两次读数。
+// 顺序：关模糊 → 还原 → 销毁三维 → 重建。
+async function runMemProbe(outPath) {
+  const stage3d = STAGE3D_OFF ? '0' : '1';
+  const release = STAGE_RELEASE ? '1' : '0';
+  const query = Object.assign({ capture: '1' },
+    FORCE_MOTION ? { motion: 'force' } : {},
+    { stage3d: stage3d, stagerelease: release });
+  const win = createWindow({ show: true, query: query });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const sample = (label) => {
+    const procs = app.getAppMetrics().map((x) => ({
+      type: x.type,
+      pid: x.pid,
+      name: x.name || null,
+      service: x.serviceName || null,
+      mb: Math.round(((x.memory && x.memory.workingSetSize) || 0) / 1024),
+      cpu: x.cpu && typeof x.cpu.percentCPUUsage === 'number' ? Number(x.cpu.percentCPUUsage.toFixed(1)) : null
+    })).sort((a, b) => b.mb - a.mb);
+    const total = totalWorkingSetMBProbe();
+    console.log('[mem] ' + label + '  total=' + total + ' MB  ' +
+      procs.map((p) => p.type + (p.service ? '(' + p.service + ')' : '') + ':' + p.mb).join(' '));
+    return { label: label, totalMB: total, procs: procs };
+  };
+  // 每份读数都带上渲染进程自报的三维状态，避免"以为关了其实没关"
+  const stageState = async () => {
+    try {
+      return await win.webContents.executeJavaScript(
+        "({attr:document.documentElement.getAttribute('data-stage-3d')," +
+        "canvas:!!document.querySelector('.stage-canvas')," +
+        "has3d:document.documentElement.classList.contains('has-3d')," +
+        "live:!!(window.__shlStage&&window.__shlStage.live())})"
+      );
+    } catch (err) { return { error: String((err && err.message) || err) }; }
+  };
+  // 渲染进程侧的内存构成：只看总 Working Set 无法判断该往哪里优化
+  const rendererDiag = async () => {
+    try {
+      return await win.webContents.executeJavaScript(`(() => {
+        const m = performance.memory || {};
+        const sheets = Array.from(document.styleSheets);
+        let rules = 0; try { for (const s of sheets) rules += (s.cssRules || []).length; } catch (e) { /* 跨源 */ }
+        let gl = null;
+        try {
+          const c = document.createElement('canvas');
+          const g = c.getContext('webgl2') || c.getContext('webgl');
+          if (g) {
+            const d = g.getExtension('WEBGL_debug_renderer_info');
+            gl = d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'unknown';
+            const lose = g.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
+          }
+        } catch (e) { /* 忽略 */ }
+        return {
+          jsHeapMB: m.usedJSHeapSize ? Math.round(m.usedJSHeapSize / 1048576) : null,
+          jsTotalMB: m.totalJSHeapSize ? Math.round(m.totalJSHeapSize / 1048576) : null,
+          domNodes: document.getElementsByTagName('*').length,
+          sheets: sheets.length,
+          rules: rules,
+          canvases: document.querySelectorAll('canvas').length,
+          backdropNodes: (() => { let n = 0; for (const el of document.querySelectorAll('*')) { const s = getComputedStyle(el); if (s.backdropFilter && s.backdropFilter !== 'none') n++; } return n; })(),
+          scripts: Array.from(document.scripts).map((s) => (s.src || '').split('/').pop()).filter(Boolean),
+          gl: gl
+        };
+      })()`);
+    } catch (err) { return { error: String((err && err.message) || err) }; }
+  };
+  const setNoBlur = async (on) => {
+    try {
+      return await win.webContents.executeJavaScript(`(() => {
+        const id = '__shl_noblur';
+        const old = document.getElementById(id);
+        if (${on ? 'true' : 'false'}) {
+          if (!old) {
+            const s = document.createElement('style');
+            s.id = id;
+            s.textContent = '*{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}';
+            document.head.appendChild(s);
+          }
+        } else if (old) { old.remove(); }
+        return document.getElementById(id) ? 'on' : 'off';
+      })()`);
+    } catch (err) { return 'error:' + String((err && err.message) || err); }
+  };
+  const setStage3d = async (on) => {
+    try {
+      return await win.webContents.executeJavaScript(
+        "(function(){ if(!window.__shlStage) return 'no-api'; " +
+        (on ? "if(!window.__shlStage.live()) window.__shlStage.enable(); return 'enable';"
+          : "window.__shlStage.disable(); return 'disable';") +
+        ' })()'
+      );
+    } catch (err) { return 'error:' + String((err && err.message) || err); }
+  };
+  const reading = async (label) => {
+    const row = Object.assign(sample(label), { stage: await stageState() });
+    row.blur = await win.webContents.executeJavaScript(
+      "document.getElementById('__shl_noblur') ? 'off' : 'on'"
+    ).catch(() => '?');
+    return row;
+  };
+
+  await new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+  await wait(16000);                       // 等 GLB 加载完、阵列稳定、GPU 侧缓存落定
+
+  const rows = [];
+  rows.push(await reading('baseline'));
+  await setNoBlur(true);   await wait(14000); rows.push(await reading('no-blur'));
+  await setNoBlur(false);  await wait(14000); rows.push(await reading('blur-back'));
+  await setStage3d(false); await wait(14000); rows.push(await reading('no-3d'));
+  await setStage3d(true);  await wait(16000); rows.push(await reading('3d-back'));
+
+  const delta = (a, b) => rows[a].totalMB - rows[b].totalMB;
+  console.log('[mem] 成对差值  关模糊=' + delta(1, 0) + 'MB  还原=' + delta(2, 1) +
+    'MB  销毁三维=' + delta(3, 2) + 'MB  重建三维=' + delta(4, 3) + 'MB');
+
+  const out = {
+    argv: { stage3d: stage3d, release: release, forceMotion: FORCE_MOTION },
+    samples: rows,
+    paired: { noBlur: delta(1, 0), blurBack: delta(2, 1), no3d: delta(3, 2), back3d: delta(4, 3) },
+    renderer: await rendererDiag(),
+    note: 'Working Set 取自 app.getAppMetrics()，与任务管理器同源。成对差值在同进程内测得，排除轮次噪声。'
+  };
+  const rd = out.renderer || {};
+  console.log('[mem] 渲染进程 diag  jsHeap=' + rd.jsHeapMB + 'MB/' + rd.jsTotalMB + 'MB  dom=' + rd.domNodes +
+    '  sheets=' + rd.sheets + '  rules=' + rd.rules + '  canvas=' + rd.canvases +
+    '  backdrop=' + rd.backdropNodes + '  gl=' + rd.gl);
+  try {
+    nodeFs.writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');
+    console.log('[mem] 写出 ' + outPath);
+  } catch (err) { console.log('[mem] 写出失败 ' + err.message); }
+  try { win.destroy(); } catch (err) { /* 忽略 */ }
+}
+
+// ---------------------------------------------------------------------------
 // 生命周期
 // ---------------------------------------------------------------------------
 
-const gotLock = IS_SMOKE ? true : app.requestSingleInstanceLock();
+const gotLock = (IS_SMOKE || CAPTURE_MATRIX || MEM_PROBE || MEM_FLOOR || MEM_SOAK) ? true : app.requestSingleInstanceLock();
 if (!gotLock) {
   // 已经有实例在跑：正常情况下第二个实例把已有窗口叫到前面就行；
   // 但如果那个实例是「僵住的、没有窗口」的，用户看到的现象就是「双击没反应」。
@@ -1718,7 +2029,36 @@ try { Menu.setApplicationMenu(null); } catch (err) { /* 忽略 */ }
 
 // 内存硬护栏 1／2：给 V8 设堆上限，避免 JS 堆无界增长导致进程被系统杀掉（闪退）
 // 注：曾试过 --low-mem（关闭 GPU 加速）以降内存，实测反而从 ~400MB 升到 ~515MB（软件合成更耗内存），故移除。
-try { app.commandLine.appendSwitch('js-flags', '--max-old-space-size=192'); } catch (err) { /* 忽略 */ }
+// max-semi-space-size 压小新生代，四个进程各让出几 MB；界面实测 JS 堆只有 12MB，不怕多跑几次小 GC。
+try { app.commandLine.appendSwitch('js-flags', '--max-old-space-size=192 --max-semi-space-size=4'); } catch (err) { /* 忽略 */ }
+
+// 内存硬护栏 1.5／2：关掉本项目用不到的 Chromium 后台服务。
+// 这些都是浏览器形态才需要的常驻件：组件更新、翻译、媒体路由、自动填充联网、媒体会话、崩溃上报。
+// 本项目只加载本地文件，网络全部自己用 net.Socket 与 Steam 走，关掉不损失任何功能。
+// 刻意不动 CalculateNativeWinOcclusion：窗口被遮挡时停止渲染是省 CPU 的关键，
+// 最小化与失焦的暂停另走 win.on('minimize'/'blur') 那条链路。
+// 实测记录：这一批开关加上 spellcheck:false，两次跑 baseline 仍是 393 / 395MB，
+// 与不加之前的 388-394MB 无差别。留着是因为无害，且能少起几个后台任务，别指望它降内存。
+try {
+  app.commandLine.appendSwitch('disable-background-networking');
+  app.commandLine.appendSwitch('disable-component-update');
+  app.commandLine.appendSwitch('disable-domain-reliability');
+  app.commandLine.appendSwitch('disable-breakpad');
+  app.commandLine.appendSwitch('disable-client-side-phishing-detection');
+  app.commandLine.appendSwitch('no-default-browser-check');
+  app.commandLine.appendSwitch('no-first-run');
+  app.commandLine.appendSwitch('disk-cache-size', '1');
+  app.commandLine.appendSwitch('disable-features', [
+    'MediaRouter',
+    'OptimizationHints',
+    'Translate',
+    'HardwareMediaKeyHandling',
+    'MediaSessionService',
+    'GlobalMediaControls',
+    'AutofillServerCommunication',
+    'CertificateTransparencyComponentUpdater'
+  ].join(','));
+} catch (err) { /* 忽略 */ }
 
 
 // 内存硬护栏 2／2：总 Working Set 看护（超阈值先降级视觉，再超阈值重载界面回收内存）
@@ -1730,6 +2070,7 @@ function totalWorkingSetMB() {
     return app.getAppMetrics().reduce((sum, x) => sum + ((x.memory && x.memory.workingSetSize) || 0), 0) / 1024;
   } catch (err) { return 0; }
 }
+totalWorkingSetHook = totalWorkingSetMB;
 function startMemoryWatch() {
   if (memWatchTimer) return;
   let warned = false;
@@ -1754,6 +2095,13 @@ app.on('will-quit', () => { if (memWatchTimer) { clearInterval(memWatchTimer); m
 
 app.whenReady().then(async () => {
     logLine('app ready');
+    // 界面全部是本地文件，从不发 HTTP 请求；关掉拼写检查并清掉历史 HTTP 缓存，
+    // 省下渲染进程常驻的词典与磁盘缓存映射。失败不影响启动。
+    try {
+      const defaultSession = require('electron').session.defaultSession;
+      defaultSession.setSpellCheckerEnabled(false);
+      defaultSession.clearCache().catch(() => { /* 忽略 */ });
+    } catch (err) { /* 忽略 */ }
     registerIpc();
     if (IS_SMOKE) {
       const ok = await runSmoke();
@@ -1761,6 +2109,9 @@ app.whenReady().then(async () => {
       return;
     }
     if (CAPTURE_STEAM) { await runSteamProbe(); return; }
+    if (MEM_FLOOR) { await runMemFloor(MEM_FLOOR); return; }
+    if (MEM_SOAK) { await runMemSoak(MEM_SOAK); return; }
+    if (MEM_PROBE) { await runMemProbe(MEM_PROBE); return; }
     if (CAPTURE_MATRIX) { await runMatrix(CAPTURE_DIR || path.join(APP_DIR, 'matrix-out')); return; }
     if (CAPTURE_STYLE) { await runStyleProbe(); return; }
     if (CAPTURE_PROBE) {

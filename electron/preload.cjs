@@ -34,6 +34,20 @@ contextBridge.exposeInMainWorld('strongholdLink', {
   steam: {
     diagnose: () => ipcRenderer.invoke('steam:diagnose'),
   },
+  /** 无边框窗口的自绘窗口按钮 */
+  win: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
+    toggleFullscreen: () => ipcRenderer.invoke('window:toggle-fullscreen'),
+    close: () => ipcRenderer.invoke('window:close'),
+    state: () => ipcRenderer.invoke('window:state'),
+    onState: (handler) => {
+      if (typeof handler !== 'function') return () => {};
+      const listener = (_event, payload) => handler(payload);
+      ipcRenderer.on('window:state', listener);
+      return () => ipcRenderer.removeListener('window:state', listener);
+    },
+  },
   /** Steam 大厅与好友：邀请好友联机 */
   lobby: {
     status: () => ipcRenderer.invoke('lobby:status'),
@@ -66,6 +80,8 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     start: (options) => ipcRenderer.invoke('session:start', options),
     stop: () => ipcRenderer.invoke('session:stop'),
     status: () => ipcRenderer.invoke('session:status'),
+    /** 活连接线路报告：直连 / Steam 中继、POP、本地 socket 与 Steam 各自的字节速率 */
+    route: () => ipcRenderer.invoke('session:route'),
     checkPort: (options) => ipcRenderer.invoke('session:check-port', options),
     parseInvite: (code) => ipcRenderer.invoke('session:parse-invite', code),
     /** 订阅会话事件；返回取消订阅函数。渲染进程只能收到主进程推送的会话事件。 */

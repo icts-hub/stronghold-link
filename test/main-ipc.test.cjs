@@ -76,8 +76,32 @@ const invoke = (channel, payload) => {
 };
 
 test('main.cjs 注册了预期的 IPC 频道', () => {
-  for (const channel of ['profiles:load', 'profiles:save', 'adapters:list', 'session:start', 'session:stop', 'session:status', 'session:check-port', 'session:parse-invite', 'app:info', 'app:reveal-config']) {
+  for (const channel of ['profiles:load', 'profiles:save', 'adapters:list', 'session:start', 'session:stop', 'session:status', 'session:route', 'session:check-port', 'session:parse-invite', 'app:info', 'app:reveal-config', 'window:minimize', 'window:toggle-maximize', 'window:toggle-fullscreen', 'window:close', 'window:state']) {
     assert.ok(handlers.has(channel), `缺少 IPC 频道 ${channel}`);
+  }
+});
+
+test('session:route 在空闲时如实报 UNKNOWN，不冒充直连', async () => {
+  const report = await invoke('session:route', {});
+  assert.ok(report && typeof report === 'object');
+  assert.equal(report.route, 'UNKNOWN');
+  assert.equal(report.relayed, false);
+  assert.equal(report.steamInBytesPerSec, null);
+  assert.ok(Array.isArray(report.channels));
+});
+
+test('window:* 无边框窗口按钮：拿不到真实窗口时如实降级，不抛异常', async () => {
+  const state = await invoke('window:state', {});
+  assert.equal(typeof state.ok, 'boolean');
+  assert.equal(state.maximized, false, '桩窗口没有 isMaximized，应落 false 而不是抛异常');
+  assert.equal(state.fullscreen, false);
+  // 桩对象上这四个方法都不存在，处理器必须捕获后返回 ok:false + 可读原因，
+  // 绝不能让 rejected promise 冒到渲染进程。
+  for (const channel of ['window:minimize', 'window:toggle-maximize', 'window:toggle-fullscreen', 'window:close']) {
+    const result = await invoke(channel, {});
+    assert.equal(result.ok, false, `${channel} 在桩窗口上应返回 ok:false`);
+    assert.equal(typeof result.reason, 'string');
+    assert.ok(result.reason.length > 0, `${channel} 应给出原因`);
   }
 });
 

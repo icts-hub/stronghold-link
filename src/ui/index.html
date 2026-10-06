@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Stronghold Link — Network Control System</title>
 <link rel="stylesheet" href="styles/design-tokens.css">
 <link rel="stylesheet" href="styles/theme.css">
@@ -19,17 +19,29 @@
 <!-- L1 · 背景运动层：远层网格漂移 + 扫描带 + 亮度渐隐（纯装饰，不参与交互） -->
 <!-- Three.js 单文件产物（构建期生成，见 tools/vendor-three.cjs） -->
 <script src="vendor/three.min.js"></script>
+<script src="vendor/gltf-loader.js"></script>
 <div class="bg" aria-hidden="true">
 <div class="bg__vignette"></div>
 </div>
 <div class="shell">
+
+<!-- ═══ 窗口条 · 无边框窗口的自绘按钮，顶部其余位置可拖动窗口 ═══ -->
+<div class="oswin">
+<div class="oswin__drag" aria-hidden="true"></div>
+<div class="oswin__buttons" role="group" aria-label="窗口">
+<button type="button" class="oswin__btn" id="winMin" title="最小化" aria-label="最小化"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8"/></svg></button>
+<button type="button" class="oswin__btn" id="winMax" title="最大化 / 还原" aria-label="最大化" aria-pressed="false"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7"/></svg></button>
+<button type="button" class="oswin__btn" id="winFull" title="全屏 F11" aria-label="全屏" aria-pressed="false"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4.5V2h2.5M10 4.5V2H7.5M2 7.5V10h2.5M10 7.5V10H7.5"/></svg></button>
+<button type="button" class="oswin__btn oswin__btn--close" id="winClose" title="关闭" aria-label="关闭"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.8 2.8l6.4 6.4M9.2 2.8l-6.4 6.4"/></svg></button>
+</div>
+</div>
 
 <!-- ═══ L2 · 空间桌面持久层：品牌 / 时间 / 进行中 / 工作区 ═══ -->
 <header class="osbrand" id="osBrand">
 <h1 class="osbrand__name">STRONGHOLD LINK</h1>
 <p class="osbrand__sub">NETWORK INFRASTRUCTURE</p>
 <p class="osbrand__os"><span>NETWORK</span><span>ANALYSIS</span><span>SYSTEM</span></p>
-<div class="osbrand__mark" aria-hidden="true"><svg viewBox="0 0 100 56"><circle class="mark__ring" cx="29" cy="28" r="21"/><path class="mark__ring" d="M52.8 17.5A21 21 0 1 1 52.8 38.5"/><rect class="mark__bar" x="20.7" y="25.7" width="16.6" height="4.6"/><rect class="mark__bar" x="26.7" y="19.7" width="4.6" height="16.6"/><rect class="mark__bar" x="62.7" y="25.7" width="16.6" height="4.6"/></svg><span class="osbrand__maketag">RHINE LAB</span></div>
+<div class="osbrand__mark" aria-hidden="true"><svg viewBox="89 177 330 156"><g transform="translate(91 179) scale(1.0645)"><path class="mark__ring" d="M156 75C127 48 103 15 70 15C37 15 15 39 15 70S38 128 70 128C103 128 127 96 176 52M155 75C182 99 208 128 240 128C273 128 295 105 295 73S273 15 240 15C221 15 207 23 192 38"/><path class="mark__bar" d="M44 70h50M69 45v50M219 70h44"/></g></svg><span class="osbrand__maketag">RHINE LAB</span></div>
 </header>
 
 <section class="osclock" aria-label="系统时间">
@@ -69,20 +81,6 @@
 <span class="status is-warn" id="globalStatusWrap"><i class="status__dot" id="statusDot"></i><span id="globalStatus">READY / LOCAL</span></span>
 </div>
 </header>
-
-<!-- L2 · 右侧工作区模块：年份为真实系统年份，下面是真实运行读数 -->
-<section class="oswork" aria-label="系统工作区">
-<div class="oswork__h"><span>SYSTEM WORKSPACE</span><span id="osWorkIndex">HOME</span></div>
-<div class="oswork__k">CURRENT YEAR</div>
-<div class="oswork__big" id="osWorkBig">—</div>
-<div class="oswork__year"><span id="osWorkDayOfYear">—</span><i id="osWorkBar"></i></div>
-<div class="oswork__rows">
-<div class="oswork__row"><span>LOCAL ENDPOINT</span><b class="mono" id="osNetLocal">—</b></div>
-<div class="oswork__row"><span>SESSION</span><b class="mono" id="osSessionState">IDLE</b></div>
-<div class="oswork__row"><span>PROFILES</span><b class="mono" id="osProfiles">0</b></div>
-<div class="oswork__row"><span>UPTIME</span><b class="mono" id="osUptime">00:00:00</b></div>
-</div>
-</section>
 
 <div class="wrap">
 
@@ -269,6 +267,18 @@
 <div class="readout-row">
 <div class="readout"><span class="readout__k">Rate ↓</span><span class="readout__v" id="rateDown">0 B/s</span></div>
 <div class="readout"><span class="readout__k">Traffic ↑ / ↓</span><span class="readout__v" id="sessionTraffic" style="font-size:15px;font-weight:400">0 B / 0 B</span></div>
+</div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Current route</span><span class="readout__v" id="routeLink" style="font-size:15px;font-weight:400">—</span></div>
+<div class="readout"><span class="readout__k">Remote POP / Relay POP</span><span class="readout__v" id="routePops" style="font-size:15px;font-weight:400">— / —</span></div>
+</div>
+<div class="readout-row">
+<div class="readout"><span class="readout__k">Remote address</span><span class="readout__v" id="routeRemote" style="font-size:15px;font-weight:400">—</span></div>
+<div class="readout"><span class="readout__k">Ping</span><span class="readout__v" id="routePing">—</span></div>
+</div>
+<div class="metrics" style="margin-top:var(--sp-3)">
+<div class="metric"><span class="metric__k">Raw socket RX</span><span class="metric__v is-dim" id="routeRawRx">—</span></div>
+<div class="metric"><span class="metric__k">Steam RX</span><span class="metric__v is-dim" id="routeSteamRx">—</span></div>
 </div>
 <div class="metrics" style="margin-top:var(--sp-3)">
 <div class="metric"><span class="metric__k">Datagrams ↑ / ↓</span><span class="metric__v is-dim" id="sessionPackets">0 / 0</span></div>
@@ -543,7 +553,50 @@
 <button type="button" id="themeLightSettings" data-theme="light" aria-pressed="true">Light</button>
 <button type="button" id="themeDarkSettings" data-theme="dark" aria-pressed="false">Dark</button>
 </div></span></div>
-<div class="spec__row"><span class="spec__k">Motion</span><span class="spec__v mono" id="setMotion">—</span></div>
+<div class="spec__row"><span class="spec__k">Motion</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="动效强度">
+<button type="button" id="motionFull" aria-pressed="true">Full</button>
+<button type="button" id="motionReduced" aria-pressed="false">Reduced</button>
+</div></span></div>
+<div class="spec__row"><span class="spec__k">Graphics quality</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="图形档位">
+<button type="button" id="qPerformance" aria-pressed="false">Performance</button>
+<button type="button" id="qBalanced" aria-pressed="true">Balanced</button>
+<button type="button" id="qHigh" aria-pressed="false">High</button>
+<button type="button" id="qUltra" aria-pressed="false">Ultra</button>
+<button type="button" id="qCustom" aria-pressed="false">Custom</button>
+</div></span></div>
+<div class="spec__row" id="qRowScale" hidden><span class="spec__k">Pixel ratio</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="像素密度上限">
+<button type="button" id="qScale075" aria-pressed="false">0.75</button>
+<button type="button" id="qScale1" aria-pressed="true">1</button>
+<button type="button" id="qScale125" aria-pressed="false">1.25</button>
+<button type="button" id="qScale15" aria-pressed="false">1.5</button>
+</div></span></div>
+<div class="spec__row" id="qRowFps" hidden><span class="spec__k">3D frame rate</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="三维帧率上限">
+<button type="button" id="qFps15" aria-pressed="false">15</button>
+<button type="button" id="qFps20" aria-pressed="false">20</button>
+<button type="button" id="qFps30" aria-pressed="true">30</button>
+<button type="button" id="qFps40" aria-pressed="false">40</button>
+</div></span></div>
+<div class="spec__row" id="qRowModules" hidden><span class="spec__k">Module array</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="档案模块阵列">
+<button type="button" id="qModulesOn" aria-pressed="true">On</button>
+<button type="button" id="qModulesOff" aria-pressed="false">Off</button>
+</div></span></div>
+<div class="spec__row"><span class="spec__k">3D background</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="三维背景开关">
+<button type="button" id="stage3dOn" aria-pressed="true">On</button>
+<button type="button" id="stage3dOff" aria-pressed="false">Off</button>
+</div></span></div>
+<div class="spec__row"><span class="spec__k">When minimized</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="最小化时的三维行为">
+<button type="button" id="stageReleaseSuspend" aria-pressed="true">Suspend</button>
+<button type="button" id="stageReleaseFree" aria-pressed="false">Release</button>
+</div></span></div>
+<p class="note" style="margin-top:var(--sp-4)" id="stage3dNote">Suspend 只停渲染循环，WebGL 上下文留着，回前台瞬时恢复。Release 连渲染器、几何、环境贴图与 WebGL 上下文一起交回系统，省得更多，代价是回前台要重建一次。</p>
+<div class="spec__row"><span class="spec__k">Motion state</span><span class="spec__v mono" id="setMotion">—</span></div>
 </div>
 
 <div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Configuration data</span><span class="step__meta">JSON</span></div>
@@ -577,6 +630,21 @@
 </footer>
 </main>
 
+<!-- L2 · 右侧工作区模块：作为 .shell 网格的第三列直接子元素，不能放进 .main 里，
+     否则 grid-column: 3 不生效、面板会横跨整幅并压住主内容。 -->
+<section class="oswork" aria-label="系统工作区">
+<div class="oswork__h"><span>SYSTEM WORKSPACE</span><span id="osWorkIndex">HOME</span></div>
+<div class="oswork__k">CURRENT YEAR</div>
+<div class="oswork__big" id="osWorkBig">—</div>
+<div class="oswork__year"><span id="osWorkDayOfYear">—</span><i id="osWorkBar"></i></div>
+<div class="oswork__rows">
+<div class="oswork__row"><span>LOCAL ENDPOINT</span><b class="mono" id="osNetLocal">—</b></div>
+<div class="oswork__row"><span>SESSION</span><b class="mono" id="osSessionState">IDLE</b></div>
+<div class="oswork__row"><span>PROFILES</span><b class="mono" id="osProfiles">0</b></div>
+<div class="oswork__row"><span>UPTIME</span><b class="mono" id="osUptime">00:00:00</b></div>
+</div>
+</section>
+
 <!-- L5 · 系统状态条：全部为真实读数，取不到就显示 — -->
 <footer class="osstatus" aria-label="系统状态">
 <span class="osstatus__g"><i class="osstatus__dot" id="osDot"></i><b id="osAuth">LOCAL READY</b></span>
@@ -584,6 +652,8 @@
 <span class="osstatus__c">3D <b id="os3d">—</b></span>
 <span class="osstatus__sep"></span>
 <span class="osstatus__c">ENGINE <b id="osEngine">TCP / UDP / P2P</b></span>
+<span class="osstatus__sep"></span>
+<span class="osstatus__c">ROUTE <b id="osRoute">—</b></span>
 <span class="osstatus__sep"></span>
 <span class="osstatus__c">PROC <b id="osProc">—</b></span>
 <span class="osstatus__sep"></span>
@@ -660,6 +730,147 @@ function applyTheme(name,remember){
  if(remember){try{localStorage.setItem(THEME_KEY,theme)}catch(e){/* 隐私模式等场景忽略 */}}
 }
 applyTheme(readTheme(),false);
+
+/* ---- 界面等比缩放：窗口越小整体越缩，文字与内边距同比例变化，
+        保证任何窗口尺寸下文字都不会溢出 Panel ---- */
+(function(){
+ const root=document.documentElement;
+ if(!root||!root.style||!root.style.setProperty)return;
+ function applyUiScale(){
+  const w=window.innerWidth||1600,h=window.innerHeight||900;
+  // 取两个方向里更小的比例，逻辑视口因此恒不窄于 1600x900 —— 这是版式不塌的前提。
+  // 下限只用来防止极端尺寸下的除零，不能高到把逻辑视口压回设计尺寸以下：
+  // 曾经写成 max(0.5, ...)，窄窗口下逻辑宽度会掉到 1034，右列会被挤成一列一个字。
+  const s=Math.max(0.2,Math.min(1.3,Math.min(w/1600,h/900)));
+  root.style.setProperty('--ui-scale',String(Math.round(s*1000)/1000));
+ }
+ applyUiScale();
+ if(window.addEventListener)window.addEventListener('resize',applyUiScale);
+})();
+
+/* ---- 界面偏好：动效强度、图形档位、三维开关，与配色一样只存本地 ----
+   全部写进 <html> 的属性，供 CSS 与 stage.js / os-motion.js 直接读，
+   再派发事件让已经建好的三维层实时切档，不需要重载页面。
+   档位照源项目的 renderquality 一档一表：performance / balanced / high / ultra
+   各自对应一组像素密度与帧率上限，custom 时四个子项单独可调。
+   performance 档同时把毛玻璃关掉 —— 大面积 backdrop-filter 比降分辨率更贵。 */
+const MOTION_KEY='stronghold-link-motion',QUALITY_KEY='stronghold-link-quality';
+const QUALITY_TIERS=['performance','balanced','high','ultra','custom'];
+const GLASS_OFF_TIERS=['performance'];
+function readMotion(){
+ try{const q=new URLSearchParams(location.search).get('motion');if(q==='full'||q==='reduced')return q}catch(e){/* 忽略 */}
+ try{return localStorage.getItem(MOTION_KEY)==='reduced'?'reduced':'full'}catch(e){return 'full'}
+}
+function readQuality(){
+ try{const q=new URLSearchParams(location.search).get('stage');if(QUALITY_TIERS.indexOf(q)>=0)return q}catch(e){/* 忽略 */}
+ try{const v=localStorage.getItem(QUALITY_KEY);return QUALITY_TIERS.indexOf(v)>=0?v:'balanced'}catch(e){return 'balanced'}
+}
+function readThreeOn(){
+ try{const q=new URLSearchParams(location.search).get('stage3d');if(q==='0'||q==='off')return false}catch(e){/* 忽略 */}
+ try{return localStorage.getItem(QUALITY_KEY+'-3d')!=='0'}catch(e){return true}
+}
+/* 最小化策略：suspend 只停循环，release 连 WebGL 上下文一起释放 */
+function readStageRelease(){
+ try{const q=new URLSearchParams(location.search).get('stagerelease');if(q==='1'||q==='on')return true;if(q==='0'||q==='off')return false}catch(e){/* 忽略 */}
+ try{return localStorage.getItem(QUALITY_KEY+'-release')==='1'}catch(e){return false}
+}
+const CUSTOM_KEY=QUALITY_KEY+'-custom';
+const CUSTOM_DEFAULT={dpr:'1',fps:'30',modules:'1'};
+function readCustom(){
+ let v={...CUSTOM_DEFAULT};
+ try{const raw=localStorage.getItem(CUSTOM_KEY);if(raw){const o=JSON.parse(raw);if(o&&typeof o==='object')v={...v,...o}}}catch(e){/* 忽略 */}
+ v.dpr=['0.75','1','1.25','1.5'].indexOf(String(v.dpr))>=0?String(v.dpr):'1';
+ v.fps=['15','20','30','40'].indexOf(String(v.fps))>=0?String(v.fps):'30';
+ v.modules=v.modules==='0'?'0':'1';
+ return v;
+}
+function applyMotion(name,remember){
+ const mode=name==='reduced'?'reduced':'full';
+ const root=document.documentElement;
+ if(root&&root.setAttribute)root.setAttribute('data-motion',mode);
+ const f=$('motionFull'),r=$('motionReduced');
+ if(f&&f.setAttribute)f.setAttribute('aria-pressed',String(mode==='full'));
+ if(r&&r.setAttribute)r.setAttribute('aria-pressed',String(mode==='reduced'));
+ if(remember){try{localStorage.setItem(MOTION_KEY,mode)}catch(e){/* 忽略 */}}
+ try{window.dispatchEvent(new CustomEvent('shl-motion',{detail:mode}))}catch(e){/* 忽略 */}
+}
+function applyQuality(name,remember){
+ const q=QUALITY_TIERS.indexOf(name)>=0?name:'balanced';
+ const root=document.documentElement;
+ if(root&&root.setAttribute){
+  root.setAttribute('data-stage',q);
+  root.setAttribute('data-glass',GLASS_OFF_TIERS.indexOf(q)>=0?'0':'1');
+ }
+ const map={performance:'qPerformance',balanced:'qBalanced',high:'qHigh',ultra:'qUltra',custom:'qCustom'};
+ Object.keys(map).forEach(k=>{const b=$(map[k]);if(b&&b.setAttribute)b.setAttribute('aria-pressed',String(k===q))});
+ const showCustom=q==='custom';
+ ['qRowScale','qRowFps','qRowModules'].forEach(id=>{const r=$(id);if(r)r.hidden=!showCustom});
+ if(remember){try{localStorage.setItem(QUALITY_KEY,q)}catch(e){/* 忽略 */}}
+ try{window.dispatchEvent(new CustomEvent('shl-quality',{detail:q}))}catch(e){/* 忽略 */}
+}
+function applyCustom(patch,remember){
+ const v={...readCustom(),...(patch||{})};
+ const root=document.documentElement;
+ if(root&&root.setAttribute){
+  root.setAttribute('data-stage-dpr',v.dpr);
+  root.setAttribute('data-stage-fps',v.fps);
+  root.setAttribute('data-stage-modules',v.modules);
+ }
+ const pairs=[['dpr',{'0.75':'qScale075','1':'qScale1','1.25':'qScale125','1.5':'qScale15'}],
+              ['fps',{'15':'qFps15','20':'qFps20','30':'qFps30','40':'qFps40'}],
+              ['modules',{'1':'qModulesOn','0':'qModulesOff'}]];
+ pairs.forEach(([key,ids])=>{Object.keys(ids).forEach(k=>{const b=$(ids[k]);if(b&&b.setAttribute)b.setAttribute('aria-pressed',String(k===v[key]))})});
+ if(remember){try{localStorage.setItem(CUSTOM_KEY,JSON.stringify(v))}catch(e){/* 忽略 */}}
+ if(readQuality()==='custom'){try{window.dispatchEvent(new CustomEvent('shl-quality',{detail:'custom'}))}catch(e){/* 忽略 */}}
+}
+function applyThreeOn(on,remember){
+ const root=document.documentElement;
+ if(root&&root.setAttribute)root.setAttribute('data-stage-3d',on?'1':'0');
+ const a=$('stage3dOn'),b=$('stage3dOff');
+ if(a&&a.setAttribute)a.setAttribute('aria-pressed',String(!!on));
+ if(b&&b.setAttribute)b.setAttribute('aria-pressed',String(!on));
+ if(remember){try{localStorage.setItem(QUALITY_KEY+'-3d',on?'1':'0')}catch(e){/* 忽略 */}}
+ /* 真停真起：只改属性的话画布被 CSS 藏起来，WebGL 上下文照样占着内存 */
+ if(window.__shlStage){try{on?window.__shlStage.enable():window.__shlStage.disable()}catch(e){/* 忽略 */}}
+}
+function applyStageRelease(on,remember){
+ const root=document.documentElement;
+ if(root&&root.setAttribute)root.setAttribute('data-stage-release',on?'1':'0');
+ const s=$('stageReleaseSuspend'),f=$('stageReleaseFree');
+ if(s&&s.setAttribute)s.setAttribute('aria-pressed',String(!on));
+ if(f&&f.setAttribute)f.setAttribute('aria-pressed',String(!!on));
+ if(remember){try{localStorage.setItem(QUALITY_KEY+'-release',on?'1':'0')}catch(e){/* 忽略 */}}
+}
+/* 最小化释放之后回前台要重建：dispose 时实例自己的活动钩子已摘掉，由这层拉起 */
+try{
+ window.__shlActivity=window.__shlActivity||[];
+ window.__shlActivity.push(function(active){
+  if(active&&readThreeOn()&&window.__shlStage&&!window.__shlStage.live())window.__shlStage.enable();
+ });
+}catch(e){/* 忽略 */}
+applyMotion(readMotion(),false);
+applyQuality(readQuality(),false);
+applyCustom(readCustom(),false);
+applyThreeOn(readThreeOn(),false);
+applyStageRelease(readStageRelease(),false);
+
+/* 三维背景是否随包提供：stage.js 排在正文末尾，只有 load 之后才能判断。
+   lite 版不含 stage.js / three / GLB，这里把相关开关如实禁掉并说明原因，
+   而不是留着按钮点了没反应。全量版走进来 has 为真，什么都不改。 */
+window.addEventListener('load',function(){
+ const has=!!window.__shlStage;
+ const root=document.documentElement;
+ if(root&&root.setAttribute)root.setAttribute('data-3d-available',has?'1':'0');
+ const note=$('stage3dNote');
+ if(note)note.textContent=has
+  ?'Suspend 只停渲染循环，WebGL 上下文留着，回前台瞬时恢复。Release 连渲染器、几何、环境贴图与 WebGL 上下文一起交回系统，省得更多，代价是回前台要重建一次。'
+  :'本版本为 lite，不含三维背景，因此没有可暂停或释放的渲染器。此处两个开关已禁用。';
+ if(!has){
+  ['stage3dOn','stage3dOff','stageReleaseSuspend','stageReleaseFree'].forEach(function(id){
+   const b=$(id);if(b){b.disabled=true;b.setAttribute('aria-disabled','true')}
+  });
+ }
+});
 
 const DEFAULTS=[
 {id:'sample-web',name:'本地 Web / HTTP 服务（示例）',transport:'TCP',port:8080,remotePort:8081,host:'127.0.0.1',path:'',args:'',favorite:true,recipe:'local-web',description:'把本机 8080 的网页服务开放给好友：对好友开放 8081，加入者浏览器打开 http://127.0.0.1:8080 即可（页面与 WebSocket 都经隧道）。'},
@@ -1328,6 +1539,7 @@ const canMotion=()=>{
   try{const r=document.documentElement;if(r&&r.classList)r.classList.add('force-motion')}catch(e){}
   return true;
  }
+ try{const a=document.documentElement&&document.documentElement.getAttribute&&document.documentElement.getAttribute('data-motion');if(a==='reduced')return false}catch(e){/* 忽略 */}
  if(typeof matchMedia==='function'){try{if(matchMedia('(prefers-reduced-motion: reduce)').matches)return false}catch(e){}}
  return true;
 };
@@ -1432,6 +1644,52 @@ $('addGame').onclick=()=>openEditor();
 $('themeLight').onclick=()=>applyTheme('light',true);
 $('themeDark').onclick=()=>applyTheme('dark',true);
 $('themeLightSettings').onclick=()=>applyTheme('light',true);
+/* 无边框窗口：按钮只调 IPC，状态由主进程回推，界面不自己猜 */
+(function wireWindowControls(){
+ const bridge=window.strongholdLink&&window.strongholdLink.win;
+ const min=$('winMin'),max=$('winMax'),full=$('winFull'),close=$('winClose');
+ if(!bridge){[min,max,full,close].forEach(b=>{if(b)b.disabled=true});return}
+ function paint(state){
+  if(!state)return;
+  if(max){max.setAttribute('aria-pressed',String(!!state.maximized))}
+  if(full){full.setAttribute('aria-pressed',String(!!state.fullscreen))}
+ }
+ min.onclick=()=>bridge.minimize();
+ max.onclick=()=>bridge.toggleMaximize().then(paint);
+ full.onclick=()=>bridge.toggleFullscreen().then(paint);
+ close.onclick=()=>bridge.close();
+ bridge.onState(paint);
+ bridge.state().then(paint);
+ document.addEventListener('keydown',e=>{
+  if(e.key==='F11'){e.preventDefault();bridge.toggleFullscreen().then(paint)}
+ });
+})();
+/* 动效与画质：改完立刻生效，并把读数同步到"Motion state"那一行 */
+function refreshMotionReadout(){
+ const m=$('setMotion');if(!m)return;
+ m.textContent=canMotion()?'FULL':(readMotion()==='reduced'?'REDUCED（手动）':'REDUCED（跟随系统）');
+}
+$('motionFull').onclick=()=>{applyMotion('full',true);refreshMotionReadout()};
+$('motionReduced').onclick=()=>{applyMotion('reduced',true);refreshMotionReadout()};
+$('qPerformance').onclick=()=>applyQuality('performance',true);
+$('qBalanced').onclick=()=>applyQuality('balanced',true);
+$('qHigh').onclick=()=>applyQuality('high',true);
+$('qUltra').onclick=()=>applyQuality('ultra',true);
+$('qCustom').onclick=()=>applyQuality('custom',true);
+$('qScale075').onclick=()=>applyCustom({dpr:'0.75'},true);
+$('qScale1').onclick=()=>applyCustom({dpr:'1'},true);
+$('qScale125').onclick=()=>applyCustom({dpr:'1.25'},true);
+$('qScale15').onclick=()=>applyCustom({dpr:'1.5'},true);
+$('qFps15').onclick=()=>applyCustom({fps:'15'},true);
+$('qFps20').onclick=()=>applyCustom({fps:'20'},true);
+$('qFps30').onclick=()=>applyCustom({fps:'30'},true);
+$('qFps40').onclick=()=>applyCustom({fps:'40'},true);
+$('qModulesOn').onclick=()=>applyCustom({modules:'1'},true);
+$('qModulesOff').onclick=()=>applyCustom({modules:'0'},true);
+$('stage3dOn').onclick=()=>applyThreeOn(true,true);
+$('stage3dOff').onclick=()=>applyThreeOn(false,true);
+$('stageReleaseSuspend').onclick=()=>applyStageRelease(false,true);
+$('stageReleaseFree').onclick=()=>applyStageRelease(true,true);
 $('themeDarkSettings').onclick=()=>applyTheme('dark',true);$('saveProfile').onclick=async()=>{
  const name=$('fName').value.trim(),rawRules=$('fPort').value.trim().split(/\r?\n/).filter(Boolean),remote=$('fRemote').value.trim();
  const ports=[];
@@ -1445,7 +1703,7 @@ $('themeDarkSettings').onclick=()=>applyTheme('dark',true);$('saveProfile').oncl
 function deleteProfile(id){const p=profiles.find(x=>x.id===id);if(!p)return;if(!confirm('确定删除配置“'+p.name+'”吗？'))return;profiles=profiles.filter(x=>x.id!==id);if(selectedId===id)selectedId=profiles[0]?.id||null;persist()?.then(()=>{render();toast('配置已删除')})}
 
 /* ---- 应用信息 / 会话控制 ---- */
-let sessionSnapshot=null,sessionTimer=null,recipes=[],adaptersCache=[],lastRecipeProfileId=null,lastMetricsKey='';
+let sessionSnapshot=null,sessionTimer=null,recipes=[],adaptersCache=[],lastRecipeProfileId=null,lastMetricsKey='',routeSnapshot=null;
 function makeToken(){const bytes=new Uint8Array(9);crypto.getRandomValues(bytes);return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 function fmtBytes(n){const v=Number(n)||0;if(v<=0)return '0 B';const units=['B','KiB','MiB','GiB'];let i=0,x=v;while(x>=1024&&i<units.length-1){x/=1024;i++}return (i===0?x.toFixed(0):x.toFixed(1))+' '+units[i]}
 function fmtRate(n){return fmtBytes(n)+'/s'}
@@ -1500,6 +1758,32 @@ function renderRecipes(){
  </div>`).join('');
 }
 async function refreshSession(){try{sessionSnapshot=await window.strongholdLink.session.status();renderSession()}catch(e){/* 主进程不可用时保持原状 */}}
+/* 当前线路：直连 / Steam 中继 由主进程读活连接的 POP 判定，界面不猜。
+   没有真实连接时全部显示 —，绝不填 0 或示例数字。 */
+function renderSessionRoute(){
+ const r=routeSnapshot;
+ const link=$('routeLink'),pops=$('routePops'),remote=$('routeRemote'),ping=$('routePing'),rawRx=$('routeRawRx'),steamRx=$('routeSteamRx');
+ if(!r){if(link)link.textContent='—';if(pops)pops.textContent='— / —';if(remote)remote.textContent='—';if(ping)ping.textContent='—';if(rawRx)rawRx.textContent='—';if(steamRx)steamRx.textContent='—';return}
+ const known=typeof r.route==='string'&&r.route!=='UNKNOWN';
+ if(link){
+  link.textContent=known?(r.routeLabel||r.route):'—';
+  link.className='readout__v'+(r.relayed?' is-route-relay':'');
+ }
+ if(pops)pops.textContent=(r.remotePop||'—')+' / '+(r.relayPop||'—');
+ if(remote)remote.textContent=r.remoteAddress||'—';
+ if(ping)ping.textContent=Number.isFinite(r.ping)?(r.ping+' ms'):'—';
+ const raw=Number.isFinite(r.rawSocket&&r.rawSocket.rawRxBytesPerSec)?fmtRate(r.rawSocket.rawRxBytesPerSec):'—';
+ const steam=Number.isFinite(r.steamInBytesPerSec)?fmtRate(r.steamInBytesPerSec):'—';
+ if(rawRx)rawRx.textContent=raw;
+ // Steam RX 只有走 Steam 线路时才有意义，本地中继明确标注不适用
+ if(steamRx)steamRx.textContent=(r.protocol==='STEAM'||r.route==='STEAM_SDR_RELAY'||r.route==='DIRECT_P2P')?steam:'不适用';
+}
+ async function refreshRoute(){try{routeSnapshot=await window.strongholdLink.session.route();renderSessionRoute();renderStripRoute()}catch(e){/* 读不到就保持原状，不显示假数据 */}}
+/* 底部状态条只显示线路代号，读不到就是 —，不写 CONNECTED 之类的模糊词 */
+function renderStripRoute(){ const el=$('osRoute');if(!el)return;
+ const r=routeSnapshot;
+ el.textContent=(r&&typeof r.route==='string'&&r.route!=='UNKNOWN')?(r.relayed&&r.relayPop?r.route+' · '+r.relayPop:r.route):'—';
+}
 async function bootSession(){
  if(!window.strongholdLink?.session)return;
  await refreshSession();
@@ -1508,7 +1792,7 @@ async function bootSession(){
   else await refreshSession();
  });
  clearInterval(sessionTimer);
- sessionTimer=setInterval(()=>{if(sessionSnapshot&&sessionSnapshot.state==='running')refreshSession()},1000);
+ sessionTimer=setInterval(()=>{if(sessionSnapshot&&sessionSnapshot.state==='running'){refreshSession();refreshRoute();}},1000);
 }
 function applyRole(){
  const role=$('sessionRole').value;
@@ -1671,6 +1955,7 @@ function renderSession(){
   connEl.textContent=connText;
  }
  $('sessionTraffic').textContent=fmtBytes(s.bytesToPeer)+' / '+fmtBytes(s.bytesFromPeer);
+ renderSessionRoute();
  $('sessionPackets').textContent=(s.packetsToPeer||0)+' / '+(s.packetsFromPeer||0);
  $('sessionRejected').textContent=(s.rejected||0)+' / '+(s.failed||0);
  $('sessionStarted').textContent=fmtTime(s.startedAt);

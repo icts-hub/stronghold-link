@@ -1460,7 +1460,7 @@ button, .btn, .cmd {
    规则只对 markup 里真实存在的类名生效（脚本逐条校验）。
    ========================================================================== */
 .pagehead h1, .pagehead .h1 {
-  font-size: clamp(32px, 2.9vw, 44px);
+  font-size: 40px;
   font-weight: 700;
   line-height: 1.06;
   letter-spacing: -0.01em;
@@ -1471,7 +1471,7 @@ button, .btn, .cmd {
   letter-spacing: 0.02em;
 }
 .readout__v {
-  font-size: clamp(36px, 3.1vw, 46px);
+  font-size: 42px;
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;

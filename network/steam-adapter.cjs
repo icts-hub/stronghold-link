@@ -18,6 +18,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { diagnoseSteam } = require('./steam-env.cjs');
 const { createSendPlan, isReliable } = require('./steam-framing.cjs');
+const { sampleRoute, summarize } = require('./route-report.cjs');
 
 const CALLBACK_INTERVAL_MS = 4;    // 4ms（原 16ms）：小包型游戏对往返延迟敏感，泵越勤越快
 const OUT_FLUSH_BYTES = 16 * 1024; // 攒够 16KB 立刻发；否则下个 tick 发（≤4ms 延迟代价）
@@ -218,6 +219,73 @@ function createStats(role) {
     encrypted: true, // Steam 通道自带加密与身份认证
     sessionId: null,
     startedAt: null,
+  };
+}
+
+/**
+ * 线路报告器：把活连接交给 route-report 判定，并附上原始 socket 字节计数。
+ *
+ * 存在的意义是回答"到底慢在哪一层"：
+ *   rawSocket.rawRxBytesPerSec 是游戏进程真正收进本地 socket 的字节速率
+ *   steam.inBytesPerSec        是 Steam 传输层真正收到网络的字节速率
+ * 两者接近说明瓶颈在对端或线路；raw 明显低于 steam 说明卡在本地这一侧。
+ */
+function createRouteReporter(steam, stats) {
+  let last = null;
+
+  function rawRates(at) {
+    const current = {
+      at,
+      to: Number(stats.bytesToPeer) || 0,
+      from: Number(stats.bytesFromPeer) || 0,
+    };
+    let rawTxBytesPerSec = null;
+    let rawRxBytesPerSec = null;
+    if (last && at > last.at) {
+      const seconds = (at - last.at) / 1000;
+      rawTxBytesPerSec = Math.max(0, Math.round((current.to - last.to) / seconds));
+      rawRxBytesPerSec = Math.max(0, Math.round((current.from - last.from) / seconds));
+    }
+    last = current;
+    return { rawTxBytesPerSec, rawRxBytesPerSec };
+  }
+
+  return function report(connections, at = Date.now()) {
+    const list = (connections || []).filter((c) => c != null);
+    const reports = list.map((connection) => {
+      try {
+        return sampleRoute(steam, connection, { now: () => at });
+      } catch (err) {
+        return null;
+      }
+    }).filter(Boolean);
+    const summary = summarize(reports);
+    const raw = rawRates(at);
+    return {
+      ok: true,
+      protocol: 'STEAM',
+      role: stats.role,
+      at,
+      connections: summary.count,
+      route: summary.route,
+      routeLabel: summary.routeLabel,
+      relayed: summary.relayed,
+      relayPop: summary.relayPop,
+      remotePop: summary.remotePop,
+      remoteAddress: summary.remoteAddress,
+      ping: summary.ping,
+      steamInBytesPerSec: summary.steamInBytesPerSec,
+      steamOutBytesPerSec: summary.steamOutBytesPerSec,
+      rawSocket: {
+        bytesToPeer: Number(stats.bytesToPeer) || 0,
+        bytesFromPeer: Number(stats.bytesFromPeer) || 0,
+        packetsToPeer: Number(stats.packetsToPeer) || 0,
+        packetsFromPeer: Number(stats.packetsFromPeer) || 0,
+        rawTxBytesPerSec: raw.rawTxBytesPerSec,
+        rawRxBytesPerSec: raw.rawRxBytesPerSec,
+      },
+      peers: reports,
+    };
   };
 }
 
@@ -433,11 +501,14 @@ function createSteamHost(options = {}) {
     emit('stopped', {});
   };
 
+  const reportRoute = createRouteReporter(steam, stats);
+
   return {
     ready: ready.then((info) => info),
     stop,
     stats,
     isHost: true,
+    route: () => reportRoute([...peers.values()].filter((p) => p.connected && p.connection != null).map((p) => p.connection)),
     options: { role: 'host', protocol: 'STEAM', gameHost, gamePort: Number(gamePort), maxPeers, appId },
   };
 }
@@ -633,11 +704,14 @@ function createSteamJoiner(options = {}) {
     emit('stopped', {});
   };
 
+  const reportRoute = createRouteReporter(steam, stats);
+
   return {
     ready,
     stop,
     stats,
     isHost: false,
+    route: () => reportRoute([...peers.values()].filter((p) => p.connected && p.connection != null).map((p) => p.connection)),
     options: { role: 'joiner', protocol: 'STEAM', bindHost, localPort: listenPort, hostSteamId: String(hostSteamId), appId, maxConnections },
   };
 }
@@ -651,4 +725,5 @@ module.exports = {
   initSteamSdk,
   createSteamHost,
   createSteamJoiner,
+  createRouteReporter,
 };
