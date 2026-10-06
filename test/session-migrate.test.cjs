@@ -89,7 +89,7 @@ test('切换失败：回滚到原端口，结果里如实标 rolledBack', async 
   assert.equal(out.ok, false);
   assert.match(out.reason, /绑定失败/);
   assert.equal(out.rolledBack, true);
-  assert.deepEqual(current.calls.map((c) => [c.op, c.port]), [['stop', null], ['start', 8081]], '回滚要把原通道按原端口拉起');
+  assert.deepStrictEqual(current.calls.map((c) => [c.op, c.port]), [['stop', undefined], ['start', 8081]], '回滚要把原通道按原端口拉起');
 });
 
 test('回滚也失败：如实标注两条通道可能都不可用，不谎报成功', async () => {
