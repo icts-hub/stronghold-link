@@ -322,6 +322,23 @@ const PEER_POOL_MIN_GAP_MS = 250;
 // 我们提前一点自己换新，池子里就永远是能用的。
 const PEER_POOL_MAX_IDLE_MS = 45000;
 
+// 本机连接关掉之后，压在 peer.out 里的字节还得有机会出门。
+//
+// 游戏服务（Node http、以及任何按 HTTP/1.0 或 Connection: close 应答的服务）常常
+// "回完响应立刻关掉本地连接"。而小于 outFlushBytes（16 KiB）的响应走的是
+// flushPeerOutSoon —— 它挂在 setImmediate 上，比 socket 的 'close' 事件还晚。
+// 原来 'close' 里是无条件立刻 closeConnection，于是那点尾巴字节再没机会发出去，
+// 对端只看到"连接被关掉、什么都没收到"。
+//
+// 这个不是理论问题：本机 A/B 上用 HTTP/1.0 发同一个请求 100% 收不到响应，
+// 改成 HTTP/1.1（keep-alive，服务端不回完就关）同一个请求 3/3 在 10 ms 内正常返回。
+// 现场表现就是"页面/地图加载不出来，刷新一下才好"——因为刷新会重开一条连接，
+// 而重开的那条只要服务端晚一点关就能成。
+//
+// 抽干的等待有上限：抽不干说明 Steam 侧本身堵着，不能把连接永远挂着。
+const PEER_DRAIN_TRIES = 20;
+const PEER_DRAIN_INTERVAL_MS = 10;
+
 /**
  * 从队列头部丢掉已经确认进了 Steam 发送缓冲的 n 个字节。
  *
@@ -460,6 +477,34 @@ function flushPeerOutSoon(steam, peer, sendChunk, tuning = null) {
 function peerOutBytes(peer) {
   if (!peer || !peer.out) return 0;
   let t = 0; for (const b of peer.out) t += b.length; return t;
+}
+
+/**
+ * 把 peer.out 里剩下的字节抽干之后，再执行 onDone（通常是关掉 Steam 连接）。
+ *
+ * 为什么必须这么做：本机连接一关，压在小包合并路径（flushPeerOutSoon，setImmediate）
+ * 里的那点字节就成了孤儿 —— 没人再泵它，而立刻 closeConnection 会让它永远发不出去。
+ * 对端看到的是"连接被关"，不是"收到一个短响应"。回环上 100% 复现，真实游戏服务同样
+ * 是"回完就关"的写法，所以这条路径就是现场"地图加载不出来、刷新才好"的来源。
+ *
+ * 抽不干（Steam 侧堵着）时给足够次数的重试，超过就把剩余字节计成丢弃并照常收尾，
+ * 绝不把连接无限挂着。
+ */
+function drainThenClose({ peer, steam, sendChunk, tuning, stats, onDone, tries = PEER_DRAIN_TRIES, intervalMs = PEER_DRAIN_INTERVAL_MS }) {
+  if (!peer || !peer.out || !peer.out.length || peer.connection == null) { onDone(); return; }
+  let left = tries;
+  const step = () => {
+    const written = flushPeerOut(steam, peer, sendChunk, tuning);
+    if (written >= 0 && !peer.out.length) { onDone(); return; }
+    if (--left <= 0) {
+      if (stats) stats.dropped += peerOutBytes(peer);
+      onDone();
+      return;
+    }
+    const t = setTimeout(step, intervalMs);
+    if (typeof t.unref === 'function') t.unref();
+  };
+  step();
 }
 
 function createStats(role) {
@@ -700,9 +745,27 @@ function createSteamHost(options = {}) {
       peers.delete(connection);
       stats.peers = peers.size;
       stats.connections = peers.size;
-      if (steam?.networkingSockets?.isConnectionActive(connection)) {
-        steam.networkingSockets.closeConnection(connection, 0, '本地服务连接关闭', false);
-      }
+      // 游戏服务常常"回完响应立刻关本地连接"（HTTP/1.0 / Connection: close），
+      // 而小于 outFlushBytes 的响应还排在 flushPeerOutSoon 的 setImmediate 里。
+      // 立刻 closeConnection 会把那点尾巴永远留在 peer.out —— 先把队列抽干再关。
+      drainThenClose({
+        peer,
+        steam,
+        sendChunk,
+        tuning,
+        stats,
+        onDone: () => {
+          if (steam?.networkingSockets?.isConnectionActive(connection)) {
+            // ▲ 最后一个参数是"允许 Steam 把尚未上线的数据送完再关"（linger）。
+            // 原来这里是 false = 立刻关，Steam 会把刚交给它、还没真正出门的字节一起丢掉。
+            // 游戏服务恰恰是"回完响应立刻关本地连接"的写法（HTTP/1.0 / Connection: close），
+            // 于是那段响应永远到不了对端，浏览器只看到连接被关 —— 现场表现就是
+            // "页面/地图加载不出来，刷新一下才好"（刷新时服务端晚一点关就成了）。
+            // 加入者那边的 dropPeer 一直用的就是 true，房主这条路径漏了。
+            steam.networkingSockets.closeConnection(connection, 0, '本地服务连接关闭', true);
+          }
+        },
+      });
       // 这一支是"本机游戏服务自己把连接关了"——以前只留一句"连接断开"，
       // 于是"是游戏服务断了还是网络断了"永远分不清。
       if (firstGone(peer)) {
@@ -936,7 +999,11 @@ function createSteamJoiner(options = {}) {
       stats.activeConnections = Math.max(0, (stats.activeConnections || 1) - 1);
     }
     peer.connection = null;
-    if (peer.socket) { try { peer.socket.destroy(); } catch { /* ignore */ } }
+    if (peer.socket) {
+      // destroy() 会把还在写缓冲里的字节一起丢掉。刚搬过来的"最后一个响应"往往正躺在
+      // 那里，所以有积压时走 end()：先冲干净再 FIN，字节才真的到得了本机客户端。
+      try { if (!peer.socket.destroyed && peer.socket.writableLength > 0) peer.socket.end(); else peer.socket.destroy(); } catch { /* ignore */ }
+    }
     // 池子里的连接死了要补货；被领走再死的则不用（那是正常业务流量）。
     if (wasWarm) {
       // 池子里的连接死了要补货；被领走再死的则不用（那是正常业务流量）。
@@ -1012,6 +1079,38 @@ function createSteamJoiner(options = {}) {
 
   const sampleState = { lastPeerSampleAt: 0 };
 
+  /**
+   * Steam 说这条连接要关了，但**对端可能刚把最后一段数据交给我们**，它还躺在
+   * Steam 的接收队列里没被泵走。泵是按 tick 跑的，而状态回调随时会来 —— 一旦
+   * 这里先跑 dropPeer 把本机 socket 拆了，队列里那段数据就再没人读，浏览器只会
+   * 看到"连接被关、什么都没收到"。
+   *
+   * 现场正是这个形状：房主的游戏服务"回完响应立刻关本地连接"（HTTP/1.0 /
+   * Connection: close），房主随即收掉 Steam 连接，于是那段响应永远到不了浏览器，
+   * 表现就是页面/地图加载不出来、刷新一下才好。
+   *
+   * 所以拆连接之前先把队列读干净、写进本机 socket。读不到就算了，绝不死循环。
+   */
+  const drainReceivedInto = (peer) => {
+    if (!peer || peer.connection == null || !peer.socket || peer.socket.destroyed) return 0;
+    let moved = 0;
+    for (;;) {
+      const batch = steam.networkingSockets.receiveMessages(peer.connection, tuning.maxMessageBatch) || [];
+      if (!batch.length) break;
+      for (const message of batch) {
+        const data = Buffer.isBuffer(message.data) ? message.data : Buffer.from(message.data || []);
+        stats.bytesFromPeer += data.length;
+        stats.packetsFromPeer += 1;
+        peer.bytesFromPeer += data.length;
+        if (!peer.socket.destroyed && peer.connected) peer.socket.write(data);
+        else { peer.queue.push(data); moved += 1; continue; }
+        moved += 1;
+      }
+      if (batch.length < tuning.maxMessageBatch) break;
+    }
+    return moved;
+  };
+
   const handleStateChange = (change) => {
     const peer = findByConnection(change.connection);
     if (!peer) return;
@@ -1059,6 +1158,9 @@ function createSteamJoiner(options = {}) {
     }
     if (change.newState === states.ClosedByPeer || change.newState === states.ProblemDetectedLocally) {
       const info = peerCloseInfo(peer, change, states, Date.now());
+      // 拆连接之前先把 Steam 接收队列里剩下的字节搬给本机客户端：
+      // 对端常常是"发完最后一个响应就关"，那点字节不能因为我们收连接就丢掉。
+      if (!peer.warm) drainReceivedInto(peer);
       if (peer.warm) {
         // 池子里的连接死了：没有人在等它，安静丢掉，补货交给 refillPool。
         dropPeer(peer, { closeConnection: false, warmWhy: 'peer-closed' });
@@ -1244,7 +1346,9 @@ function createSteamJoiner(options = {}) {
           ...info,
         });
       }
-      dropPeer(peer);
+      // 本机客户端关掉连接时，最后那点字节（比如浏览器的最后一次请求尾）可能还在
+      // peer.out 里排队等 flushPeerOutSoon。先抽干再拆连接，别把它们留在队列里。
+      drainThenClose({ peer, steam, sendChunk, tuning, stats, onDone: () => dropPeer(peer) });
     });
   };
 

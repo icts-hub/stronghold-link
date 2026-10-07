@@ -30,6 +30,51 @@ test('SteamID 校验：只接受 7656119 开头的 17 位数字', () => {
   assert.throws(() => createSteamHost({ gamePort: 0, sdk: {} }), /1–65535/);
 });
 
+test('房主：本地服务回完响应立刻关连接时，最后那点字节也必须发出去（现场"地图加载不出来"的来源）', async () => {
+  // 小于 outFlushBytes（16 KiB）的响应走的是 flushPeerOutSoon —— 它挂在 setImmediate 上，
+  // 而 socket 的 'close' 事件比它更早。原来的 close 处理器无条件立刻 closeConnection，
+  // 于是"回完就关"的服务（HTTP/1.0、Connection: close，正是游戏服务的行为）最后那段
+  // 响应会永远留在 peer.out 里发不出去 —— 对端只看到"连接被关"，一个字节都没收到。
+  // 本机 A/B 上是 100% 复现：同一个请求 HTTP/1.0 全挂，HTTP/1.1（keep-alive，服务端不回完就关）3/3 正常。
+  const net = require('node:net');
+  const game = net.createServer((socket) => {
+    socket.on('data', () => { socket.write('HTTP/1.0 200 OK\r\n\r\nhi'); socket.end(); });
+  });
+  await new Promise((resolve) => game.listen(0, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  // 顺序才是重点：mock 的 sendReliable 对已关的连接也照样"成功"，所以只断言"发过"是抓不到
+  // 这个 bug 的 —— 必须断言"响应是在 Steam 连接被关掉之前发出去的"。
+  const realClose = mock.sockets.closeConnection;
+  let sentBeforeClose = null;
+  mock.sockets.closeConnection = (connection, reason, message, linger) => {
+    if (sentBeforeClose === null) {
+      sentBeforeClose = mock.state.sent.some((s) => s.data.toString().includes('hi'));
+    }
+    return realClose(connection, reason, message, linger);
+  };
+
+  const host = createSteamHost({ gameHost: '127.0.0.1', gamePort: game.address().port, sdk: mock.sdk });
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, oldState: 0, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: CONN, oldState: STATE.Connecting, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+
+    mock.state.pushToHost(CONN, 'GET / HTTP/1.0\r\n\r\n');
+    assert.ok(await h.waitFor(() => mock.state.sent.some((s) => s.data.toString().includes('hi')), { timeoutMs: 3000 }),
+      `本地服务回完就关连接，响应仍然必须发出去；实际发送：${mock.state.sent.map((s) => s.data.toString()).join('|')}`);
+    // 只断言"发过"是不够的：mock 的 sendReliable 对已关的连接也照样返回成功，
+    // 而真正丢数据的是 Steam 侧 —— 关连接时若不允许 linger，刚交给它、还没出门的字节会被丢掉。
+    const closeCall = mock.state.closed.find((c) => c.message === '本地服务连接关闭');
+    assert.ok(closeCall, '本地服务关连接后应当收掉对应的 Steam 连接');
+    assert.equal(closeCall.linger, true, '关连接必须允许 linger，否则最后那段响应会被 Steam 直接丢掉');
+    assert.equal(sentBeforeClose, true, '响应必须在 Steam 连接被关掉之前发出去（先发完再关，不能反过来）');
+  } finally {
+    await host.stop();
+    await game.close();
+  }
+});
+
 test('房主：Steam 对端连进来后，消息能双向搬运到本地服务端口', async () => {
   const game = await h.startEchoServer();
   const mock = createMockSdk();
@@ -557,6 +602,40 @@ test('加入者：同一条预热连接被报两次 Connected 也不能把"就�
     assert.equal(joiner.stats.poolCreated, 1, '只该开过一条预热连接');
     assert.equal(joiner.stats.poolReady, 1, '就绪必须按条数算，不能按事件次数算');
   } finally {
+    await joiner.stop();
+  }
+});
+
+test('加入者：对端"发完最后一个响应就关连接"时，那段响应也必须送到本机客户端（现场"地图加载不出来"的来源）', async () => {
+  // 房主的游戏服务是"回完响应立刻关本地连接"的写法（HTTP/1.0 / Connection: close），
+  // 房主随即收掉 Steam 连接，于是"连接关闭"的通知和最后一段数据几乎同时到加入者这边。
+  // 原来加入者一收到关闭通知就 dropPeer：destroy 本机 socket，Steam 接收队列里那段数据
+  // 再没人读 —— 浏览器只看到"连接被关"，一个字节都没收到，页面就一直转圈。
+  // 真机 A/B 上是 100% 复现：HTTP/1.0 的请求 4/4 全挂（40 秒超时、下行 0 字节），
+  // 修好之后 4/4 在 10 ms 内返回（下行 122 字节）。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const joiner = joinJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk });
+  let client;
+  try {
+    await joiner.ready;
+    client = await h.connect(localPort);
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length === 1, { timeoutMs: 3000 }), '本机连接应建一条 Steam 连接');
+    const handle = mock.state.connectedTo[0].handle;
+    mock.state.emitState({ connection: handle, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    client.write('GET / HTTP/1.0\r\n\r\n');
+    assert.ok(await h.waitFor(() => mock.state.sent.length >= 1, { timeoutMs: 3000 }), '请求应发往房主');
+
+    // 数据先到、关闭通知紧跟其后，中间不给泵任何机会 —— 这正是真机上的时序：
+    // 泵是按 tick 跑的，而连接状态回调随时会插进来。
+    const reply = 'HTTP/1.0 200 OK\r\n\r\nhi';
+    const collected = h.collect(client, reply.length, 3000);
+    mock.state.pushToClient(handle, reply);
+    mock.state.emitState({ connection: handle, newState: STATE.ClosedByPeer, info: { endReason: 1000, endDebugMessage: '' } });
+
+    assert.equal((await collected).toString(), reply, '对端关连接之前发来的那段响应必须完整送到本机客户端');
+  } finally {
+    if (client) client.destroy();
     await joiner.stop();
   }
 });

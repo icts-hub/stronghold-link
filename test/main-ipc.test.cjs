@@ -107,7 +107,7 @@ test('window:* 无边框窗口按钮：拿不到真实窗口时如实降级，�
 
 test('app:info 返回真实版本与配置路径（基于桩 userData）', async () => {
   const info = await invoke('app:info');
-  assert.equal(info.version, '0.13.2');
+  assert.equal(info.version, '0.13.3');
   assert.equal(info.name, 'Stronghold Link');
   assert.equal(info.configPath, path.join(OUT_ROOT, 'game-profiles.json'));
   assert.equal(info.settingsPath, path.join(OUT_ROOT, 'settings.json'));

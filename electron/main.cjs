@@ -40,7 +40,7 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.13.2';
+const APP_VERSION = '0.13.3';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
