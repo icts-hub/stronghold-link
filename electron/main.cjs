@@ -421,11 +421,17 @@ function logTunnelEvent(event) {
     // willRetry：这次不是收尾，而是"一个字节都没回来"的握手失败，正在悄悄重连。
     // 打上标记才看得出"偶发几次"和"一直在失败"的区别 —— 后者说明线路或对端根本没通。
     const retry = payload.willRetry ? ` ⟳第${payload.retry || '?'}次重连` : '';
-    // attemptMs：这一次握手从 connectP2P 到被 Steam 判死用了多久。**这是判断
-    // "到底是超时参数太紧还是链路真不通"的唯一硬指标** —— 卡在 ~10000ms 就是
-    // 撞上了出厂 TimeoutInitial（已由 network/steam-netconfig.cjs 的 timeoutInitial=30000 放宽），
-    // 卡在 ~30000ms 则是放宽之后仍然握不上手，得换线路档位。
-    const attempt = Number.isFinite(payload.attemptMs) ? ` 握手耗时=${secs(payload.attemptMs)}s` : '';
+    // attemptMs：这一次 connectP2P 到连接结束的时长。它的含义要分两种情况读，
+    // 混着读会把人带沟里（现场日志里"握手耗时=43s 存活=43s"这种就纯属误导）：
+    //   · 一个字节都没来回过 → 这就是**握手耗时**，是判断"超时参数太紧还是链路真不通"
+    //     的唯一硬指标（卡在 ~10000ms 是撞上出厂 TimeoutInitial，已被
+    //     network/steam-netconfig.cjs 的 timeoutInitial=30000 放宽；卡在 ~30000ms
+    //     说明放宽之后仍然握不上手，得换线路档位）；
+    //   · 数据已经通过 → 它等于这次连接的寿命，和后面的"存活"是同一个数，不是握手时间。
+    const hadData = (payload.bytesFromPeer || 0) > 0 || (payload.bytesToPeer || 0) > 0;
+    const attempt = Number.isFinite(payload.attemptMs)
+      ? ` ${hadData ? '本次连接' : '握手耗时'}=${secs(payload.attemptMs)}s`
+      : '';
     const retried = payload.retried ? ` 已重试${payload.retried}次` : '';
     logLine(
       `${tag}连接结束（${kind}）理由=${payload.reason || '无'}${retry}${attempt}${retried} `
@@ -482,7 +488,7 @@ function logTunnelEvent(event) {
 // ---------------------------------------------------------------------------
 
 let netConfigLogged = false;
-let netConfigTries = 0;
+let netConfigPolling = false;
 
 function formatNetConfigApplied(applied) {
   if (!Array.isArray(applied) || !applied.length) return '无';
@@ -495,29 +501,55 @@ function formatNetConfigApplied(applied) {
 }
 
 /**
+ * 读一次路由报告，拿到全局参数就写日志。返回 true 表示这件事已经了结（写过了）。
+ */
+function logNetConfigOnce() {
+  if (netConfigLogged) return true;
+  let nc = null;
+  try {
+    const report = session.getRouteReport();
+    nc = report && report.netConfig;
+  } catch {
+    return false; // 会话还没起来，等下一轮
+  }
+  if (!nc) return false;
+  netConfigLogged = true;
+  logLine(`[网络参数] 传输偏好=${nc.transport || '?'} 下发=${nc.available ? '成功' : `失败（${nc.reason || '原因未知'}）`}`
+    + ` 实际生效：${formatNetConfigApplied(nc.applied)}`);
+  if (Array.isArray(nc.changed) && nc.changed.length) logLine(`[网络参数] 与出厂值不同：${nc.changed.join(' ')}`);
+  if (Array.isArray(nc.notes) && nc.notes.length) logLine(`[网络参数] 备注：${nc.notes.join('；')}`);
+  return true;
+}
+
+/**
  * 会话起来之后补一条"全局参数实际生效情况"的日志。
  *
- * 路由报告要等通道注册好才有 netConfig，所以隔一会儿轮询几次；
- * 拿到一次就永远不再写（一个进程只关心自己启动时那一份）。
+ * 路由报告要等通道注册好才有 netConfig，所以隔一会儿轮询几次。
+ *
+ * ★ 这里踩过一个坑，值得留着当教训：轮询次数不能和"外部触发次数"共用一个计数器。
+ *   上一版把 tries 记在模块级的 netConfigTries 上，而这个函数既被 session:start 调用、
+ *   又被**每一个隧道事件**调用（peer-stats 每 2 秒一条，还夹着 client-added / peer-left）。
+ *   于是计数器在通道就绪之前就被事件刷爆，函数从此静默返回 —— 现场日志里
+ *   `[网络参数]` 一行都没有，而"它到底放宽了没有"恰恰是那版最想知道的事。
+ *   现在：轮询次数只由内部递归累加，外面无论调多少次都只是"催一下"。
  */
-function logNetConfigSoon() {
+const NET_CONFIG_MAX_TRIES = 20;
+
+function logNetConfigSoon(tries = 0) {
   if (netConfigLogged) return;
-  netConfigTries += 1;
-  if (netConfigTries > 8) return; // 约 12 秒还没拿到就放弃，不刷屏
+  if (logNetConfigOnce()) return;
+  // 已经有一条轮询链在跑就别再起一条，免得事件一多就开出几十个定时器。
+  if (netConfigPolling) return;
+  if (tries >= NET_CONFIG_MAX_TRIES) {
+    // 放弃也要留一行：静默的"没有日志"和"忘了写日志"在现场是分不出来的。
+    logLine(`[网络参数] 等了约 ${Math.round((NET_CONFIG_MAX_TRIES * 1500) / 1000)} 秒仍拿不到全局参数报告，放弃记录（不影响传输本身）`);
+    netConfigLogged = true;
+    return;
+  }
+  netConfigPolling = true;
   setTimeout(() => {
-    if (netConfigLogged) return;
-    try {
-      const report = session.getRouteReport();
-      const nc = report && report.netConfig;
-      if (!nc) { logNetConfigSoon(); return; }
-      netConfigLogged = true;
-      logLine(`[网络参数] 传输偏好=${nc.transport || '?'} 下发=${nc.available ? '成功' : `失败（${nc.reason || '原因未知'}）`}`
-        + ` 实际生效：${formatNetConfigApplied(nc.applied)}`);
-      if (Array.isArray(nc.changed) && nc.changed.length) logLine(`[网络参数] 与出厂值不同：${nc.changed.join(' ')}`);
-      if (Array.isArray(nc.notes) && nc.notes.length) logLine(`[网络参数] 备注：${nc.notes.join('；')}`);
-    } catch (err) {
-      logNetConfigSoon();
-    }
+    netConfigPolling = false;
+    logNetConfigSoon(tries + 1);
   }, 1500);
 }
 
