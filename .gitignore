@@ -46,3 +46,6 @@ matrix-out/
 
 # 链路测速产物
 bench-*.json
+
+# 打包时临时合并出来的 electron-builder 配置（tools/build-edition.cjs 生成）
+electron-builder.edition.json
