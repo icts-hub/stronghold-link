@@ -76,6 +76,14 @@ contextBridge.exposeInMainWorld('strongholdLink', {
     /** 真实进程内存占用，供底部状态条显示 */
     metrics: () => ipcRenderer.invoke('app:metrics'),
   },
+  /**
+   * 应用设置。目前只有一项：Steam 线路档位（'env' | 'auto' | 'ice' | 'relay'）。
+   * load() 会带回"实际生效的是哪一档"（把环境变量与出厂默认也算进去），界面直接显示它。
+   */
+  settings: {
+    load: () => ipcRenderer.invoke('settings:load'),
+    save: (input) => ipcRenderer.invoke('settings:save', input || {}),
+  },
   session: {
     start: (options) => ipcRenderer.invoke('session:start', options),
     stop: () => ipcRenderer.invoke('session:stop'),

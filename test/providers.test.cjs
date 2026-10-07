@@ -239,3 +239,18 @@ test('注册表：登记 / 取用 / 过滤 / 能力摘要；非法输入当场�
   assert.match(steam.summary, /nat-traversal/);
   assert.match(steam.summary, /enc:steam-transport/);
 });
+
+test('Steam Provider 必须把预热连接池的四个计数带出去（不然界面永远显示"命中 0"）', () => {
+  // 现场踩过的坑：计数在 steam-adapter 里涨得好好的，经过 kernel-provider 的 extras
+  // 与 session 的 channelStats 两道白名单之后被整整齐齐地丢掉，
+  // 于是日志一直显示"命中0 未命中0"，看起来像池子根本没工作。
+  const { createSteamP2PProvider } = require('../network/providers/steam-p2p.cjs');
+  const provider = createSteamP2PProvider({ role: 'joiner', options: {} });
+  const stats = provider.getStats();
+  for (const key of ['poolCreated', 'poolReady', 'poolHits', 'poolMisses']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(stats, key), `统计快照里必须带上 ${key}`);
+    assert.equal(stats[key], 0, `没有内核时 ${key} 应是 0，不能是 undefined`);
+  }
+  assert.equal(stats.protocol, 'STEAM');
+  assert.equal(stats.role, 'joiner');
+});

@@ -79,7 +79,7 @@
   --bg-far-opacity: 0.55;
   --bg-vignette: radial-gradient(120% 85% at 50% -10%, transparent 52%, rgba(var(--ink-rgb), 0.045) 100%);
   --bg-scan: rgba(var(--ink-rgb), 0.05);
-  --glass-blur: 13px;
+  --glass-blur: 18px;
 
   /* 焦点 */
   --focus-ring: var(--accent-hover);

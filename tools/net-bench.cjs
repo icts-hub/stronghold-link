@@ -119,11 +119,17 @@ function connect(port, host = '127.0.0.1') {
 
 /** 分片开销账：同样字节数在不同分片下的 Steam 消息条数。 */
 function framingCost(bytes) {
-  const sizes = [DEFAULT_MAX_CHUNK, 16 * 1024, 64 * 1024, 512 * 1024];
+  // 说明为什么默认值是 4KB 而不是更大：每加一个分片尺寸，都是"少几条消息"换"丢一段要多等一轮重传"。
+  // 4KB ≈ 路径 MTU 的 3 段，64KB ≈ 55 段；Steam 可靠通道有序，一条消息里丢任何一段都要等它重传完
+  // 才轮到后面的消息（队头阻塞）。chunyu-vpn/net/multiplex_manager.cpp:9-11 实测项目选的是 1100 字节
+  // 贴近路径 MTU。所以默认守在 4KB，想试大分片用 SHL_STEAM_MAX_CHUNK 覆盖。DEFAULT_MAX_CHUNK 就是 4KB，
+  // 去重后 4KB 只出现一次，另留 1KB / 16KB / 64KB / 512KB 做对照。
+  const sizes = [...new Set([1024, DEFAULT_MAX_CHUNK, 16 * 1024, 64 * 1024, 512 * 1024])].sort((a, b) => a - b);
   return sizes.map((size) => {
     const plan = createSendPlan(Buffer.alloc(bytes), { maxChunk: size });
     return {
       chunkSize: size,
+      isDefault: size === DEFAULT_MAX_CHUNK,
       messages: plan.chunkCount,
       bytesPerMessage: Math.round(bytes / plan.chunkCount),
       flags: plan.flags,

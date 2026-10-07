@@ -52,7 +52,7 @@ function setup({ profiles = [], info = {}, steamReport = null, onSteamDiagnose =
   const calls = [];
   const eventHandlers = [];
   const appInfo = {
-    name: 'Stronghold Link', version: '0.12.0', configPath: 'C:\\Users\\test\\AppData\\Roaming\\stronghold-link\\game-profiles.json',
+    name: 'Stronghold Link', version: '0.13.2', configPath: 'C:\\Users\\test\\AppData\\Roaming\\stronghold-link\\game-profiles.json',
     platform: 'win32', arch: 'x64', electron: '39.8.10', chrome: '142.0.0.0', node: '22.22.1', smoke: false, ...info,
   };
   let snapshot = {
@@ -60,7 +60,7 @@ function setup({ profiles = [], info = {}, steamReport = null, onSteamDiagnose =
     connections: 0, totalConnections: 0, rejected: 0, failed: 0, bytesToPeer: 0, bytesFromPeer: 0, startedAt: null, lastError: null,
   };
   const bridge = {
-    version: '0.12.0',
+    version: '0.13.2',
     app: { info: async () => appInfo, revealConfig: async () => true },
     adapters: {
       recipes: async () => (defaultRecipes),
@@ -188,8 +188,8 @@ test('启动时从主进程读取版本、配置路径与适配器真实状态',
   t.after(ui.cleanup);
   await settle();
 
-  assert.equal(ui.get('appVersion').textContent, '0.12.0');
-  assert.match(ui.get('setVersion').textContent, /0\.12\.0 \/ Electron 39\.8\.10/);
+  assert.equal(ui.get('appVersion').textContent, '0.13.2');
+  assert.match(ui.get('setVersion').textContent, /0\.13\.2 \/ Electron 39\.8\.10/);
   assert.match(ui.get('setConfigPath').textContent, /game-profiles\.json$/);
   assert.match(ui.get('setRuntime').textContent, /Node 22\.22\.1/);
   assert.match(ui.get('setNetwork').textContent, /ready/);

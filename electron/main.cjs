@@ -40,7 +40,7 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.12.0';
+const APP_VERSION = '0.13.2';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
@@ -212,12 +212,328 @@ async function writeProfiles(profiles) {
 }
 
 // ---------------------------------------------------------------------------
+// 应用设置（应用数据目录中的 settings.json）
+//
+// transport —— Steam P2P 线路档位，可选项：
+//   'env'   不覆盖，跟随启动时的 SHL_STEAM_TRANSPORT 环境变量，没有就用出厂默认（强制直连）。
+//           保留这一档是为了不悄悄推翻 docs/STEAM-联机步骤.md 里「先 set 再启动」那套排查办法。
+//   'auto' / 'ice' / 'relay'
+//           界面里直接指定。优先级高于环境变量 —— 见 network/steam-netconfig.cjs 的
+//           resolveNetConfig：overrides.transport 会盖掉 TRANSPORT_ENV。
+//
+// 为什么要做成设置而不是只有环境变量：环境变量必须在**进程启动那一刻**就有，
+// 而这个程序有单实例锁（app.requestSingleInstanceLock），旧进程没退干净时新进程会静默自杀，
+// 环境变量根本读不到 —— 现场就踩过这个坑：改了 .cmd 启动，界面里还是旧档位。
+// ---------------------------------------------------------------------------
+
+const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'settings.json');
+const TRANSPORT_CHOICES = Object.freeze(['env', 'auto', 'ice', 'relay']);
+const DEFAULT_SETTINGS = Object.freeze({ transport: 'env' });
+
+function validateSettings(raw) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const transport = TRANSPORT_CHOICES.includes(src.transport) ? src.transport : DEFAULT_SETTINGS.transport;
+  return { transport };
+}
+
+/** 档位最终会变成什么（把环境变量与出厂默认也算进去），给界面显示用。 */
+function effectiveTransport(transport) {
+  try {
+    const { resolveNetConfig } = require('../network/steam-netconfig.cjs');
+    const overrides = transport && transport !== 'env' ? { transport } : {};
+    return resolveNetConfig(overrides, process.env).transport || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+const TRANSPORT_LABELS = Object.freeze({
+  env: '跟随启动环境',
+  auto: '自动选路',
+  ice: '强制直连',
+  relay: '强制中继',
+});
+
+/** 把设置翻译成界面直接能显示的一整份状态（含"实际生效的是哪一档"）。 */
+function describeSettings(saved) {
+  let envKey = 'SHL_STEAM_TRANSPORT';
+  try {
+    const netconfig = require('../network/steam-netconfig.cjs');
+    if (netconfig.TRANSPORT_ENV) envKey = netconfig.TRANSPORT_ENV;
+  } catch (err) { /* 拿不到就用默认键名，不影响主流程 */ }
+  const rawEnv = process.env[envKey];
+  const effective = effectiveTransport(saved.transport);
+  return {
+    ...saved,
+    choices: [...TRANSPORT_CHOICES],
+    labels: { ...TRANSPORT_LABELS },
+    effective,
+    effectiveLabel: TRANSPORT_LABELS[effective] || effective || '未知',
+    envKey,
+    envValue: rawEnv ? String(rawEnv) : null,
+  };
+}
+
+async function readSettings() {
+  try {
+    return validateSettings(JSON.parse(await fs.readFile(SETTINGS_PATH(), 'utf8')));
+  } catch (err) {
+    // 文件不存在或内容坏掉都不该让程序起不来：退回默认值，下一次保存会覆盖它。
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+async function writeSettings(raw) {
+  const clean = validateSettings(raw);
+  const file = SETTINGS_PATH();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const temp = `${file}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(clean, null, 2), 'utf8');
+  await fs.rename(temp, file);
+  return clean;
+}
+
+/**
+ * 启动时要下发的 Steam 网络配置覆盖。
+ * null = 什么都不覆盖（等价于旧版本的行为）。
+ */
+let sessionNetConfig = null;
+
+/** 同步读一次设置，把 sessionNetConfig 准备好。在 registerIpc 里调一次即可。 */
+function primeSettings() {
+  try {
+    const saved = validateSettings(JSON.parse(nodeFs.readFileSync(SETTINGS_PATH(), 'utf8')));
+    sessionNetConfig = saved.transport === 'env' ? null : { transport: saved.transport };
+    return saved;
+  } catch (err) {
+    sessionNetConfig = null;
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function applySettingToSession(saved) {
+  sessionNetConfig = saved.transport === 'env' ? null : { transport: saved.transport };
+  return saved;
+}
+
+// ---------------------------------------------------------------------------
+// 隧道体检日志
+//
+// 连接为什么断、断在哪一侧、断的时候还积压着多少字节 —— 这些以前只有界面
+// 能看到，而游戏卡住的时候界面恰恰是最不可靠的观察点（route 取样会退化成
+// 「当前没有活动连接」）。这里把隧道事件原样写进 startup.log，出问题时直接
+// 看日志最后几十行就能定位。
+// ---------------------------------------------------------------------------
+
+const PEER_STATS_LOG_MS = 2000;
+const TUNNEL_ERROR_LOG_MS = 5000;
+let lastPeerStatsLogAt = 0;
+let lastTunnelErrorLogAt = 0;
+let lastTunnelErrorKey = '';
+
+function compact(value, limit = 200) {
+  let text;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  if (!text) return '';
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+const kib = (bytes) => Math.round((Number(bytes) || 0) / 1024);
+const secs = (ms) => Math.round((Number(ms) || 0) / 1000);
+
+// Steam 的连接结束原因（ESteamNetConnectionEnd）。数值区间本身就是分类：
+// 1000–1999 应用层正常结束，2000–2999 应用层异常结束，3000–3999 本机侧网络问题，
+// 4000–4999 对端侧网络问题，5000–5999 传输层问题。有了它才能分清"是谁断的"。
+const CONNECTION_END_NAMES = new Map([
+  [0, 'Steam 没给原因'],
+  [3001, '本机处于离线模式'],
+  [3002, '本机连不上 Steam 中继'],
+  [3003, '本机的主中继不可用'],
+  [3004, '本机网络配置有问题'],
+  [3005, '账号权限不足'],
+  [3006, '本机拿不到公网地址（打洞失败）'],
+  [4001, '★对端超时：对方没在规定时间内回应'],
+  [4002, '对端加密校验失败'],
+  [4003, '对端证书不合法'],
+  [4006, '对端协议版本不匹配'],
+  [4007, '对端打洞失败（P2P ICE 拿不到公网地址）'],
+  [5001, '传输层通用错误'],
+  [5002, '传输层内部错误'],
+  [5003, '★传输层超时'],
+  [5005, '与 Steam 的连接出问题'],
+  [5006, '建立不了中继会话'],
+  [5008, 'P2P 会合失败'],
+  [5009, '★NAT / 防火墙挡住了'],
+  [5010, '对端没有回应连接请求'],
+]);
+
+const CONNECTION_END_KINDS = {
+  ClosedByPeer: '对端关掉了这条 Steam 连接',
+  ProblemDetectedLocally: '本机判定这条 Steam 连接出问题',
+  LocalServiceClosed: '本机游戏服务把这条件接关了',
+  LocalClientClosed: '浏览器/游戏自己关掉了本机连接',
+  LocalTunnelAbort: '我们主动掐断了这条连接',
+};
+
+function describeEndReason(code) {
+  if (code == null || code === '') return '未给';
+  const n = Number(code);
+  if (!Number.isFinite(n)) return String(code);
+  const exact = CONNECTION_END_NAMES.get(n);
+  if (exact) return `${n}（${exact}）`;
+  if (n >= 1000 && n <= 1999) return `${n}（应用层正常结束）`;
+  if (n >= 2000 && n <= 2999) return `${n}（应用层异常结束）`;
+  if (n >= 3000 && n <= 3999) return `${n}（本机侧网络问题）`;
+  if (n >= 4000 && n <= 4999) return `${n}（对端侧网络问题）`;
+  if (n >= 5000 && n <= 5999) return `${n}（传输层问题）`;
+  return `${n}（未知区间）`;
+}
+
+function logTunnelEvent(event) {
+  const type = event && event.event;
+  const payload = (event && event.payload) || {};
+  const tag = event && event.channel ? `[${event.channel}] ` : '';
+
+  if (type === 'peer-stats') {
+    const now = Date.now();
+    if (now - lastPeerStatsLogAt < PEER_STATS_LOG_MS) return;
+    lastPeerStatsLogAt = now;
+    const peers = Array.isArray(payload.peers) ? payload.peers : [];
+    const pool = payload.pool;
+    // 池子那一段即使一条连接都没有也要打（"池子是空的"本身就是最关键的现场证据）。
+    const poolText = pool
+      ? `预热池 备用${pool.warm || 0}/${pool.target || 0} 累计开${pool.created || 0} 就绪${pool.ready || 0} 命中${pool.hits || 0} 未命中${pool.misses || 0} 换新${pool.retired || 0} 自死${pool.lost || 0} 均寿${(pool.retired || pool.lost) ? Math.round((pool.lifeMs || 0) / ((pool.retired || 0) + (pool.lost || 0)) / 1000) : 0}s`
+      : '';
+    if (!peers.length && !poolText) return; // 没有连接也没池子就没必要刷屏
+    const text = peers
+      .map((p) => `:${p.port || '?'} 存活${secs(p.ageMs)}s 上行${kib(p.bytesToPeer)}KiB 下行${kib(p.bytesFromPeer)}KiB 残留${kib(p.outBytes)}KiB${p.paused ? ' 暂停中' : ''}${p.stalled ? ' 已停摆' : ''}${p.status ? ` | ${compact(p.status, 120)}` : ''}`)
+      .join(' || ');
+    logLine(`${tag}隧道存量 ${peers.length} 条${poolText ? ` ｜ ${poolText}` : ''}：${text || '（无连接）'}`);
+    return;
+  }
+
+  if (type === 'peer-left') {
+    const kind = CONNECTION_END_KINDS[payload.kind] || payload.kind || '未知方式';
+    // willRetry：这次不是收尾，而是"一个字节都没回来"的握手失败，正在悄悄重连。
+    // 打上标记才看得出"偶发几次"和"一直在失败"的区别 —— 后者说明线路或对端根本没通。
+    const retry = payload.willRetry ? ` ⟳第${payload.retry || '?'}次重连` : '';
+    // attemptMs：这一次握手从 connectP2P 到被 Steam 判死用了多久。**这是判断
+    // "到底是超时参数太紧还是链路真不通"的唯一硬指标** —— 卡在 ~10000ms 就是
+    // 撞上了出厂 TimeoutInitial（已由 network/steam-netconfig.cjs 的 timeoutInitial=30000 放宽），
+    // 卡在 ~30000ms 则是放宽之后仍然握不上手，得换线路档位。
+    const attempt = Number.isFinite(payload.attemptMs) ? ` 握手耗时=${secs(payload.attemptMs)}s` : '';
+    const retried = payload.retried ? ` 已重试${payload.retried}次` : '';
+    logLine(
+      `${tag}连接结束（${kind}）理由=${payload.reason || '无'}${retry}${attempt}${retried} `
+      + `Steam原因=${describeEndReason(payload.endReason)} 存活=${secs(payload.ageMs)}s `
+      + `上行=${kib(payload.bytesToPeer)}KiB 下行=${kib(payload.bytesFromPeer)}KiB 残留=${kib(payload.outBytes)}KiB`,
+    );
+    return;
+  }
+
+  if (type === 'client-added') {
+    // 命中池子 = 这条本机连接一秒钟都没等（浏览器/游戏不会看到转圈）。
+    // 这条日志是"预热池到底有没有用"最直接的证据：满屏"临时握手"就说明池子被抽干了。
+    const how = payload.warm ? `拿的是池子里现成的（养了${secs(payload.waitedMs)}s）` : '临时握手（池子当时是空的）';
+    logLine(`${tag}本机连接进来 ${payload.peer || '?'} —— ${how}`);
+    return;
+  }
+
+  if (type === 'peer-connected') {
+    logLine(`${tag}连接已接通 ${payload.peer || ''} 本机端口=${payload.port || '?'}`);
+    return;
+  }
+
+  if (type === 'error') {
+    const err = payload.error || {};
+    const key = `${payload.stage || ''}|${err.code || ''}`;
+    const now = Date.now();
+    if (key === lastTunnelErrorKey && now - lastTunnelErrorLogAt < TUNNEL_ERROR_LOG_MS) return;
+    lastTunnelErrorLogAt = now;
+    lastTunnelErrorKey = key;
+    logLine(`${tag}隧道错误 阶段=${payload.stage || '未知'} 代码=${err.code || '无'} 说明=${err.friendly || err.message || compact(err)}`);
+    return;
+  }
+
+  if (type === 'rejected') {
+    logLine(`${tag}拒绝了本机连接 原因=${payload.reason || '未知'} 来源=${payload.peer || '未知'}`);
+    return;
+  }
+
+  if (type === 'stopped') {
+    logLine(`${tag}隧道已停止`);
+    return;
+  }
+
+  logLine(`${tag}隧道事件 ${type} ${compact(payload, 160)}`);
+}
+
+// ---------------------------------------------------------------------------
+// 全局网络参数下发结果
+//
+// 为什么非要写进日志：`TimeoutInitial` 这类参数**只有真的下发给 Steam 才有效**，
+// 而下发是"设一项读回一项"的（见 network/steam-netconfig.cjs 的三条纪律）。
+// 界面上的「Steam globals」那一行能看，可游戏卡住的时候界面恰恰最不可靠。
+// 写进 startup.log 之后，"建连超时到底放宽了没有"从日志一眼可判，不用再猜。
+// ---------------------------------------------------------------------------
+
+let netConfigLogged = false;
+let netConfigTries = 0;
+
+function formatNetConfigApplied(applied) {
+  if (!Array.isArray(applied) || !applied.length) return '无';
+  return applied.map((item) => {
+    if (!item || typeof item !== 'object') return String(item);
+    const shown = item.effective === null || item.effective === undefined ? '读不回' : item.effective;
+    const flag = item.ok === false ? '✘' : (item.effective !== item.requested ? '≠' : '✔');
+    return `${flag}${item.name || item.key}=${shown}`;
+  }).join(' ');
+}
+
+/**
+ * 会话起来之后补一条"全局参数实际生效情况"的日志。
+ *
+ * 路由报告要等通道注册好才有 netConfig，所以隔一会儿轮询几次；
+ * 拿到一次就永远不再写（一个进程只关心自己启动时那一份）。
+ */
+function logNetConfigSoon() {
+  if (netConfigLogged) return;
+  netConfigTries += 1;
+  if (netConfigTries > 8) return; // 约 12 秒还没拿到就放弃，不刷屏
+  setTimeout(() => {
+    if (netConfigLogged) return;
+    try {
+      const report = session.getRouteReport();
+      const nc = report && report.netConfig;
+      if (!nc) { logNetConfigSoon(); return; }
+      netConfigLogged = true;
+      logLine(`[网络参数] 传输偏好=${nc.transport || '?'} 下发=${nc.available ? '成功' : `失败（${nc.reason || '原因未知'}）`}`
+        + ` 实际生效：${formatNetConfigApplied(nc.applied)}`);
+      if (Array.isArray(nc.changed) && nc.changed.length) logLine(`[网络参数] 与出厂值不同：${nc.changed.join(' ')}`);
+      if (Array.isArray(nc.notes) && nc.notes.length) logLine(`[网络参数] 备注：${nc.notes.join('；')}`);
+    } catch (err) {
+      logNetConfigSoon();
+    }
+  }, 1500);
+}
+
+// ---------------------------------------------------------------------------
 // 会话
 // ---------------------------------------------------------------------------
 
 const session = new SessionManager({
   appDir: APP_DIR,
   onEvent: (event) => {
+    if (event && event.type === 'tunnel') {
+      logTunnelEvent(event);
+      // 会话可能是自动起来的（大厅一键加入），不一定走 session:start。
+      // 隧道事件一开始流，就说明通道已经就绪，这时候去读全局参数报告最靠谱。
+      logNetConfigSoon();
+    }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('session:event', event);
   },
 });
@@ -375,6 +691,10 @@ function sanitizeSessionInput(raw) {
     }
     out[key] = NUMERIC_KEYS.includes(key) ? Number(raw[key]) : String(raw[key]).slice(0, key === 'authToken' ? 64 : 512);
   }
+  // 线路档位只能由主进程决定：先丢掉调用方可能塞进来的任何值，再按本机设置注入。
+  // 渲染进程不该有能力改 Steam 传输层配置。
+  delete out.netConfig;
+  if (sessionNetConfig) out.netConfig = { ...sessionNetConfig };
   return out;
 }
 
@@ -427,8 +747,20 @@ function toIpcError(err) {
 }
 
 function registerIpc() {
+  primeSettings();   // 线路档位必须在任何一次 session:start 之前就准备好
   ipcMain.handle('profiles:load', () => readProfiles());
   ipcMain.handle('profiles:save', (_event, profiles) => writeProfiles(profiles));
+  // 线路档位：界面读写都走这里，改完立刻生效（下一次启动会话时下发），不需要重启程序。
+  ipcMain.handle('settings:load', async () => {
+    const saved = await readSettings();
+    return describeSettings(saved);
+  });
+  ipcMain.handle('settings:save', async (_event, raw) => {
+    const saved = applySettingToSession(await writeSettings(raw));
+    const info = describeSettings(saved);
+    logLine(`线路档位改为 ${saved.transport}（实际生效：${info.effectiveLabel}）`);
+    return info;
+  });
 
   ipcMain.handle('adapters:list', () => {
     const running = session.state === 'running';
@@ -475,6 +807,7 @@ function registerIpc() {
     try {
       const input = sanitizeSessionInput(raw);
       const snapshot = await session.start(input);
+      logNetConfigSoon();
       // 房主的 Steam 桥接起来后自动开大厅，好友那边就能一键邀请/加入
       openLobbyForSession(snapshot).catch(() => { /* 建房失败只记日志，不影响桥接本身 */ });
       return { ...snapshot, inviteText: snapshot.invite ? inviteText(snapshot.invite) : '' };
@@ -905,6 +1238,9 @@ ipcMain.handle('selftest:save', async (_event, raw) => {
   }
 });
 
+// 把异常变成一句人话：界面只展示 message，从不展示堆栈。
+const errText = (err) => String(err && err.message ? err.message : err);
+
 ipcMain.handle('lobby:selftest', async () => {
   // 联机自检：逐环打印真实状态，直接指出断点在哪一环
   const checks = [];
@@ -939,17 +1275,23 @@ ipcMain.handle('lobby:selftest', async () => {
     if (isOwner) {
       add('房主本地服务', null, '房主侧不监听端口，只连 127.0.0.1:' + (cfg.gamePort || cfg.targetPort || '-') + '（隧道好不好用由好友侧自检判定）');
     } else if (entry) {
-      const url = 'http://127.0.0.1:' + entry + '/';
-      const r = await httpProbe(url);
-      const gameName = String((info && info.game) || '');
-      const httpish = !/minecraft|java 版|基岩|terraria|泰拉|幻兽|帕鲁|英灵|valheim|rust|cs2|factorio/i.test(gameName);
-      add(httpish ? '隧道转发 HTTP（仅浏览器类游戏有意义）' : '隧道转发 HTTP（对 ' + (gameName || '本游戏') + ' 无意义，超时属正常）', r.ok || !httpish,
-        r.ok ? ('GET ' + url + ' → HTTP ' + r.status + (r.looksLikeGame ? ' · 内容是网页（说明数据真的从房主那边过来了）' : ' · 但内容不像游戏页面'))
-             : ('GET ' + url + ' 失败：' + r.reason + ' → 隧道没起作用'));
-      const samePort = Number(port) === Number(e3);
-      add('浏览器该打开的地址', true, samePort
-        ? (url3 + '（入口端口已与房主服务端口同号：' + e3 + '，直接用这个地址打开）')
-        : (url3 + '（注意：入口端口 ' + e3 + ' 与房主服务端口 ' + (port || '-') + ' 不同，只打开上面这个）'));
+      try {
+        const url = 'http://127.0.0.1:' + entry + '/';
+        const r = await httpProbe(url);
+        const gameName = String((info && info.game) || '');
+        const httpish = !/minecraft|java 版|基岩|terraria|泰拉|幻兽|帕鲁|英灵|valheim|rust|cs2|factorio/i.test(gameName);
+        add(httpish ? '隧道转发 HTTP（仅浏览器类游戏有意义）' : '隧道转发 HTTP（对 ' + (gameName || '本游戏') + ' 无意义，超时属正常）', r.ok || !httpish,
+          r.ok ? ('GET ' + url + ' → HTTP ' + r.status + (r.looksLikeGame ? ' · 内容是网页（说明数据真的从房主那边过来了）' : ' · 但内容不像游戏页面'))
+               : ('GET ' + url + ' 失败：' + r.reason + ' → 隧道没起作用'));
+        // 这一支是"加入者的隧道已经在跑"。入口端口就是 entry 本身，不是房主的服务端口：
+        // 本地入口由加入者这侧自己挑，和房主端口不同号是正常的，照实说明即可。
+        const samePort = Number(port) === Number(entry);
+        add('浏览器该打开的地址', true, samePort
+          ? (url + '（入口端口 ' + entry + ' 与房主服务端口同号，直接用这个地址打开）')
+          : (url + '（入口端口 ' + entry + ' 与房主服务端口 ' + (port || '-') + ' 不同，这是正常的：只打开这个本地入口地址）'));
+      } catch (err) {
+        add('隧道入口', false, '这一项没能检查完：' + errText(err));
+      }
     } else {
       const ownerId = (info.hostSteamId || snap.hostSteamId || '-');
       const noHostInfo = !(info.hostSteamId || port);
@@ -989,7 +1331,11 @@ ipcMain.handle('lobby:selftest', async () => {
     }
     return { ok: true, checks, verdict: checks.some((c) => c.ok === false) ? '发现断点：见标红项' : '未发现断点' };
   } catch (err) {
-    return { ok: false, checks, verdict: '自检本身出错：' + (err && err.message ? err.message : err) };
+    // 自检自己出错时，**绝不能把已经拿到的检查项丢掉** —— 那正是最需要它的时候。
+    // 老代码在这里 return { ok:false }，而界面在 ok:false 时把整份报告替换成一行
+    // "自检失败"，等于自检在最需要它的场景下失效（用户实际遇到的就是这个）。
+    checks.push({ name: '自检', ok: false, detail: '自检本身出错：' + errText(err) + '（以上是出错前已经拿到的结果）' });
+    return { ok: true, checks, verdict: '发现断点：见标红项' };
   }
 });
 
@@ -1162,6 +1508,7 @@ ipcMain.handle('lobby:stop', async () => {
     version: APP_VERSION,
     userData: app.getPath('userData'),
     configPath: CONFIG_PATH(),
+    settingsPath: SETTINGS_PATH(),
     platform: process.platform,
     arch: process.arch,
     electron: process.versions.electron,

@@ -139,7 +139,7 @@
   --parallax-far: 0.25;    /* 远层（背景网格）位移系数 */
   --parallax-mid: 0.5;     /* 中层（分区线/次要装饰） */
   --parallax-px: 6px;      /* 视差最大位移 */
-  --glass-blur: 13px;        /* 与线上一致：更厚的磨砂 */
+  --glass-blur: 18px;        /* 与线上一致：更厚的磨砂 */
   --glass-saturate: 80%;     /* 线上是去饱和（.8），不是加饱和 */
   --depth-modal-blur: 18px;
 

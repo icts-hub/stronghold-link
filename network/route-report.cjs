@@ -220,6 +220,10 @@ function summarize(reports) {
   // 合计与均值都要求"每条都有值"，缺一条就整体落 null，不做局部求和冒充总量。
   const total = (key) => (live.length && !anyNull(key) ? sum(key) : null);
   const avg = (key) => (live.length && !anyNull(key) ? Math.round(sum(key) / live.length) : null);
+  // 带宽天花板是逐连接的，多条连接时取最小的一条才是真正卡住的那条，取平均会把慢的掩盖掉。
+  const least = (key) => (live.length && !anyNull(key) ? Math.min(...live.map((r) => r[key])) : null);
+  // 积压量是各连接之和，一条连接堵住就是整体堵住。
+  const most = (key) => (live.length && !anyNull(key) ? Math.max(...live.map((r) => r[key])) : null);
   return {
     count: live.length,
     route,
@@ -231,9 +235,64 @@ function summarize(reports) {
     ping: avg('ping'),
     steamInBytesPerSec: total('steamInBytesPerSec'),
     steamOutBytesPerSec: total('steamOutBytesPerSec'),
+    // 下面四项是判断"Steam 是不是在限速"的证据，缺一不可：
+    // sendRateBytesPerSecond 顶住不动 + pendingReliable 持续增长 = 被限速；
+    // pendingReliable 长期为 0 而 ping 高 = 不是带宽问题，是 RTT 问题。
+    sendRateBytesPerSecond: least('sendRateBytesPerSecond'),
+    pendingReliable: total('pendingReliable'),
+    sentUnackedReliable: total('sentUnackedReliable'),
+    usecQueueTime: most('usecQueueTime'),
+    qualityLocal: least('qualityLocal'),
+    steamInPacketsPerSec: total('steamInPacketsPerSec'),
+    steamOutPacketsPerSec: total('steamOutPacketsPerSec'),
     sampledAt: Date.now(),
     connections: list,
   };
+}
+
+/**
+ * 把线路报告翻译成一句人话，说明当前是什么在限制带宽。
+ *
+ * 只按实测到的证据下结论，证据不足时如实说"还看不出来"，
+ * 不拿"理论上应该更快"顶替。
+ */
+function diagnose(report) {
+  const s = report || {};
+  const pending = s.pendingReliable;
+  const rate = s.sendRateBytesPerSecond;
+  const queue = s.usecQueueTime;
+  const ping = s.ping;
+  if (s.route === ROUTE.UNKNOWN) return { level: 'idle', text: '当前没有活动连接' };
+  if (s.route === 'MIXED') return { level: 'warn', text: '多条连接走的线路不一致，读数不能代表整体' };
+  const parts = [];
+  let level = 'ok';
+  const transport = s.netConfig && s.netConfig.transport ? s.netConfig.transport : null;
+  if (s.relayed) {
+    parts.push(`走的是 Steam 中继 ${s.relayPop || '未知'}，中继比直连多一跳，延迟天然更高`);
+    if (transport === 'ice') {
+      // 这一条很关键：罚分已经压到最低还落到中继，说明打洞是真的没通，
+      // 不是"没试过直连"。继续调带宽/调分片都不会有用，得先解决 NAT。
+      level = 'warn';
+      parts.push('已经把 SDR 中继的罚分压到最低、仍然选中继，说明这台机器与对端之间的 ICE 打洞没成功'
+        + '（常见于双方都在对称 NAT 或运营商级 NAT 后面）——再调带宽没有用，瓶颈在这里');
+    }
+  } else if (s.route === ROUTE.DIRECT) {
+    parts.push(transport === 'ice'
+      ? '走的是直连，且配置已经禁止中继抢路'
+      : '走的是直连，没有经过中继');
+  }
+  if (rate != null) parts.push(`Steam 当前发送上限 ${Math.round(rate / 1024)} KB/s`);
+  if (pending != null) parts.push(`未发出积压 ${pending} 字节`);
+  if (queue != null) parts.push(`排队 ${(queue / 1000).toFixed(1)} ms`);
+  if (ping != null) parts.push(`往返 ${ping} ms`);
+  if (pending != null && pending > 64 * 1024) {
+    level = 'warn';
+    parts.push('积压说明发送侧被卡住，瓶颈在 Steam 线路而不在本地');
+  } else if (pending === 0 && ping != null && ping > 80) {
+    level = 'warn';
+    parts.push('没有积压但往返很高，卡的是延迟不是带宽');
+  }
+  return { level, text: parts.join('；') };
 }
 
 /**
@@ -285,5 +344,6 @@ module.exports = {
   readRawAddress,
   sampleRoute,
   summarize,
+  diagnose,
   createRawSocketMeter,
 };

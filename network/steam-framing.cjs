@@ -22,7 +22,16 @@ const FALLBACK_FLAGS = Object.freeze({
   AutoRestartBrokenSession: 32,
 });
 
-const DEFAULT_MAX_CHUNK = 4096;   // 4KB：延迟与开销的折中
+// 4KB，一度改成 64KB 又改回来了 —— 两个方向都有理由，最终按"先只动一个变量"原则定在 4KB。
+//   支持调大：每条 Steam 消息都带协议头并各自进可靠队列，4KB 时 1MB 要发 256 条、64KB 只要 16 条。
+//   支持调小：Steam 的可靠通道是**有序**的，一条消息 = 一串 UDP 段，中间丢一段，
+//     后面所有段乃至后面所有消息都得等重传（队头阻塞）。64KB 一条消息约 55 个段，
+//     丢一次的代价是 4KB 那条（约 3 个段）的十几倍。游戏卡顿主要是尾延迟，不是峰值吞吐。
+// chunyu-vpn（另一个已跑通的 Steam 组网项目）在 net/multiplex_manager.cpp:9-11 明确选了
+// 贴近路径 MTU 的 1100 字节，注释是 "Keep chunks close to path MTU to reduce Steam UDP
+// fragmentation/lock pressure" —— 这是目前唯一一条来自实测项目的方向性证据。
+// 想试大分片就设 SHL_STEAM_MAX_CHUNK，不用重新打包。
+const DEFAULT_MAX_CHUNK = 4 * 1024;
 const MIN_CHUNK = 256;
 const MAX_CHUNK = 512 * 1024;
 

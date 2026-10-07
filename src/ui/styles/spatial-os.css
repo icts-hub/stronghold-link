@@ -17,7 +17,7 @@
   --glass-header: 0.4;
   --glass-nav: 0.52;
   --glass-footer: 0.3;
-  --os-blur: 20px;
+  --os-blur: 28px;
   --os-pad: 48px;
   --os-gap: 22px;
   --os-dock-h: 62px;
@@ -274,7 +274,7 @@ html.os-home .wrap { padding-right: 430px; }
   color: var(--c-muted, var(--text));
   text-transform: uppercase;
 }
-.ostoday__l { margin-top: 10px; }
+.ostoday__l { margin-top: 8px; }
 .ostoday__i {
   display: flex;
   align-items: center;
@@ -367,7 +367,7 @@ html.os-home .wrap { padding-right: 430px; }
   background: var(--accent);
   transition: width 900ms var(--os-ease);
 }
-.oswork__rows { margin-top: 18px; }
+.oswork__rows { margin-top: 12px; }
 .oswork__row {
   display: flex;
   align-items: baseline;
@@ -520,9 +520,23 @@ html.os-home .wrap { padding-right: 430px; }
 .rail.dock .nav button:hover { background: rgba(var(--accent-rgb), 0.05); padding-left: 19px; }
 .rail.dock .nav button:hover .n-name { color: var(--ink); }
 .rail.dock .nav button:hover .n-go { width: 20px; background: rgba(var(--accent-rgb), 0.55); }
-.rail.dock .nav button.active { background: rgba(var(--accent-rgb), 0.07); }
-.rail.dock .nav button.active .n-name { color: var(--ink); }
-.rail.dock .nav button.active .n-idx { color: var(--accent-ink, var(--accent)); }
+/* 选中项的底板与文字必须成对改：rhine-dynamic 给「实心墨牌」配的是
+   --plate-paper 纸白字，而且带 !important。这里原来只把底板换成 7% 的
+   浅淡染，字色仍是纸白 —— 浅色主题下就是白底白字，Dock 上当前所在的
+   那一项（最重要的那个选项）整个看不见。改成墨牌 + 纸白字，两处对齐。 */
+.rail.dock .nav button.active { background: var(--plate-ink); }
+.rail.dock .nav button.active .n-name,
+.rail.dock .nav button.active span { color: var(--plate-paper) !important; }
+.rail.dock .nav button.active .n-idx { color: var(--accent) !important; }
+.rail.dock .nav button.active .n-go { background: rgba(242, 240, 235, 0.55); }
+.rail.dock .nav button.active .n-go::after { border-color: rgba(242, 240, 235, 0.55); }
+/* 深色主题反过来：墨牌在深色坞上会糊成一团，改用纸白牌 + 墨黑字 */
+[data-theme='dark'] .rail.dock .nav button.active { background: var(--plate-paper); }
+[data-theme='dark'] .rail.dock .nav button.active .n-name,
+[data-theme='dark'] .rail.dock .nav button.active span { color: var(--plate-ink) !important; }
+[data-theme='dark'] .rail.dock .nav button.active .n-idx { color: var(--accent-ink, var(--accent)) !important; }
+[data-theme='dark'] .rail.dock .nav button.active .n-go { background: rgba(8, 10, 8, 0.45); }
+[data-theme='dark'] .rail.dock .nav button.active .n-go::after { border-color: rgba(8, 10, 8, 0.45); }
 .rail.dock .nav button.active::before { transform: scaleX(1); }
 
 /* 空闲扫掠：导航坞上偶尔走一道很慢的细线 */
@@ -652,7 +666,7 @@ html.os-home .wrap { padding-right: 430px; }
 
 /* ── HOME：中央留白，只在信息需要处落模块 ─────────────────────────────── */
 .home { border: none; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
-.home__lede { padding: 4px 0 26px; }
+.home__lede { padding: 2px 0 16px; }
 .home__lede .eyebrow {
   font-family: var(--font-tech, ui-monospace, monospace);
   font-size: 10px; letter-spacing: 0.24em; color: var(--c-faint, var(--text));
@@ -679,7 +693,7 @@ html.os-home .wrap { padding-right: 430px; }
   backdrop-filter: blur(calc(var(--os-blur) - 4px)) saturate(1.06);
   -webkit-backdrop-filter: blur(calc(var(--os-blur) - 4px)) saturate(1.06);
 }
-.home__cell { padding: 15px 20px 17px; border-left: 1px solid var(--os-hair-soft); }
+.home__cell { padding: 11px 16px 13px; border-left: 1px solid var(--os-hair-soft); }
 .home__cell:first-child { border-left: none; }
 .home__k {
   display: block;
@@ -698,7 +712,7 @@ html.os-home .wrap { padding-right: 430px; }
   color: var(--ink);
   word-break: break-all;
 }
-.home__actions { margin-top: var(--os-gap); display: flex; gap: 10px; }
+.home__actions { margin-top: var(--os-gap); display: flex; gap: 8px; }
 
 /* ── 控件：直角、细边、无大阴影 ──────────────────────────────────────── */
 .btn {
@@ -774,7 +788,7 @@ html:not(.os-home) .oswork { opacity: 1; pointer-events: auto; transform: none; 
 }
 .bg .bg__vignette { background: radial-gradient(140% 116% at 50% 44%, rgba(var(--paper-rgb), 0) 62%, rgba(var(--paper-rgb), 0.2) 100%); }
 [data-theme='dark'] .bg .bg__vignette { background: radial-gradient(138% 112% at 50% 46%, rgba(var(--paper-rgb), 0) 54%, rgba(var(--paper-rgb), 0.36) 100%); }
-:root { --os-blur: 22px; }
+:root { --os-blur: 32px; }
 [data-theme='dark'] { --os-glass: 0.46; }
 
 /* 首页雷达读数不再折行 */
@@ -886,14 +900,14 @@ html[data-stage-3d="0"] .bg__layer--mid { opacity: 0.85; }
 .view .readout { padding: 15px 0; }
 .view .readout-row { gap: 0 var(--sp-7); }
 
-.view .panel { padding: 26px 28px 24px; }
+.view .panel { padding: 20px 22px 20px; }
 .view .home__cell { padding: 20px 24px 22px; }
 .view .home__sub { font-size: 14px; line-height: 1.8; }
 
 /* 左右两列信息模块：读数行同样放宽 */
-.oswork__row { padding: 11px 0; }
+.oswork__row { padding: 9px 0; }
 .osclock__date { margin-top: 20px; }
-.ostoday__i { padding: 12px 0; }
+.ostoday__i { padding: 9px 0; }
 
 /* ── 空闲动势：静止画面也要在动 ────────────────────────────────────────
    全部只走 transform / opacity，周期 24s 以上，幅度极小。目标是让人觉得
@@ -965,7 +979,7 @@ html[data-stage-3d="0"] .bg__layer--mid { opacity: 0.85; }
 /* 首页读数格：四列一排。格子放大到 148 高、读数 38px，
    原来 96 高配 26px 在高分辨率下显得又小又挤。 */
 .view .home__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.view .home__cell { min-height: 96px; border-top: 1px solid var(--os-hair-soft); }
+.view .home__cell { min-height: 74px; border-top: 1px solid var(--os-hair-soft); }
 .view .home__cell:nth-child(-n + 2) { border-top: none; }
 .view .home__cell:nth-child(odd) { border-left: none; }
 .view .home .home__v { font-size: 26px; }
@@ -975,7 +989,7 @@ html[data-stage-3d="0"] .bg__layer--mid { opacity: 0.85; }
 /* 首页四格在设计尺寸下就是一排四列。原先挂在 min-width:1780px 上，
    而 zoom 之后逻辑宽度恒为 1600，那条真实像素断点永远不该参与判断。 */
 .view .home__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.view .home__cell { min-height: 168px; padding: 30px 34px 32px; border-top: none; }
+.view .home__cell { min-height: 118px; padding: 20px 24px 22px; border-top: none; }
 .view .home__cell:nth-child(odd) { border-left: 1px solid var(--os-hair-soft); }
 .view .home__cell:first-child { border-left: none; }
 .view .home .home__v { font-size: 40px; }
@@ -984,11 +998,11 @@ html[data-stage-3d="0"] .bg__layer--mid { opacity: 0.85; }
 /* 首页整块套着玻璃面板（.view .home 那条 0,2,0 的规则压过了 .home 自己的去边框），
    之前面板没有内边距，标题与 eyebrow 直接贴在面板边框上。补上内边距，
    让标题左缘与下面读数格的边框对齐，格内文字再往里一层。 */
-.view .home { padding: 36px 40px 40px; }
+.view .home { padding: 26px 30px 28px; }
 .view .home__title { font-size: 62px; max-width: 18em; }
-.view .home__lede { padding: 8px 0 36px; }
+.view .home__lede { padding: 6px 0 22px; }
 .view .home__sub { font-size: 15px; line-height: 1.85; max-width: 42em; }
-.view .home__actions { margin-top: 34px; gap: 12px; }
+.view .home__actions { margin-top: 22px; gap: 10px; }
 
 /* ═══════════════════════════════════════════════════════════════════════
    SPATIAL LAYOUT REFINEMENT · 空间化版式重建
@@ -998,14 +1012,14 @@ html[data-stage-3d="0"] .bg__layer--mid { opacity: 0.85; }
 
 :root {
   /* 统一的 Panel 内边距 Token，禁止各处自定 */
-  --panel-padding-xs: 16px;
-  --panel-padding-sm: 20px;
-  --panel-padding-md: 24px;
-  --panel-padding-lg: 32px;
+  --panel-padding-xs: 12px;
+  --panel-padding-sm: 16px;
+  --panel-padding-md: 20px;
+  --panel-padding-lg: 26px;
   /* 8px 间距系统：4 8 12 16 20 24 32 40 48 64 */
-  --gap-item: 24px;
-  --gap-panel: 24px;
-  --gap-section: 40px;
+  --gap-item: 16px;
+  --gap-panel: 18px;
+  --gap-section: 28px;
   /* 空间桌面骨架 */
   --edge: 36px;
   --rail-w: 268px;
@@ -1249,9 +1263,9 @@ html:not(.os-home) .wrap {
 .osbrand__sub { margin-top: 18px; }
 .osclock { padding: var(--panel-padding-sm); }
 .ostoday { padding: var(--panel-padding-sm); }
-.ostoday__i { padding: 13px 0; }
+.ostoday__i { padding: 9px 0; }
 .oswork { padding: var(--panel-padding-md); }
-.oswork__row { padding: 13px 0; }
+.oswork__row { padding: 9px 0; }
 
 /* ── 十二、分辨率分级 ──────────────────────────────────────────
    外壳用 zoom 做等比缩放，逻辑视口恒定不小于 1600x900，因此不再按真实
@@ -1319,3 +1333,7 @@ html:not(.os-home) .wrap {
   pointer-events: none;
 }
 
+
+/* 线路诊断文字：只有 warn 才染告警色，其余保持弱化。
+   理由：诊断每 2 秒刷一次，如果平常也是醒目颜色，用户会习惯性忽略真正的告警。 */
+.tech.is-warn { color: var(--signal-warn); }

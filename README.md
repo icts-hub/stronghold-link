@@ -5,8 +5,8 @@
 
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-![tests](https://img.shields.io/badge/tests-405%20passing-brightgreen)
-![version](https://img.shields.io/badge/version-0.12.0-informational)
+![tests](https://img.shields.io/badge/tests-516%20passing-brightgreen)
+![version](https://img.shields.io/badge/version-0.13.2-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密，算法 X25519 + AES-256-GCM
 - **Steam P2P 隧道**：基于 Steam Networking Sockets，跨网络无需端口转发，需自备 Steamworks SDK
@@ -34,7 +34,7 @@ git clone https://github.com/icts-hub/stronghold-link.git
 cd stronghold-link
 npm install                # 需要 Node.js 20+，会装 electron 与可选依赖 steamworks-ffi-node
 npm start                  # 启动图形界面
-npm test                   # 405 个测试用例
+npm test                   # 516 个测试用例
 ```
 
 想用 Steam 隧道：把 SDK 的 `steam_api64.dll` 放到 `steamworks_sdk/redistributable_bin/win64/`。
@@ -136,7 +136,7 @@ npm run dist:both   # 两版依次产出
 ├─ src/ui/stage.js        三维档案背景，Three.js 实例化阵列
 ├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集，MiSans 与 Inter/Plex，许可见同目录
-├─ test/                  node:test 测试，40 个文件 405 个用例
+├─ test/                  node:test 测试，42 个文件 516 个用例
 ├─ tools/                 开发工具：Steam 探针、字体子集裁剪、测试运行器、测速、双版本打包、CHANGELOG 截取
 └─ docs/                  阶段设计与测试报告
 ```

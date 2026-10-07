@@ -399,3 +399,142 @@ test('session.getRouteReport：没有通道时一切落 UNKNOWN，不报直连',
   assert.strictEqual(out.steamInBytesPerSec, null);
   assert.deepStrictEqual(out.channels, []);
 });
+
+// ---------------------------------------------------------------------------
+// 带宽诊断：这几项是判断"到底是不是 Steam 在限速"的唯一证据，必须算对。
+// ---------------------------------------------------------------------------
+
+/** 造一条可汇总的活连接样本。 */
+function live(extra = {}) {
+  return {
+    available: true,
+    route: 'DIRECT_P2P',
+    relayed: false,
+    ping: 40,
+    steamInBytesPerSec: 20480,
+    steamOutBytesPerSec: 10240,
+    sendRateBytesPerSecond: 131072,
+    pendingReliable: 0,
+    sentUnackedReliable: 0,
+    usecQueueTime: 0,
+    qualityLocal: 1,
+    steamInPacketsPerSec: 100,
+    steamOutPacketsPerSec: 100,
+    ...extra,
+  };
+}
+
+test('summarize：发送上限取最小的那条连接，取平均会把最慢的一条掩盖掉', () => {
+  const out = R.summarize([
+    live({ sendRateBytesPerSecond: 262144 }),
+    live({ sendRateBytesPerSecond: 65536 }),
+    live({ sendRateBytesPerSecond: 524288 }),
+  ]);
+  assert.strictEqual(out.sendRateBytesPerSecond, 65536);
+});
+
+test('summarize：积压与丢包按总和报，排队时间取最大', () => {
+  const out = R.summarize([
+    live({ pendingReliable: 4096, sentUnackedReliable: 1024, usecQueueTime: 3000 }),
+    live({ pendingReliable: 8192, sentUnackedReliable: 2048, usecQueueTime: 9000 }),
+  ]);
+  assert.strictEqual(out.pendingReliable, 12288);
+  assert.strictEqual(out.sentUnackedReliable, 3072);
+  assert.strictEqual(out.usecQueueTime, 9000);
+});
+
+test('summarize：新增字段同样遵守"缺一条就整体落 null"，不拿局部求和冒充总量', () => {
+  const out = R.summarize([
+    live({ pendingReliable: 4096 }),
+    live({ pendingReliable: null }),
+  ]);
+  assert.strictEqual(out.pendingReliable, null);
+  assert.strictEqual(out.sendRateBytesPerSecond, 131072, '其它字段仍然照常汇总');
+});
+
+test('summarize：没有活连接时新字段全部落 null，不填 0', () => {
+  const out = R.summarize([]);
+  assert.strictEqual(out.sendRateBytesPerSecond, null);
+  assert.strictEqual(out.pendingReliable, null);
+  assert.strictEqual(out.usecQueueTime, null);
+  assert.strictEqual(out.qualityLocal, null);
+});
+
+test('diagnose：积压很高时点名瓶颈在 Steam 线路，而不是本地', () => {
+  const out = R.diagnose({ route: 'DIRECT_P2P', relayed: false, ping: 60, pendingReliable: 200 * 1024, sendRateBytesPerSecond: 131072, usecQueueTime: 4000 });
+  assert.strictEqual(out.level, 'warn');
+  assert.match(out.text, /积压/);
+  assert.match(out.text, /瓶颈在 Steam 线路/);
+  assert.match(out.text, /128 KB\/s/);
+});
+
+test('diagnose：没有积压但往返很高时说清卡的是延迟不是带宽', () => {
+  const out = R.diagnose({ route: 'DIRECT_P2P', relayed: false, ping: 210, pendingReliable: 0, sendRateBytesPerSecond: 524288 });
+  assert.strictEqual(out.level, 'warn');
+  assert.match(out.text, /卡的是延迟不是带宽/);
+});
+
+test('diagnose：中继连接会直接点名中继 POP', () => {
+  const out = R.diagnose({ route: 'STEAM_SDR_RELAY', relayed: true, relayPop: 'tyo1', ping: 90, pendingReliable: 0 });
+  assert.match(out.text, /Steam 中继 tyo1/);
+});
+
+test('diagnose：没有连接时如实说没有连接，不编一句正常的出来', () => {
+  const out = R.diagnose({ route: 'UNKNOWN' });
+  assert.strictEqual(out.level, 'idle');
+  assert.match(out.text, /没有活动连接/);
+});
+
+test('diagnose：多条连接线路不一致时明说读数不能代表整体', () => {
+  const out = R.diagnose({ route: 'MIXED', relayed: true, ping: 30 });
+  assert.strictEqual(out.level, 'warn');
+  assert.match(out.text, /线路不一致/);
+});
+
+test('diagnose：一切正常时不报 warn', () => {
+  const out = R.diagnose({ route: 'DIRECT_P2P', relayed: false, ping: 35, pendingReliable: 0, sendRateBytesPerSecond: 262144, usecQueueTime: 500 });
+  assert.strictEqual(out.level, 'ok');
+  assert.match(out.text, /直连/);
+});
+
+// 传输偏好接进诊断之后新增的几条。要求"罚分已压到底还是走中继"这件事
+// 必须被点出来 —— 否则用户会以为调参没生效，继续白调带宽。
+
+test('diagnose：配置了强制直连却仍然走中继时，明说打洞没成功', () => {
+  const out = R.diagnose({
+    route: 'STEAM_SDR_RELAY',
+    relayed: true,
+    relayPop: 'hkg1',
+    ping: 70,
+    pendingReliable: 0,
+    netConfig: { available: true, transport: 'ice' },
+  });
+  assert.strictEqual(out.level, 'warn');
+  assert.match(out.text, /ICE 打洞没成功/);
+  assert.match(out.text, /再调带宽没有用/);
+});
+
+test('diagnose：没有传输偏好或偏好是 auto 时，不硬塞"打洞失败"的结论', () => {
+  const plain = R.diagnose({ route: 'STEAM_SDR_RELAY', relayed: true, relayPop: 'hkg1', ping: 70, pendingReliable: 0 });
+  assert.ok(!/打洞没成功/.test(plain.text));
+  const auto = R.diagnose({
+    route: 'STEAM_SDR_RELAY', relayed: true, relayPop: 'hkg1', ping: 70, pendingReliable: 0,
+    netConfig: { available: true, transport: 'auto' },
+  });
+  assert.ok(!/打洞没成功/.test(auto.text));
+});
+
+test('diagnose：强制直连且真的直连上了，如实说明中继不会来抢路', () => {
+  const out = R.diagnose({
+    route: 'DIRECT_P2P', relayed: false, ping: 30, pendingReliable: 0,
+    netConfig: { available: true, transport: 'ice' },
+  });
+  assert.strictEqual(out.level, 'ok');
+  assert.match(out.text, /禁止中继抢路/);
+});
+
+test('diagnose：netConfig 是 null 时不影响原有判定', () => {
+  const out = R.diagnose({ route: 'DIRECT_P2P', relayed: false, ping: 35, pendingReliable: 0, netConfig: null });
+  assert.strictEqual(out.level, 'ok');
+  assert.match(out.text, /没有经过中继/);
+});

@@ -71,6 +71,11 @@
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0 var(--sp-6);
 }
+/* 句子型读数（Steam globals / Link tuning）一行一项占满整行。
+   这两项的值是一整句话而不是一个数，塞进两列网格会被 .metric__v 的 nowrap
+   顶出格子、压在右边那格身上（实测 564px 宽时两行文字直接叠在一起）。 */
+.metrics.metrics--wide { grid-template-columns: minmax(0, 1fr); }
+.metrics.metrics--wide .metric { min-width: 0; }
 .metric {
   display: flex;
   flex-direction: column;
@@ -95,6 +100,14 @@
 }
 .metric__v.is-accent { color: var(--accent-text); }
 .metric__v.is-dim { color: var(--ink-muted); }
+/* 句子型读数：允许换行、不抢字重。选择器比 .metric__v 多一层，
+   这样能压过后加载的 rhine-dynamic.css:1495 的 19px/700。 */
+.metric .metric__v--text {
+  white-space: normal;
+  overflow-wrap: break-word;
+  font-size: var(--fs-data);
+  font-weight: 400;
+}
 .metric__u { font-size: var(--fs-label); color: var(--ink-faint); margin-left: 4px; }
 
 /* ------------------------------- 状态 ----------------------------------- */

@@ -281,6 +281,19 @@
 <div class="metric"><span class="metric__k">Steam RX</span><span class="metric__v is-dim" id="routeSteamRx">—</span></div>
 </div>
 <div class="metrics" style="margin-top:var(--sp-3)">
+<div class="metric"><span class="metric__k">Steam send ceiling</span><span class="metric__v is-dim" id="routeSendRate">—</span></div>
+<div class="metric"><span class="metric__k">Pending / unacked</span><span class="metric__v is-dim" id="routeBacklog">—</span></div>
+</div>
+<div class="metrics" style="margin-top:var(--sp-3)">
+<div class="metric"><span class="metric__k">Queue time</span><span class="metric__v is-dim" id="routeQueue">—</span></div>
+<div class="metric"><span class="metric__k">Local quality</span><span class="metric__v is-dim" id="routeQuality">—</span></div>
+</div>
+<p class="tech tech-dim" id="routeDiagnosis" style="margin-top:8px">—</p>
+<div class="metrics metrics--wide" style="margin-top:var(--sp-3)">
+<div class="metric"><span class="metric__k">Steam globals</span><span class="metric__v metric__v--text is-dim" id="routeNetConfig">—</span></div>
+<div class="metric"><span class="metric__k">Link tuning</span><span class="metric__v metric__v--text is-dim" id="routeTuning">—</span></div>
+</div>
+<div class="metrics" style="margin-top:var(--sp-3)">
 <div class="metric"><span class="metric__k">Datagrams ↑ / ↓</span><span class="metric__v is-dim" id="sessionPackets">0 / 0</span></div>
 <div class="metric"><span class="metric__k">Rejected / Failed</span><span class="metric__v is-dim" id="sessionRejected">0 / 0</span></div>
 </div>
@@ -546,7 +559,21 @@
 <div class="spec__row"><span class="spec__k">Network engine</span><span class="spec__v mono" id="setNetwork">—</span></div>
 </div>
 
-<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">02</span><span class="step__title">Interface</span><span class="step__meta">Theme · Motion</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">02</span><span class="step__title">Network route</span><span class="step__meta">Steam P2P</span></div>
+<div class="spec">
+<div class="spec__row"><span class="spec__k">Transport</span><span class="spec__v">
+<div class="theme-switch" role="group" aria-label="Steam 线路档位">
+<button type="button" id="lineDefault" data-transport="env" aria-pressed="true" title="不覆盖，跟随启动时的环境变量；没有就用出厂默认（强制直连）">Default</button>
+<button type="button" id="lineAuto" data-transport="auto" aria-pressed="false" title="不干预，让 Steam 自己挑延迟最低的线路">Auto</button>
+<button type="button" id="lineIce" data-transport="ice" aria-pressed="false" title="只走直连（出厂默认）">Direct</button>
+<button type="button" id="lineRelay" data-transport="relay" aria-pressed="false" title="不走直连，全部经 Steam SDR 中继">Relay</button>
+</div></span></div>
+<div class="spec__row"><span class="spec__k">In effect</span><span class="spec__v mono" id="lineEffective">—</span></div>
+<div class="spec__row"><span class="spec__k">Detail</span><span class="spec__v" id="lineDetail">—</span></div>
+<div class="spec__row"><span class="spec__k">Takes effect</span><span class="spec__v" id="lineNote">下一次建立会话时下发（改完不必重启程序）</span></div>
+</div>
+
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Interface</span><span class="step__meta">Theme · Motion</span></div>
 <div class="spec">
 <div class="spec__row"><span class="spec__k">Color theme</span><span class="spec__v">
 <div class="theme-switch" role="group" aria-label="界面配色">
@@ -599,7 +626,7 @@
 <div class="spec__row"><span class="spec__k">Motion state</span><span class="spec__v mono" id="setMotion">—</span></div>
 </div>
 
-<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">03</span><span class="step__title">Configuration data</span><span class="step__meta">JSON</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">04</span><span class="step__title">Configuration data</span><span class="step__meta">JSON</span></div>
 <div class="actions">
 <button class="btn ghost sm" id="exportBtn">Export</button>
 <button class="btn ghost sm" id="importBtn">Import</button>
@@ -610,10 +637,10 @@
 </div>
 
 <div class="c-5">
-<div class="step"><span class="step__idx">04</span><span class="step__title">Boundaries</span><span class="step__meta">Not verified</span></div>
+<div class="step"><span class="step__idx">05</span><span class="step__title">Boundaries</span><span class="step__meta">Not verified</span></div>
 <p class="note">跨两台机器的真实数据往返未在本机实测；Steam 通道的自动化测试使用注入的假 SDK。NSIS 安装包未在开发机产出，便携版可直接使用。</p>
 
-<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">05</span><span class="step__title">License</span><span class="step__meta">GPL-3.0-or-later</span></div>
+<div class="step" style="margin-top:var(--sp-7)"><span class="step__idx">06</span><span class="step__title">License</span><span class="step__meta">GPL-3.0-or-later</span></div>
 <p class="note">源码：github.com/icts-hub/stronghold-link。发行包不含 Valve 的 Steamworks SDK。字体：MiSans（免费商用）+ Inter / IBM Plex Mono（OFL）。Steam 与 Steamworks 是 Valve Corporation 的商标，本项目与其无隶属关系。</p>
 </div>
 </div>
@@ -1068,7 +1095,10 @@ function initSelfTest(){
     if(out)out.textContent='自检中…（隧道那一环最多等 8 秒）';
     try{
       var r=await api.selftest();
-      if(!r||!r.ok){if(out)out.textContent='自检失败：'+((r&&r.verdict)||'');return;}
+      var checks=(r&&r.checks)||[];
+      // ok:false 只说明"这次调用没跑完"，不代表检查项没用 —— 以前这里直接 return，
+      // 把已经拿到的检查项全丢了，用户只看到一行"自检失败"，等于自检在最需要时失效。
+      if(!r||(!r.ok&&!checks.length)){if(out)out.textContent='自检失败：'+((r&&r.verdict)||'');return;}
       if((r.checks||[]).some(function(c){return c.ok===false&&/启动计划|隧道入口/.test(c.name);})){
         var role=(lobbySnapshot&&lobbySnapshot.role)||null;
         if(role==='joiner')renderRoomSteps({manualPrompt:true,forcePort:(lobbySnapshot&&((lobbySnapshot.hostInfo&&lobbySnapshot.hostInfo.port)||lobbySnapshot.port))||null});
@@ -1708,6 +1738,53 @@ function makeToken(){const bytes=new Uint8Array(9);crypto.getRandomValues(bytes)
 function fmtBytes(n){const v=Number(n)||0;if(v<=0)return '0 B';const units=['B','KiB','MiB','GiB'];let i=0,x=v;while(x>=1024&&i<units.length-1){x/=1024;i++}return (i===0?x.toFixed(0):x.toFixed(1))+' '+units[i]}
 function fmtRate(n){return fmtBytes(n)+'/s'}
 function fmtTime(ts){if(!ts)return '—';return new Date(ts).toLocaleTimeString('zh-CN',{hour12:false})}
+/* 02 Network route：Steam 线路档位（Default / Auto / Direct / Relay）。
+   改完立刻写盘，下一次建立会话时下发给 Steam —— 不用重启程序。
+   之所以要做进界面：档位原来只能靠"启动前 set 环境变量"，而这个程序有单实例锁，
+   旧进程没退干净时新进程会静默自杀、环境变量根本读不到，现场就踩过这个坑。 */
+var lineState=null;
+var LINE_BUTTONS={env:'lineDefault',auto:'lineAuto',ice:'lineIce',relay:'lineRelay'};
+function renderLineSettings(s){
+ if(s)lineState=s;
+ if(!lineState)return;
+ Object.keys(LINE_BUTTONS).forEach(function(k){
+  var b=$(LINE_BUTTONS[k]);
+  if(b)b.setAttribute('aria-pressed',String(k===lineState.transport));
+ });
+ var eff=$('lineEffective');
+ if(eff)eff.textContent=lineState.effectiveLabel||'—';
+ var detail=$('lineDetail');
+ if(detail){
+  if(lineState.transport==='env'){
+   detail.textContent=lineState.envValue
+    ?('跟随启动环境变量 '+lineState.envKey+'='+lineState.envValue)
+    :('没有设置 '+lineState.envKey+'，用出厂默认（强制直连）');
+  }else{
+   detail.textContent='界面指定，优先于环境变量';
+  }
+ }
+}
+async function bootLineSettings(){
+ var api=window.strongholdLink&&window.strongholdLink.settings;
+ if(!api){var eff=$('lineEffective');if(eff)eff.textContent='当前版本不支持';return;}
+ try{renderLineSettings(await api.load())}
+ catch(e){var box=$('lineEffective');if(box)box.textContent='读取失败：'+(e.message||e);}
+}
+function wireLineSettings(){
+ var api=window.strongholdLink&&window.strongholdLink.settings;
+ if(!api)return;
+ Object.keys(LINE_BUTTONS).forEach(function(key){
+  var b=$(LINE_BUTTONS[key]);if(!b)return;
+  b.onclick=async function(){
+   try{
+    var s=await api.save({transport:key});
+    renderLineSettings(s);
+    toast('线路档位已改为「'+(s.effectiveLabel||key)+'」——重新建立会话后生效');
+   }catch(e){toast('保存失败：'+(e.message||e));}
+  };
+ });
+}
+wireLineSettings();
 async function bootAppInfo(){
  try{
   const info=await window.strongholdLink.app.info();
@@ -1718,6 +1795,7 @@ async function bootAppInfo(){
   $('setVersion').textContent=info.version+' / Electron '+info.electron;
   $('setConfigPath').textContent=info.configPath;
   $('setRuntime').textContent='Node '+info.node+' / '+info.platform+' '+info.arch;
+  await bootLineSettings();
   const adapters=await window.strongholdLink.adapters.list();
   adaptersCache=adapters;lastAdapterList=adapters;
   const ac=$('adapterCount');if(ac)ac.textContent=adapters.length+' providers';
@@ -1760,10 +1838,17 @@ function renderRecipes(){
 async function refreshSession(){try{sessionSnapshot=await window.strongholdLink.session.status();renderSession()}catch(e){/* 主进程不可用时保持原状 */}}
 /* 当前线路：直连 / Steam 中继 由主进程读活连接的 POP 判定，界面不猜。
    没有真实连接时全部显示 —，绝不填 0 或示例数字。 */
+/* 传输偏好代号 → 界面中文。主进程给的是 auto/ice/relay 三个档位名。 */
+const TRANSPORT_TEXT={auto:'自动选路',ice:'强制直连',relay:'强制中继'};
 function renderSessionRoute(){
  const r=routeSnapshot;
  const link=$('routeLink'),pops=$('routePops'),remote=$('routeRemote'),ping=$('routePing'),rawRx=$('routeRawRx'),steamRx=$('routeSteamRx');
- if(!r){if(link)link.textContent='—';if(pops)pops.textContent='— / —';if(remote)remote.textContent='—';if(ping)ping.textContent='—';if(rawRx)rawRx.textContent='—';if(steamRx)steamRx.textContent='—';return}
+ const sendCap=$('routeSendRate'),backlog=$('routeBacklog'),queueT=$('routeQueue'),quality=$('routeQuality'),diag=$('routeDiagnosis'),netCfg=$('routeNetConfig'),tune=$('routeTuning');
+ if(!r){
+  for(const el of [link,remote,ping,rawRx,steamRx,sendCap,queueT,quality,diag,netCfg,tune]){if(el)el.textContent='—'}
+  if(pops)pops.textContent='— / —';if(backlog)backlog.textContent='—';
+  return;
+ }
  const known=typeof r.route==='string'&&r.route!=='UNKNOWN';
  if(link){
   link.textContent=known?(r.routeLabel||r.route):'—';
@@ -1777,6 +1862,42 @@ function renderSessionRoute(){
  if(rawRx)rawRx.textContent=raw;
  // Steam RX 只有走 Steam 线路时才有意义，本地中继明确标注不适用
  if(steamRx)steamRx.textContent=(r.protocol==='STEAM'||r.route==='STEAM_SDR_RELAY'||r.route==='DIRECT_P2P')?steam:'不适用';
+ // 发送上限是判断"是不是 Steam 在限速"的直接证据：它长期钉住不动、同时积压一直涨，
+ // 就是被线路卡住了，再调本地参数没用；反过来积压长期为 0 而 ping 高，那是延迟问题。
+ if(sendCap)sendCap.textContent=Number.isFinite(r.sendRateBytesPerSecond)?fmtRate(r.sendRateBytesPerSecond):'—';
+ if(backlog){
+  const p=r.pendingReliable,u=r.sentUnackedReliable;
+  backlog.textContent=(Number.isFinite(p)||Number.isFinite(u))
+   ?((Number.isFinite(p)?fmtBytes(p):'—')+' / '+(Number.isFinite(u)?fmtBytes(u):'—'))
+   :'—';
+ }
+ if(queueT)queueT.textContent=Number.isFinite(r.usecQueueTime)?((r.usecQueueTime/1000).toFixed(1)+' ms'):'—';
+ if(quality)quality.textContent=Number.isFinite(r.qualityLocal)?r.qualityLocal.toFixed(2):'—';
+ // 诊断文案来自网络层的 diagnose()，界面不重新判断一遍，免得两边规则不一致。
+ if(diag){
+  const d=r.diagnosis;
+  diag.textContent=(d&&d.text)?d.text:'—';
+  diag.className='tech '+((d&&d.level==='warn')?'is-warn':'tech-dim');
+ }
+ if(netCfg){
+  const n=r.netConfig;
+  if(!n)netCfg.textContent='—';
+  else if(!n.available)netCfg.textContent=n.reason||'未下发';
+  else{
+   const list=Array.isArray(n.applied)?n.applied:[];
+   const bad=list.filter((e)=>e&&e.ok===false).length;
+   // 传输偏好排在最前面：它决定"现在这条线路是不是被允许走中继"，
+   // 比"下发了多少项"更该先看到。
+   const mode=TRANSPORT_TEXT[n.transport]||null;
+   netCfg.textContent=(mode?(mode+' · '):'')
+    +list.length+' 项已下发'+(bad?('（'+bad+' 项未生效）'):'')
+    +((Array.isArray(n.changed)&&n.changed.length)?(' · '+n.changed.join(' · ')):' · 全部默认值');
+  }
+ }
+ if(tune){
+  const t=r.tuning;
+  tune.textContent=t?('分片 '+fmtBytes(t.maxChunk)+' · 批次 '+t.maxMessageBatch+' · 轮询 '+t.callbackIntervalMs+' ms'):'—';
+ }
 }
  async function refreshRoute(){try{routeSnapshot=await window.strongholdLink.session.route();renderSessionRoute();renderStripRoute()}catch(e){/* 读不到就保持原状，不显示假数据 */}}
 /* 底部状态条只显示线路代号，读不到就是 —，不写 CONNECTED 之类的模糊词 */

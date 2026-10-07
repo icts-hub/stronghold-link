@@ -514,6 +514,43 @@ test('Steam 会话（阶段 4）：用注入的假 SDK 启动房主会话，通�
   }
 });
 
+// 线路档位（Steam 传输偏好）现在由界面设置决定，经主进程注入会话参数。
+// 这条用例盯的是"参数真的走到了 Steam 网络配置里"——中间少一环，界面上就会
+// 显示成选好了、实际还是旧档位（现场踩过：.cmd 改了环境变量，界面里纹丝不动）。
+test('Steam 会话：线路档位从会话参数一路下发到 Steam 网络配置', async () => {
+  const { SessionManager: SM } = require('../network/session.cjs');
+  const game = await h.startEchoServer();
+  const openHost = async (extra) => {
+    const mock = require('./steam-mock.cjs').createMockSdk();
+    const manager = new SM({ steamSdk: mock.sdk, onEvent: () => {} });
+    const snapshot = await manager.start({
+      role: 'host', adapter: 'steam', targetHost: '127.0.0.1', gamePort: game.port, game: '线路测试', ...extra,
+    });
+    return { manager, mock, snapshot };
+  };
+  // 104 是 P2P_Transport_ICE_Enable（见 network/steam-netconfig.cjs 的 CONFIG_VALUE）。
+  // 观察"真正下发到 Steam 的值"，而不是界面上的字符串——中间少一环也会被这条抓出来。
+  const iceEnableOf = (mock) => mock.state.configSets.filter((s) => s.valueId === 104).pop();
+  let relayed = null;
+  let plain = null;
+  try {
+    relayed = await openHost({ netConfig: { transport: 'relay' } });
+    const relayIce = iceEnableOf(relayed.mock);
+    assert.ok(relayIce, '线路档位必须真的下发到 Steam 全局网络参数');
+    assert.equal(relayIce.value, 0, '强制中继要把 P2P_Transport_ICE_Enable 设成 0（不共享 ICE 候选）');
+
+    plain = await openHost({});
+    const plainIce = iceEnableOf(plain.mock);
+    assert.ok(plainIce, '不给档位时也要按出厂默认下发');
+    // 出厂默认档位是 ice（强制直连），对应 ICE_ALL = 0x7fffffff（三种候选全开）。
+    assert.equal(plainIce.value, 0x7fffffff, '出厂默认档位要把 ICE 候选全开');
+  } finally {
+    if (relayed) relayed.manager.shutdown();
+    if (plain) plain.manager.shutdown();
+    await game.close();
+  }
+});
+
 test('Steam 会话：加入者填房主 SteamID 与本机入口端口，SteamID 非法时拒绝', async () => {
   const mock = require('./steam-mock.cjs').createMockSdk();
   const { SessionManager: SM } = require('../network/session.cjs');

@@ -57,10 +57,43 @@ function createMockSdk({ identity = HOST_STEAM_ID } = {}) {
     getConnectionInfo: () => ({ identityRemote: identity, state: 3, endDebugMessage: '' }),
     initAuthentication: () => 0,
   };
+  // ---- 全局网络参数（network/steam-netconfig.cjs）：把真正下发的每一对 (valueId, value) 记下来 ----
+  // 桩必须应答这两个符号，否则 applyNetConfig 会判定"这套 SDK 没有网络参数接口"，
+  // 线路档位就无从观察。真名是 SetGlobalConfigValueInt32（_SetConfigValueInt32 在 DLL 里不存在）。
+  state.configSets = [];
+  const configLibrary = {
+    func(name) {
+      if (name === 'SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32') {
+        return (...args) => {
+          const valueId = args[1];
+          let value = args[2];
+          if (args.length >= 6 && Buffer.isBuffer(args[5])) value = args[5].readInt32LE(0);
+          state.configSets.push({ valueId, value });
+          return true;
+        };
+      }
+      if (name === 'SteamAPI_ISteamNetworkingUtils_GetConfigValue') {
+        return (iface, valueId, scope, scopeObj, dataType, result, cbResult) => {
+          const last = state.configSets.filter((s) => s.valueId === valueId).pop();
+          dataType.writeInt32LE(1, 0);
+          result.writeInt32LE(last ? last.value : 0, 0);
+          if (cbResult) cbResult.writeBigUInt64LE(8n, 0);
+          return 1;
+        };
+      }
+      throw new Error('unexpected symbol ' + name);
+    },
+  };
   const sdk = {
     runCallbacks: () => { state.callbacks += 1; },
     networkingSockets: sockets,
-    networkingUtils: { initRelayNetworkAccess: () => {} },
+    networkingUtils: {
+      initRelayNetworkAccess: () => {},
+      libraryLoader: {
+        SteamAPI_SteamNetworkingUtils_SteamAPI: () => ({ __iface: true }),
+        getLibrary: () => configLibrary,
+      },
+    },
     init: () => true,
     shutdown: () => {},
     setDebug: () => {},

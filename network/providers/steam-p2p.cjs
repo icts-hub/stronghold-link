@@ -50,6 +50,19 @@ function createSteamP2PProvider({ role, options = {} }) {
       encrypted: true,                    // Steam 传输层自带加密
       sessionId: kernelStats.sessionId || null,
       totalPeers: kernelStats.totalPeers || kernelStats.connections || 0,
+      // 预热连接池的现场证据（只有加入者有池子，房主这四个数恒为 0）。
+      // poolHits  = 用户一次都没等，直接拿到连好的连接；
+      // poolMisses= 池子当时是空的，这条连接的用户等了一次完整握手。
+      // 判读方法：hits 远大于 misses 才说明池子真的在挡刀。
+      poolCreated: kernelStats.poolCreated || 0,
+      poolReady: kernelStats.poolReady || 0,
+      poolHits: kernelStats.poolHits || 0,
+      poolMisses: kernelStats.poolMisses || 0,
+      // 死因分开数：retired 是看门狗计划内换新（不额外抢握手名额），lost 是自己断的
+      // （每一次都意味着一次额外的 Steam 握手）。lost 大于 retired 就说明池子在空转。
+      poolRetired: kernelStats.poolRetired || 0,
+      poolLost: kernelStats.poolLost || 0,
+      poolLifeMs: kernelStats.poolLifeMs || 0,
       role,
       protocol: 'STEAM',
     }),

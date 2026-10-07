@@ -27,11 +27,17 @@ const { normalizeRoutePolicy, describeRoutePolicy } = require('./route/policy.cj
 const { planStandby } = require('./route/standby.cjs');
 const { planMigration, describeMigration } = require('./route/migrate.cjs');
 const { describeHints, getRecipe } = require('./adapters.cjs');
+const { diagnose: diagnoseRoute } = require('./route-report.cjs');
 
 const STATES = Object.freeze({ IDLE: 'idle', STARTING: 'starting', RUNNING: 'running', STOPPING: 'stopping', ERROR: 'error' });
 const READY_TIMEOUT_MS = 8000;
 const PROBE_TIMEOUT_MS = 900;
 const MAX_LOGS = 120;
+/**
+ * 需要额外抛给主进程、落进 startup.log 的隧道生命周期事件。
+ * 界面只能说"卡住了"，日志才能说清是哪一侧、在第几秒、以什么理由关掉了连接。
+ */
+const TUNNEL_EVENTS = new Set(['listening', 'client-added', 'peer-connected', 'peer-left', 'peer-stats', 'rejected', 'error', 'stopped']);
 const MAX_RULES = 16;
 const INVITE_PREFIX = 'SHL1-';
 const INVITE_VERSION = 2;
@@ -325,6 +331,8 @@ function channelStats(channel) {
     connections: 0, totalConnections: 0, rejected: 0, failed: 0,
     bytesToPeer: 0, bytesFromPeer: 0, packetsToPeer: 0, packetsFromPeer: 0,
     encrypted: false, sessionId: null, totalPeers: 0, rateToPeer: 0, rateFromPeer: 0,
+    poolCreated: 0, poolReady: 0, poolHits: 0, poolMisses: 0,
+    poolRetired: 0, poolLost: 0, poolLifeMs: 0,
   };
   if (!channel || !channel.provider || typeof channel.provider.getStats !== 'function') return empty;
   const s = channel.provider.getStats() || {};
@@ -342,6 +350,17 @@ function channelStats(channel) {
     totalPeers: s.totalPeers || 0,
     rateToPeer: s.rateToPeer || 0,
     rateFromPeer: s.rateFromPeer || 0,
+    // 预热连接池（只有 Steam 加入者有；其它通道恒为 0）。以前这一层是白名单，
+    // 池子的四个计数在 steam-adapter 里涨得好好的，到这儿被整整齐齐地丢掉了 ——
+    // 于是界面和日志永远显示"命中 0"，看起来像池子根本没工作。
+    poolCreated: s.poolCreated || 0,
+    poolReady: s.poolReady || 0,
+    poolHits: s.poolHits || 0,
+    poolMisses: s.poolMisses || 0,
+    // 死因分开数：retired = 看门狗计划内换新，lost = 自己断的（每次都要多抢一次握手）。
+    poolRetired: s.poolRetired || 0,
+    poolLost: s.poolLost || 0,
+    poolLifeMs: s.poolLifeMs || 0,
   };
 }
 
@@ -481,7 +500,11 @@ class SessionManager {
       || channels[0]
       || null;
     const pick = (key) => (primary && primary[key] !== undefined ? primary[key] : null);
-    return {
+    // 全局网络参数是"进程级"的，不属于某一条连接。走本地 TCP 时 primary 可能是
+    // 内核 Provider（它没有这一项），所以再兜一遍：任何一条通道报了就拿来用，
+    // 否则界面上"传输偏好"会在没走 Steam 的时候莫名消失。
+    const anyNetConfig = channels.reduce((acc, c) => acc || (c && c.netConfig) || null, null);
+    const report = {
       at,
       state: this.state,
       role: this.role,
@@ -495,9 +518,24 @@ class SessionManager {
       ping: pick('ping'),
       steamInBytesPerSec: pick('steamInBytesPerSec'),
       steamOutBytesPerSec: pick('steamOutBytesPerSec'),
+      // 这几项是判断"到底是不是 Steam 在限速"的证据：发送上限顶住不动、积压持续增长，
+      // 就是被限速；积压长期为 0 而 ping 高则是延迟问题，调带宽没有用。
+      sendRateBytesPerSecond: pick('sendRateBytesPerSecond'),
+      pendingReliable: pick('pendingReliable'),
+      sentUnackedReliable: pick('sentUnackedReliable'),
+      usecQueueTime: pick('usecQueueTime'),
+      qualityLocal: pick('qualityLocal'),
+      steamInPacketsPerSec: pick('steamInPacketsPerSec'),
+      steamOutPacketsPerSec: pick('steamOutPacketsPerSec'),
+      tuning: pick('tuning'),
+      netConfig: pick('netConfig') || anyNetConfig,
       rawSocket: pick('rawSocket'),
       channels,
     };
+    // 诊断文案由网络层给出，界面只负责显示 —— 判定规则只有一份，
+    // 改了一边不会和另一边对不上。读不到数据时 diagnose 自己会说 idle。
+    report.diagnosis = diagnoseRoute(report);
+    return report;
   }
 
   _label(channel) {
@@ -508,6 +546,9 @@ class SessionManager {
     // Steam 适配器的证据日志（连接请求 / 状态变化）—— 联机排查时用户能直接看到
     if (type === 'notice') { this.log('[Steam] ' + ((payload && payload.text) || ''), 'info'); return; }
     const tag = channel ? this._label(channel) : '';
+    if (TUNNEL_EVENTS.has(type)) {
+      this._emit({ type: 'tunnel', event: type, channel: channel ? channel.name : '', payload, at: Date.now() });
+    }
     switch (type) {
       case 'listening':
         this.log(this.role === 'host'
@@ -528,8 +569,27 @@ class SessionManager {
         this.log(`${tag} 口令验证通过：${payload.peer || '未知来源'}`, 'ok');
         break;
       case 'peer-connected':
-        this.log(`${tag} 已接通${this.role === 'host' ? '本地服务端口' : '房主中继'}`, 'ok');
+        this.log(`${tag} 已接通${this.role === 'host' ? '本地服务端口' : '房主中继'}${payload.peer ? '：' + payload.peer : ''}`, 'ok');
         break;
+      case 'peer-left': {
+        const up = Math.round((payload.bytesToPeer || 0) / 1024);
+        const down = Math.round((payload.bytesFromPeer || 0) / 1024);
+        const how = payload.kind === 'ProblemDetectedLocally' ? '本地判定这条 Steam 连接出问题' : '对端关掉了这条 Steam 连接';
+        this.log(
+          `${tag} 一条连接结束（${how}）：存活 ${Math.round((payload.ageMs || 0) / 1000)} 秒 · 上送 ${up} KiB · 下收 ${down} KiB · 理由 ${payload.reason || '无'}`,
+          'warn',
+        );
+        break;
+      }
+      case 'peer-stats': {
+        const pool = payload.pool;
+        // 池子那一段要单独打出来：现场判断"用户还要不要等握手"只看这一行。
+        const poolLine = pool
+          ? ` ｜ 预热池 备用${pool.warm || 0}/${pool.target || 0} 累计开${pool.created || 0} 就绪${pool.ready || 0} 命中${pool.hits || 0} 未命中${pool.misses || 0} 换新${pool.retired || 0} 自死${pool.lost || 0} 均寿${pool.retired || pool.lost ? Math.round((pool.lifeMs || 0) / ((pool.retired || 0) + (pool.lost || 0)) / 1000) : 0}s`
+          : '';
+        this.log(`${tag} 隧道存量${poolLine}：${(payload.peers || []).map((p) => `:${p.port} 存活${Math.round((p.ageMs || 0) / 1000)}s 上${Math.round((p.bytesToPeer || 0) / 1024)}K 下${Math.round((p.bytesFromPeer || 0) / 1024)}K 队列${Math.round((p.outBytes || 0) / 1024)}K${p.paused ? ' 暂停中' : ''}`).join(' | ') || '（无连接）'}`);
+        break;
+      }
       case 'rejected':
         this.log(`${tag} 已拒绝一个连接（${
           payload.reason === 'max-connections' || payload.reason === 'max-clients' || payload.reason === 'max-peers' ? '超过上限'
@@ -640,7 +700,7 @@ class SessionManager {
       authToken: input.authToken === undefined
         ? (role === 'host' ? newToken() : '')
         : String(input.authToken).trim(),
-      maxConnections: intInRange(input.maxConnections ?? 16, 1, 64, '最大连接数'),
+      maxConnections: intInRange(input.maxConnections ?? 32, 1, 64, '最大连接数'),
       // 真实可调的超时（0 = 不启用空闲超时）；透传给 tcp/udp 中继
       idleTimeoutMs: intInRange(input.idleTimeoutMs ?? 0, 0, 3600000, '空闲超时(ms)'),
       connectTimeoutMs: intInRange(input.connectTimeoutMs ?? 8000, 500, 60000, '连接超时(ms)'),
@@ -775,6 +835,11 @@ class SessionManager {
   async _startSteam(input, role) {
     const base = this._channelOptions(input, role);
     const appId = input.appId == null || input.appId === '' ? null : intInRange(input.appId, 1, 2 ** 31 - 1, 'Steam AppID');
+    // 线路档位覆盖：由主进程按用户设置注入（见 electron/main.cjs 的 sessionNetConfig）。
+    // 传 null 时 steam-adapter 会退回"什么都不覆盖"，也就是跟随 SHL_STEAM_TRANSPORT 环境变量。
+    const netConfig = input.netConfig && typeof input.netConfig === 'object' && !Array.isArray(input.netConfig)
+      ? { ...input.netConfig }
+      : null;
     const diagnosis = diagnoseSteam({ appDir: this.appDir, appId });
     for (const blocker of diagnosis.blockers) this.log(`Steam 环境提示：${blocker}`, 'warn');
 
@@ -802,6 +867,7 @@ class SessionManager {
           gameHost,
           gamePort,
           maxPeers: base.maxConnections,
+          netConfig,
         },
       });
       channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));
@@ -853,6 +919,7 @@ class SessionManager {
         bindHost: base.bindHost,
         localPort,
         hostSteamId,
+        netConfig,
       },
     });
     channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));

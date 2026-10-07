@@ -107,9 +107,10 @@ test('window:* 无边框窗口按钮：拿不到真实窗口时如实降级，�
 
 test('app:info 返回真实版本与配置路径（基于桩 userData）', async () => {
   const info = await invoke('app:info');
-  assert.equal(info.version, '0.12.0');
+  assert.equal(info.version, '0.13.2');
   assert.equal(info.name, 'Stronghold Link');
   assert.equal(info.configPath, path.join(OUT_ROOT, 'game-profiles.json'));
+  assert.equal(info.settingsPath, path.join(OUT_ROOT, 'settings.json'));
   assert.equal(info.smoke, false);
 });
 
@@ -132,6 +133,31 @@ test('配置持久化：写入后能读回，且补齐 ports/port/remotePort 字
   await assert.rejects(invoke('profiles:save', [{ name: 'x', transport: 'TCP', ports: [{ protocol: 'TCP', localPort: 0, remotePort: 1 }] }]), /1–65535/);
 });
 
+// 线路档位（Steam 传输偏好）以前只能靠启动前设环境变量；这个程序有单实例锁，
+// 旧进程没退干净时新进程会静默自杀，环境变量根本读不到 —— 现场就踩过这个坑。
+// 现在做成设置项：默认不覆盖（跟随启动环境），一旦在界面里选了就以它为准。
+test('线路档位：默认跟随启动环境，能改、能落盘，非法值退回默认', async () => {
+  const { resolveNetConfig } = require('../network/steam-netconfig.cjs');
+  const initial = await invoke('settings:load');
+  assert.equal(initial.transport, 'env', '默认必须是"不覆盖"，不能悄悄改掉环境变量那套办法');
+  assert.equal(initial.effective, resolveNetConfig({}, process.env).transport, '实际生效的档位要和 resolveNetConfig 算出来的一致');
+  assert.deepEqual(initial.choices, ['env', 'auto', 'ice', 'relay']);
+  assert.equal(initial.labels.ice, '强制直连');
+  assert.equal(initial.envKey, 'SHL_STEAM_TRANSPORT');
+
+  const saved = await invoke('settings:save', { transport: 'relay' });
+  assert.equal(saved.transport, 'relay');
+  assert.equal(saved.effective, 'relay', '界面指定的档位必须优先于环境变量');
+  assert.equal(saved.effectiveLabel, '强制中继');
+  assert.equal((await invoke('settings:load')).transport, 'relay', '必须真的落盘');
+
+  const bogus = await invoke('settings:save', { transport: 'turbo' });
+  assert.equal(bogus.transport, 'env', '不认识的档位要退回默认，不能写进文件');
+  assert.equal((await invoke('settings:load')).transport, 'env');
+
+  await invoke('settings:save', {});   // 收尾：别把状态留给后面的用例
+});
+
 test('适配器列表是动态状态：会话运行时会变成 running', async () => {
   const echo = await h.startEchoServer();
   const relayPort = await h.freePort();
@@ -148,6 +174,32 @@ test('适配器列表是动态状态：会话运行时会变成 running', async 
     const tcp = after.find((a) => a.id === 'tcp-relay');
     assert.equal(tcp.status, 'running');
     assert.match(tcp.description, /房主/);
+  } finally {
+    await invoke('session:stop');
+    await echo.close();
+  }
+});
+
+test('联机自检：加入者隧道已在运行时必须给出完整报告，不能"自检本身出错"', async () => {
+  // 回归：lobby:selftest 里"会话已运行且有入口端口"那一支，曾经引用只在另一个
+  // 分支里定义的 e3/url3。点一下就是 ReferenceError，用户看到的是
+  // "自检本身出错：e3 is not defined" —— 自检恰恰在最需要它的时候失效。
+  const echo = await h.startEchoServer();
+  const relayPort = await h.freePort();
+  try {
+    await invoke('session:start', { role: 'host', relayPort, targetHost: '127.0.0.1', targetPort: echo.port, game: '测试游戏' });
+    const report = await invoke('lobby:selftest', {});
+    assert.equal(report.ok, true, '自检必须返回完整报告，而不是整体失败：' + report.verdict);
+    assert.ok(Array.isArray(report.checks) && report.checks.length >= 4,
+      '应逐环给出检查项，实际只有 ' + ((report.checks || []).length) + ' 项');
+    assert.ok(!report.checks.some((c) => /is not defined|is not a function/.test(String(c.detail))),
+      '不允许把 ReferenceError 这类内部错误当成检查结果：' + JSON.stringify(report.checks));
+    const addr = report.checks.find((c) => c.name === '浏览器该打开的地址');
+    assert.ok(addr, '应给出浏览器该打开的地址，实际检查项：' + report.checks.map((c) => c.name).join(' / '));
+    assert.match(String(addr.detail), /^http:\/\/127\.0\.0\.1:\d+\//, '必须给出可直接打开的本地入口 URL：' + addr.detail);
+    assert.ok(report.checks.some((c) => String(c.name).startsWith('隧道转发 HTTP')),
+      '应检查隧道是否真的把房主那边的数据送过来了，实际检查项：' + report.checks.map((c) => c.name).join(' / '));
+    assert.ok(!/自检本身出错/.test(String(report.verdict)), '不允许出现"自检本身出错"：' + report.verdict);
   } finally {
     await invoke('session:stop');
     await echo.close();
