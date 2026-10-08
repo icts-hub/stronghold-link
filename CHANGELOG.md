@@ -1,4 +1,4 @@
-﻿# 更新日志
+# 更新日志
 
 ## v0.14.2
 
@@ -34,6 +34,23 @@
 | 8 | `test/ui-logic.test.cjs` | 新用例：走真实的「选进程开局」路径，断言横幅真的画出来、「复制地址」真的把 `127.0.0.1:25565` 写进剪贴板 |
 | 9 | `electron/main.cjs` | 适配器的 notice（`Steam 连接事件：对端 …（判定为入站，接受 / 出站，跳过）` 那一类）**现在也写进 `startup.log`** |
 | 10 | `test/session.test.cjs` | 新用例：钉死「`[Steam] ` 前缀」这个约定（主进程就靠它挑出该落盘的那一路） |
+| 11 | `tools/build-guard.cjs`（新增） | 打包护栏：`package.json` 带 BOM ⇒ 拒绝；`app.asar` 没被重写过 ⇒ 拒绝；`app.asar` 里的 `APP_VERSION` 与 `package.json` 对不上 ⇒ 拒绝 |
+| 12 | `tools/build-edition.cjs` | 接上这三道护栏。原来的判断是「退出码非 0，但 `win-unpacked` 还在就继续」—— 而那个目录可能是**上一次**打包留下的 |
+| 13 | `test/build-guard.test.cjs`（新增） | 6 条用例钉住上述约定，其中一条直接读仓库自己的 `package.json` 查 BOM |
+| 14 | `package.json` | 去掉文件开头的 UTF-8 BOM；`test` / `test:single` 两个脚本加上新的用例文件 |
+
+### 险情：这一版**差点把 0.14.1 的包当成 0.14.2 发出去**
+
+前两次 `npm run dist:full` 都"成功"产出了 `Stronghold-Link-0.14.2-win-x64.tar.xz`，可是打开包里的 `app.asar` 一看，里面写的是 `APP_VERSION = '0.14.1'` —— **版本名换了，代码是旧的**。
+
+- **直接原因**：`package.json` 的第一个字节多了一个 UTF-8 BOM。electron-builder 内部的 `@electron/rebuild` 会直接 `JSON.parse` 这个文件，于是它停在 `Unexpected token '', "{ "name"... is not valid JSON` —— 而这一步发生在**写 `app.asar` 之前**。
+- **为什么没被拦住**：`tools/build-edition.cjs` 有一段历史容错（这台机器上 builder 会在图标转 ICO 那步联网失败，但产物其实已经完整），它的判断是"退出码非 0，但 `win-unpacked` 还在就继续"。而那个 `win-unpacked` 是**上一次打包留下的旧目录**，里面的 `app.asar` 时间戳还停在 0.14.1 那次。
+- **怎么发现的**：交付前的 asar 核验（把 `app.asar` 当文本读、逐条查本次改动引入的 ASCII 锚点）全军覆没 —— `orphanKey`、`gameEntryBanner`、`function bold(s)`、`startsWith('[Steam] ')`、`APP_VERSION = '0.14.2'` 一个都没命中。
+- **现在的护栏**（`tools/build-guard.cjs`）三道都不看 electron-builder 的退出码，所以原有的容错场景照样能过。`test/build-guard.test.cjs` 里那条"读仓库自己的 `package.json` 查 BOM"的用例做过变异验证：把 BOM 加回去，它立刻红。
+- 顺带确认：**0.14.0 与 0.14.1 的交付包是真的**（那两个提交里的 `package.json` 都没有 BOM）。
+- **重打之后的真包**：`Stronghold-Link-0.14.2-win-x64.tar.xz`，96,337,948 字节，
+  SHA256 `CC7E2D29464E6FFAE684DE165D2068BA696FE4F5F65C54AFDC3FEA352AA50BEB`；
+  asar 里 13 条锚点全部命中，`--smoke` 8 步全过、渲染进程自报 `version: 0.14.2`。
 
 ### 升级顺序：**房主和朋友都要升到 0.14.2**
 
@@ -41,11 +58,11 @@
 
 ### 测试
 
-`npm test` ⇒ **728 tests / 727 pass / 0 fail / 1 skipped**（上一版 0.14.1 是 725 / 724 / 0 / 1，+3 —— 正好是三条新用例）。
+`npm test` ⇒ **734 tests / 733 pass / 0 fail / 1 skipped**（上一版 0.14.1 是 725 / 724 / 0 / 1，+9 —— 三条功能用例 + 六条打包护栏用例）。
 
-定向：`node --test --test-isolation=none test\steam-adapter.test.cjs` ⇒ 66 pass；`test\ui-logic.test.cjs` ⇒ 12 pass；`test\session.test.cjs` ⇒ 24 pass。
+定向：`node --test --test-isolation=none test\steam-adapter.test.cjs` ⇒ 66 pass；`test\ui-logic.test.cjs` ⇒ 12 pass；`test\session.test.cjs` ⇒ 24 pass；`test\build-guard.test.cjs` ⇒ 6 pass。
 
-三条新用例都做过**变异验证**（把修复藏起来，用例必须干净失败）：把 `orphanKey` 还原成只按流号 ⇒ 报「B 寄流时绝不能销毁 A 寄存中的那条流」；把 `bold()` 改名 ⇒ 报「不该再出现 bold 未定义：配置出错：bold is not defined」；把 `[Steam] ` 前缀去掉 ⇒ notice 那条用例立刻红。
+新用例都做过**变异验证**（把修复藏起来，用例必须干净失败）：把 `orphanKey` 还原成只按流号 ⇒ 报「B 寄流时绝不能销毁 A 寄存中的那条流」；把 `bold()` 改名 ⇒ 报「不该再出现 bold 未定义：配置出错：bold is not defined」；把 `[Steam] ` 前缀去掉 ⇒ notice 那条用例立刻红；把 BOM 加回 `package.json` ⇒ 「package.json 绝不能带 UTF-8 BOM」立刻红，并且打包脚本当场以退出码 1 中止（`tools/build-edition.cjs:27`）。
 
 ### 这一版**没有**解决
 

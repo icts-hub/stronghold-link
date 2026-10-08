@@ -17,9 +17,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const guard = require('./build-guard.cjs');
 
 const root = path.join(__dirname, '..');
-const pkg = require(path.join(root, 'package.json'));
+const pkgPath = path.join(root, 'package.json');
+// 护栏 1：package.json 绝不能带 UTF-8 BOM。见 tools/build-guard.cjs 开头的事故记录 ——
+// BOM 会让 electron-builder 在写 app.asar 之前就失败，然后被下面的容错分支吞掉，
+// 把上一次的旧 app.asar 当成本次版本打包出去（0.14.2 真踩过）。这里先就地拦住。
+guard.assertNoBom('package.json', fs.readFileSync(pkgPath));
+const pkg = require(pkgPath);
 
 const edition = String(process.argv[2] || '').toLowerCase();
 if (edition !== 'full' && edition !== 'lite') {
@@ -87,11 +93,19 @@ if (isLite) {
   }
 }
 
+// app.asar 的位置与「打之前」的快照：护栏 2 靠它判断 builder 到底有没有重写产物
+const asarPath = path.join(appDir, 'resources', 'app.asar');
+const asarBefore = guard.statOf(asarPath);
+
 let exitCode = 0;
 try {
   // 3) electron-builder --dir
   //    这台机器上 builder 会在图标转 ICO 那步联网失败并 exit 非 0，但 appDir 其实
   //    已经产出完整。所以退出码非 0 时先看产物在不在：在就只警告继续，不在才失败。
+  //    但这个容错分支只保证「appDir 在」，保证不了「appDir 是这一次打的」——
+  //    0.14.2 就是栽在这里：builder 在写 app.asar 之前就挂了，win-unpacked 是上一次
+  //    留下的旧目录，于是旧包被改名成新版本压进了 tar.xz。所以紧接着用护栏 2/3
+  //    直接卡 app.asar 本身，不看退出码。
   try {
     run(path.join(root, 'node_modules', '.bin', 'electron-builder.cmd'),
       ['--win', '--dir', '--config', configPath]);
@@ -101,6 +115,12 @@ try {
   }
 
   if (!fs.existsSync(appDir)) { console.error(`[${edition}] 找不到 ${appDir}`); exitCode = 1; throw new Error('no appDir'); }
+
+  // 护栏 2：app.asar 必须真的被重新写过（大小或 mtime 得有变化）
+  guard.assertAsarRewritten(asarBefore, guard.statOf(asarPath));
+  // 护栏 3：里面的版本号必须就是这一版
+  guard.assertAsarVersion(fs.readFileSync(asarPath), pkg.version);
+  step(`app.asar 核验通过：APP_VERSION = ${pkg.version}，${(fs.statSync(asarPath).size / 1024 / 1024).toFixed(2)} MB`);
 
   // 4) 版本标记：包根目录写一份，用户与自动检查都能一眼看出是哪个版本
   fs.writeFileSync(path.join(appDir, 'EDITION.txt'),
