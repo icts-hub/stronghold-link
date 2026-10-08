@@ -565,8 +565,34 @@ test('Steam 会话：加入者填房主 SteamID 与本机入口端口，SteamID 
     assert.equal(snapshot.state, STATES.RUNNING);
     assert.equal(snapshot.channels[0].protocol, 'STEAM');
     assert.equal(snapshot.config.remoteHost, mock.state.identity);
-    // 通用化后：Steam 连接是按「本机连接」按需创建的，会话启动阶段不该预先建连
-    assert.deepEqual(mock.state.connectedTo, [], '会话启动时不预建 Steam 连接（等本机客户端连进来）');
+    // 0.14.0：加入者改成「先建一条长期 Primary 干道，所有本机连接挂在它上面」（规格 §三）。
+    // 会话启动阶段就该有**且只有 1 条** Steam 连接 —— 0.13.x 是一条都不建、等第一个浏览器
+    // 请求现场握手（校园网下要 11~36 秒），那正是这次重构要消灭的。
+    assert.ok(
+      await h.waitFor(() => mock.state.connectedTo.length === 1, { timeoutMs: 3000 }),
+      `会话启动应恰好建一条长期干道，实际 ${mock.state.connectedTo.length} 条`,
+    );
+    const trunk = mock.state.connectedTo[0];
+    assert.equal(trunk.port, 0, '多路复用干道走 virtual port 0');
+    assert.equal(trunk.steamId, mock.state.identity);
+
+    // ★ 规格 §三十七 的守卫：再来多少条本机连接，Steam 连接数都不许跟着涨。
+    //   这里真开三条 127.0.0.1 连接（房主不应答魔数，它们会停在排队/扣帧状态，
+    //   但"有没有偷偷为它们各建一条 Steam 连接"正是要盯的东西）。
+    const net = require('node:net');
+    const clients = [];
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        const socket = net.createConnection({ host: '127.0.0.1', port: localPort });
+        socket.on('error', () => { /* 本用例只关心 Steam 连接数 */ });
+        clients.push(socket);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.equal(mock.state.connectedTo.length, 1, '三条本机连接不该换来三条 Steam 连接（规格 §三十七）');
+      assert.equal(mock.state.connectedTo[0].handle, trunk.handle, '干道必须是原来那一条，不许被换掉');
+    } finally {
+      for (const socket of clients) { try { socket.destroy(); } catch { /* ignore */ } }
+    }
   } finally {
     await manager.stop();
     manager.shutdown();

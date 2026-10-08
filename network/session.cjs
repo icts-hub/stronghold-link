@@ -36,8 +36,18 @@ const MAX_LOGS = 120;
 /**
  * 需要额外抛给主进程、落进 startup.log 的隧道生命周期事件。
  * 界面只能说"卡住了"，日志才能说清是哪一侧、在第几秒、以什么理由关掉了连接。
+ *
+ * 0.14.0 多了三个：多路复用之后"一条 Steam 干道"下面挂着很多"流"，
+ * 只看 peer-connected / peer-left 会以为一局只有一条连接 —— 流的进出必须看得见，
+ * 否则又回到"涨得好好的、到外面看不见"。
+ *
+ * net-status（Phase 7）是**周期性**的那一份：Steam / Relay / P2P / MUX 的当前读数，
+ * 30 秒一行。界面上看到的是"此刻"，日志里需要的是一条时间线。
  */
-const TUNNEL_EVENTS = new Set(['listening', 'client-added', 'peer-connected', 'peer-left', 'peer-stats', 'rejected', 'error', 'stopped']);
+const TUNNEL_EVENTS = new Set([
+  'listening', 'client-added', 'peer-connected', 'peer-left', 'peer-stats', 'rejected', 'error', 'stopped',
+  'peer-joined', 'stream-added', 'stream-left', 'net-status',
+]);
 const MAX_RULES = 16;
 const INVITE_PREFIX = 'SHL1-';
 const INVITE_VERSION = 2;
@@ -488,10 +498,22 @@ class SessionManager {
           report = { ok: false, reason: `线路读取失败：${err.message}`, route: 'UNKNOWN', routeLabel: 'UNKNOWN' };
         }
       }
+      // 0.14.0 网络健康快照（规格 §三十一）：适配器把 network-health.cjs 的只读
+      // 快照挂成 provider.netState()。没有它（老适配器 / 内核 Provider）就报 null，
+      // 界面按"这项不可用"处理 —— 绝不在这里编一个"连接中"糊过去。
+      let netState = null;
+      if (provider && typeof provider.netState === 'function') {
+        try {
+          netState = provider.netState();
+        } catch (err) {
+          netState = { ok: false, reason: `网络状态读取失败：${err.message}` };
+        }
+      }
       channels.push({
         protocol: channel.rule.protocol,
         listenPort: channel.listen.port,
         provider: provider ? provider.id : null,
+        netState,
         ...(report || { ok: false, reason: 'NO_PROVIDER', route: 'UNKNOWN', routeLabel: 'UNKNOWN' }),
       });
     }
@@ -504,6 +526,8 @@ class SessionManager {
     // 内核 Provider（它没有这一项），所以再兜一遍：任何一条通道报了就拿来用，
     // 否则界面上"传输偏好"会在没走 Steam 的时候莫名消失。
     const anyNetConfig = channels.reduce((acc, c) => acc || (c && c.netConfig) || null, null);
+    // 网络健康同理是进程级的：一条 Steam 干道撑起整局，状态不属于某一条本机通道。
+    const anyNetState = channels.reduce((acc, c) => acc || (c && c.netState) || null, null);
     const report = {
       at,
       state: this.state,
@@ -529,6 +553,9 @@ class SessionManager {
       steamOutPacketsPerSec: pick('steamOutPacketsPerSec'),
       tuning: pick('tuning'),
       netConfig: pick('netConfig') || anyNetConfig,
+      // 规格 §三十一：界面必须能区分 STEAM_OFFLINE / RELAY_UNAVAILABLE / P2P_CONNECTED /
+      // P2P_DEGRADED / RECONNECTING / SESSION_RECOVERING 等，不许只显示模糊的"连接中"。
+      netState: anyNetState,
       rawSocket: pick('rawSocket'),
       channels,
     };

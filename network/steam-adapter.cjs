@@ -18,9 +18,17 @@ const net = require('node:net');
 const path = require('node:path');
 const { diagnoseSteam } = require('./steam-env.cjs');
 const { createSendPlan, isReliable } = require('./steam-framing.cjs');
+const mux = require('./stream-mux.cjs');
 const { sampleRoute, summarize } = require('./route-report.cjs');
 const { resolveLinkTuning } = require('./link-tuning.cjs');
 const { applyNetConfig, formatNetConfigReport } = require('./steam-netconfig.cjs');
+// Phase 7（规格 §三十 / §三十一）：网络状态的判定与文案都住在这三个模块里，
+// 适配器只负责把现场读数喂进去、把快照挂出去，自己**不判任何状态**。
+const relayStatus = require('./relay-status.cjs');
+const { createNetworkHealthMonitor } = require('./network-health.cjs');
+const { createMuxScheduler } = require('./mux-scheduler.cjs');
+const { STATE: CONN_STATE } = require('./steam-connection.cjs');
+const { SESSION_STATE } = require('./mux-session.cjs');
 
 // 链路参数改由 network/link-tuning.cjs 统一解析，允许环境变量覆盖，方便在用户机器上直接实测。
 // 这里的常量只作为"没传 tuning 时"的兜底，取值与 link-tuning 的默认值一致。
@@ -299,28 +307,29 @@ const PEER_REPLAY_MAX = 64 * 1024;
 // 这时候再压三次握手只会让情况更坏 —— 让它失败，浏览器自然会重开。
 const PEER_RETRY_FAST_MS = 5000;
 
-// 预热连接池（加入者侧）—— 0.13.0 加的，治的是"每次新开连接都要重新握手"这个结构病。
+// 预热连接池（加入者侧）—— 0.13.0 加的，**0.14.0 已删除**。
 //
-// 现场（0.12.8 的 startup.log）：浏览器要开 6 条并发连接才画得出一个首页，而
-// **Steam 的 P2P 握手在这条线路上是"排队"的** —— 五条连接在 19:25:59 同一秒发起，
-// 接通时间却依次是 +9.8s / +36s / +35s / +45s / +45s，一条接一条，每条间隔 2~4 秒。
-// 也就是说握手本身被限速到大约"每 3 秒一条"，跟我们在不在本地排队无关（Steam 自己就在排队）。
-// 后果：最后那几条必然撞上建连超时 → 掐掉 → 重试 → 更慢。地图/贴图全是新连接，于是
-// "每次都无法加载出地图"。
+// 它当时治的是"每次新开连接都要重新握手"这个结构病。现场（0.12.8 的 startup.log）：
+// 浏览器要开 6 条并发连接才画得出一个首页，而 **Steam 的 P2P 握手在这条线路上是"排队"的** ——
+// 五条连接在 19:25:59 同一秒发起，接通时间却依次是 +9.8s / +36s / +35s / +45s / +45s。
+// 当时的解法是"平时就把几条连好的 P2P 连接养在池子里，浏览器一开连接直接从池子里拿"。
 //
-// 解药不是让握手变快（我们做不到），而是**让它发生在用户看不到的时候**：
-// 平时就把几条连好的 P2P 连接养在池子里，浏览器一开连接直接从池子里拿，
-// 建连耗时为零。池子里的连接对房主只是一个"连上了但一句话没说"的对端，不占带宽。
-const PEER_POOL_TARGET = 4;
-// 池子里的连接死掉后的补货间隔。补货是后台行为，失败也不该刷屏，所以退避。
-const PEER_POOL_RETRY_MS = 3000;
-const PEER_POOL_RETRY_MAX_MS = 15000;
-// 补货之间最短也要等一下：万一房主那边一直把连接秒关，也不至于变成死循环。
-const PEER_POOL_MIN_GAP_MS = 250;
-// 池子里的连接最多闲多久。房主那边每条连接都对应一个到游戏端口的本机 socket，
-// 而游戏服务器（Node http）会在 ~60 秒（headersTimeout）后把"一句话没说"的连接关掉。
-// 我们提前一点自己换新，池子里就永远是能用的。
-const PEER_POOL_MAX_IDLE_MS = 45000;
+// 为什么现在删掉（规格 §四 / §二十三）：池子是**治标**，而且它自己变成了新的病灶。
+// 0.13.3 的现场账本（12 分钟 292 行日志）：
+//   · 本机连接进来 53 次命中池子、**62 次临时握手** —— 命中率只有 46%；
+//   · 每条握手要 30 秒（Steam TimeoutInitial），而池子里连接的寿命只有 27~40 秒
+//     （PEER_POOL_MAX_IDLE_MS 45000 × 随机 0.6~0.9）；
+//   · refillPool() 是串行递归、一次只开一条，**增速永远追不上消耗**，池子长期是空的；
+//   · 六条连接同时扑上来时日志原样是：`本机连接进来 127.0.0.1:56289 —— 临时握手（池子当时是空的）`（六连发）。
+// 也就是说：预热池不但没消灭握手，还额外制造了一整轮 churn
+// （累计开 83 / 就绪 67 / 命中 52 / 未命中 57 / 换新 12 / **自死 15** / 均寿 31s）。
+//
+// 0.14.0 的解法是结构性的：**一个远端玩家只握一次手，握出来的那条干道长期活着**，
+// 所有浏览器连接变成这条干道上的流（规格 §三 / §九）。既然干道不随业务连接生灭，
+// "为将来的请求提前养几条连接"这件事本身就失去意义 —— 池子该消失，不是调小。
+//
+// 这一段留在这里当墓碑：**不要把它改回来**，也不要再引入任何形式的
+// `PEER_POOL_TARGET` / `PEER_POOL_MAX_IDLE_MS` 参数（规格 §二十三 明确点名）。
 
 // 本机连接关掉之后，压在 peer.out 里的字节还得有机会出门。
 //
@@ -338,6 +347,72 @@ const PEER_POOL_MAX_IDLE_MS = 45000;
 // 抽干的等待有上限：抽不干说明 Steam 侧本身堵着，不能把连接永远挂着。
 const PEER_DRAIN_TRIES = 20;
 const PEER_DRAIN_INTERVAL_MS = 10;
+
+// ── 流多路复用（0.14.0）──────────────────────────────────────────────────────
+//
+// 0.13.x 的预热连接池是给"每条本机连接 = 一条独立 Steam 连接"打的补丁，而现场数据
+// 说明补丁补不上：12 分钟里 **62 次没命中池子、11 次撞 30 秒建连超时**，页面本体
+// 25 秒都没拿到 —— 因为一次页面加载要开 6~25 条连接，而这里握手要 11~36 秒。
+//
+// 0.14.0 换结构：只维持少数几条"干道"（trunk）P2P 连接，所有本机连接作为**流**编号
+// 复用同一条干道。一局只需要几次握手，而不是几百次；干道空闲时不占带宽，也不需要
+// 像以前的池子那样按寿命反复换新（换新本身就是额外的握手，现场统计里"自死 15"就是它）。
+//
+// 干道条数：**1 条**（规格 §三）。原来这里写的是"维持少数几条"，等于把池子换个名字 ——
+// 一个远端玩家本来就只需要 1 条长期 Primary，再加 0~1 条备用；干道空闲时不占带宽，
+// 也不需要像以前的池子那样按寿命反复换新（换新本身就是额外的握手）。真正需要扩容时
+// 的判据是"这条干道满了"（PEER_STREAM_MAX_PER_TRUNK），而不是"先开三条放着"。
+const PEER_TRUNK_TARGET = 1;
+/** 一条干道最多承载几条流。到顶了就去开新干道，避免单条 Steam 连接被压垮。 */
+const PEER_STREAM_MAX_PER_TRUNK = 64;
+/**
+ * 开场握手：**加入者先开口，房主应答**。
+ *
+ * 为什么方向不能反（这是拿旧加入者实测出来的）：0.13.3 的加入者不认识魔数，房主若主动
+ * 先发，它会把那 7 个字节当成房主回的游戏数据原样写进浏览器 —— HTTP 响应变成
+ * `SHLMUX\x01HTTP/1.1 200 OK`，浏览器直接解析失败。而用户的升级顺序是"房主先升、
+ * 朋友后升"，所以「新房主 + 旧加入者」必然出现，绝不能让它被打断。
+ *
+ * 反过来就没事：加入者先发的就是浏览器的真实字节，新房子一看不是魔数就走老路径，
+ * 全程一个字节都不多发 → 旧加入者完全兼容。
+ *
+ * PEER_HELLO_TIMEOUT_MS 现在只是**诊断用**的期望值（房主应答通常在一两个 RTT 内回到），
+ * 不再作为"判定对面是不是新版"的手段 —— 新版房主是被动应答的，永远等不到主动魔数，
+ * 拿超时去判只会把新+新组合错误地打回老路径，把多路复用整个废掉。
+ */
+const PEER_HELLO_TIMEOUT_MS = 1500;
+/** 干道还没连上时，先替本机客户端攒着的字节上限。 */
+const PEER_QUEUE_MAX_BYTES = 1024 * 1024;
+
+/**
+ * 干道断了以后，一条流最多等多久重新挂上（规格 §十六 的 stream recovery）。
+ *
+ * 为什么值得等：干道断掉的原因里，"真的没网了"反而是少数，多数是 Steam 中继换路、
+ * CM 抖一下、对端进程重启。而重连一条干道的代价是本机几十毫秒、校园网下一两秒 ——
+ * 远小于让浏览器把整张地图重新拉一遍。所以传输层打嗝不该等价于"所有请求一起失败"。
+ *
+ * 为什么必须有上限：没有上限的话，一条死掉的流会永久占着一个已经连到游戏服务的
+ * 本机连接，游戏侧看着"有人在连却什么都不发"，最后两边一起挂着。宁可明确收掉、
+ * 让客户端重来一次 —— 那也是它本来就会做的事。
+ */
+const STREAM_MIGRATE_GRACE_MS = 8000;
+
+/**
+ * 寄存流（orphan）的清扫周期。
+ *
+ * **不另起计时器**（规格 §十八）：房主的泵本来就是 4ms 一轮，在这里顺手看一眼即可，
+ * 只用一个时间戳把它压到 500ms 一次 —— 4ms 扫一遍孤儿是纯浪费。
+ */
+const ORPHAN_SWEEP_MS = 500;
+
+/**
+ * 流"寄存在半路"（干道断了、socket 还活着、暂时没有归属干道）时，最多替它攒多少字节。
+ *
+ * 这段字节是**游戏服务在干道断开期间继续吐出来的响应**。丢掉它们就等于把一个
+ * 已经发了一半的 HTTP 响应砍断 —— 浏览器只会看到内容不完整。攒到上限还连不回来，
+ * 说明这条干道不是"打嗝"而是真没了，那时候断掉反而是对的。
+ */
+const STREAM_PARK_MAX_BYTES = 512 * 1024;
 
 /**
  * 从队列头部丢掉已经确认进了 Steam 发送缓冲的 n 个字节。
@@ -525,21 +600,10 @@ function createStats(role) {
     // 加入者侧："一个字节都没回来就断了"的连接被悄悄重连了几次。
     // 这个数字只涨不跌，用来判断现场到底是"偶发握手失败"还是"一直在失败"。
     reconnects: 0,
-    // 加入者侧预热连接池（0.13.0）：趁没人用的时候先把连接养好，浏览器一进来直接拿现成的。
-    // 这四个数字是判断"用户到底还要不要等握手"的唯一依据：
-    //   poolCreated 一共在后台开过几条、poolReady 其中真正握手成功的、
-    //   poolHits 有多少条本机连接直接拿到了现成的（= 零等待）、poolMisses 没拿到只能现握手的。
-    poolCreated: 0,
-    poolReady: 0,
-    poolHits: 0,
-    poolMisses: 0,
-    // 预热连接的**死因**要分开数，否则看不出池子是不是在白白抢握手名额：
-    //   poolRetired 看门狗按寿命主动换新（计划内，一条换一条）；
-    //   poolLost 自己断的（计划外，补货就是一次额外的 Steam 握手）；
-    //   poolLifeMs 所有预热连接活过的毫秒总数，除以 (retired+lost) 就是平均寿命。
-    poolRetired: 0,
-    poolLost: 0,
-    poolLifeMs: 0,
+    // 加入者侧预热连接池（0.13.0）的计数器 —— **0.14.0 随池子一起删除**。
+    // 那些字段（poolCreated / poolReady / poolHits / poolMisses / poolRetired / poolLost / poolLifeMs）
+    // 现在恒为 0 且没有任何代码写它们；留着只会让人以为池子还在跑。看多路复用的健康看
+    // `stats.muxPeers` / `stats.legacyPeers` / `stats.totalStreams` 与 `provider.netState()`。
     encrypted: true, // Steam 通道自带加密与身份认证
     sessionId: null,
     startedAt: null,
@@ -691,13 +755,329 @@ function createSteamHost(options = {}) {
     try { onEvent(type, payload); } catch { /* 事件回调不允许影响转发 */ }
   };
 
+  /**
+   * 房主侧的一条"干道"：一条 Steam P2P 连接，里面可以并行跑很多条流。
+   *
+   * 0.14.0 之前这里是"一条 Steam 连接 = 一个到游戏端口的本机 socket"。现在先建干道，
+   * **确定对端会多路复用之前不碰游戏端口** —— 否则每次握手都会顺手在游戏服务上开一个
+   * 连接，而对方可能一个字节都不发（那正是以前"游戏服务 60 秒超时关连接"的来源）。
+   */
+  /**
+   * 把一串已经编码好的帧排进发送队列，并尽快发出去。
+   * 攒够 outFlushBytes 就立刻发，否则挂到本回合末尾 —— 与本地 socket 数据那条路径同一个节奏。
+   */
+  const pushFrames = (peer, frames) => {
+    if (peer.dropped || !frames.length) return;
+    let shouldFlush = false;
+    for (const frame of frames) if (queueOut(peer, frame, tuning.outFlushBytes)) shouldFlush = true;
+    if (shouldFlush) {
+      const written = flushPeerOut(steam, peer, sendChunk, tuning);
+      if (written < 0) {
+        stats.sendStalls += 1;
+        emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: 'Steam 发送缓冲已满，已暂停读取本机连接等待排空', message: 'sendMessage buffer full' } });
+      }
+    } else {
+      flushPeerOutSoon(steam, peer, sendChunk, tuning);
+    }
+  };
+
+  /** 一条流上的字节转给游戏端口那条本机 socket；还没连上就先攒着。 */
+  const writeStream = (stream, payload) => {
+    if (!stream || stream.socket.destroyed || !payload.length) return;
+    if (!stream.connected) {
+      if (stream.queueBytes + payload.length > PEER_QUEUE_MAX_BYTES) {
+        // 连上都还没连上就攒了 1MB：与其带伤上路，不如断开让客户端重来一次。
+        stats.dropped += 1;
+        stream.socket.destroy();
+        return;
+      }
+      stream.queue.push(Buffer.from(payload));
+      stream.queueBytes += payload.length;
+      return;
+    }
+    stream.socket.write(payload);
+  };
+
+  /**
+   * 干道断了以后**还活着的流**（规格 §十六 的 stream recovery）。
+   *
+   * 早先的写法是"干道一断就把所有流的 socket destroy 掉，浏览器自己会重开"。这在
+   * HTTP 短请求上看着还行，但每次传输层打嗝都等于把整页资源全部作废 —— 而重连一条
+   * 干道只要几十毫秒到一两秒（见 STREAM_MIGRATE_GRACE_MS）。所以改成：先寄存，
+   * 等新干道把 `OPEN(同一个流号, 更高的世代)` 送上来就原地复活，超时才真收掉。
+   *
+   * 键就是**流号**：加入者的流号本来就是全局唯一的偶数（规格 §十一），房主侧同一个
+   * 流号同时只可能有一条活着的流。
+   *
+   * 声明位置在 openStream 之前：openStream 与新干道上的 OPEN 帧都会读它。
+   */
+  const orphanStreams = new Map();   // streamId -> stream
+
+  /**
+   * 开一条流 = 在游戏端口上开一个本机连接。
+   *
+   * 对游戏服务来说，多路复用是透明的：浏览器开几条连接，它就看到几个连接，
+   * 只不过这些连接共享同一条 Steam 干道。
+   *
+   * @param {number} generation 对端为这条流分配的世代号（规格 §十七）。同一个流号
+   *   配上更高的世代 = 对端在 transport 重建后重新挂载这条流（规格 §十六 的 reattach）。
+   */
+  const openStream = (peer, streamId, generation = 0) => {
+    const existing = peer.streams.get(streamId);
+    if (existing) {
+      // reattach：流号相同、世代更高，就把世代推上去，后续帧按新世代校验。
+      if ((generation >>> 0) > (existing.generation >>> 0)) existing.generation = generation >>> 0;
+      return existing;
+    }
+    // 先看寄存区：**同一个流号**在新干道上重新出现，就是规格 §十六 的 reattach。
+    // 这时绝不能新建一条到游戏端口的连接 —— 那会让游戏看到"同一件事被开了两个连接"，
+    // 而且原来那条连接上已经发了一半的响应就永远送不出去了。
+    const parked = orphanStreams.get(streamId);
+    if (parked) {
+      if (parked.socket.destroyed) {
+        orphanStreams.delete(streamId);
+      } else if ((generation >>> 0) >= (parked.generation >>> 0)) {
+        return adoptOrphan(peer, parked, generation);
+      }
+      // 世代比寄存的那份还旧：迟到帧，装作没看见。下面会当作一条全新流处理 ——
+      // 但**不复用那个 socket**，旧的那份留给清扫器收掉，免得两代流写同一个 socket。
+    }
+    if (peer.streams.size >= PEER_STREAM_MAX_PER_TRUNK) {
+      pushFrames(peer, [mux.encodeReset(streamId, generation, mux.RESET_REASON.StreamLimit)]);
+      return null;
+    }
+    const stream = {
+      id: streamId,
+      generation: generation >>> 0,
+      socket: net.createConnection({ host: gameHost, port: Number(gamePort) }),
+      connected: false,
+      queue: [],
+      queueBytes: 0,
+      remoteCredit: PEER_OUT_HIGH_WATER,   // 对端说"我还能再接这么多字节"（规格 §十三）
+      bornAt: Date.now(),
+      bytesToPeer: 0,
+      bytesFromPeer: 0,
+      /** 当前归属的干道。**所有 socket 回调都读它**，不捕获 peer —— 换挂才有意义。 */
+      owner: peer,
+      /** 干道断开期间游戏服务继续吐出来的字节（只有"寄存中"时才非空）。 */
+      parkQueue: [],
+      parkBytes: 0,
+      parkedAt: 0,
+      migrations: 0,
+    };
+    peer.streams.set(streamId, stream);
+    stats.streams = peer.streams.size;
+    stats.totalStreams = (stats.totalStreams || 0) + 1;
+
+    stream.socket.setNoDelay(true);
+    stream.socket.on('connect', () => {
+      stream.connected = true;
+      for (const chunk of stream.queue.splice(0)) stream.socket.write(chunk);
+      stream.queueBytes = 0;
+      const owner = stream.owner;
+      emit('stream-added', { peer: owner?.steamId || String(owner?.connection ?? '?'), stream: streamId });
+    });
+    stream.socket.on('data', (chunk) => {
+      stats.bytesToPeer += chunk.length;
+      stats.packetsToPeer += 1;
+      stream.bytesToPeer += chunk.length;
+      const owner = stream.owner;
+      if (!owner || owner.dropped || owner.framed !== true) {
+        // 没有归属干道（或者它已经废了）：**不能丢**，先寄存着。
+        // 这一段往往是"响应的后半截"，丢掉就等于把一个 HTTP 响应砍断。
+        if (stream.parkBytes + chunk.length > STREAM_PARK_MAX_BYTES) {
+          stats.dropped += 1;
+          try { stream.socket.destroy(); } catch { /* 断一条流不影响别的流 */ }
+          return;
+        }
+        stream.parkQueue.push(Buffer.from(chunk));
+        stream.parkBytes += chunk.length;
+        return;
+      }
+      // 数据帧与 CLOSE 帧走同一个有序队列 —— 游戏服务"回完响应立刻关连接"时，
+      // 那段响应必然排在 CLOSE 前面，不会再出现"最后一段字节丢掉"。
+      pushFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
+    });
+    stream.socket.on('error', (err) => {
+      stats.failed += 1;
+      emit('error', { stage: 'game-socket', error: { code: err.code, friendly: `连接本地服务端口失败：${err.message}`, message: err.message } });
+      stream.socket.destroy();
+    });
+    stream.socket.on('close', () => {
+      const owner = stream.owner;
+      const ageMs = Date.now() - stream.bornAt;
+      // 已经寄存起来的流：socket 是自己收掉的，账在清扫器那边结。
+      if (!owner) { orphanStreams.delete(streamId); return; }
+      owner.streams.delete(streamId);
+      stats.streams = owner.streams.size;
+      // 游戏侧正常收尾时也要把 CLOSE 送出去 —— 但**不能**在干道已经废掉时硬发。
+      if (!owner.dropped && owner.framed === true) pushFrames(owner, [mux.encodeClose(streamId, stream.generation)]);
+      emit('stream-left', {
+        peer: owner.steamId || String(owner.connection),
+        stream: streamId,
+        kind: 'LocalServiceClosed',
+        reason: '本机服务端口把这条件接关了（响应正常收尾，或游戏侧自己超时）',
+        ageMs,
+        bytesToPeer: stream.bytesToPeer,
+        bytesFromPeer: stream.bytesFromPeer,
+      });
+    });
+    return stream;
+  };
+
+  /** 把一条寄存中的流重新挂到新干道上，并补发它在断开期间收到的字节。 */
+  const adoptOrphan = (peer, stream, generation) => {
+    orphanStreams.delete(stream.id);
+    stream.owner = peer;
+    stream.generation = generation >>> 0;
+    stream.parkedAt = 0;
+    stream.migrations += 1;
+    peer.streams.set(stream.id, stream);
+    stats.streams = peer.streams.size;
+    stats.streamsMigrated = (stats.streamsMigrated || 0) + 1;
+    // 补发寄存期间游戏服务吐出来的字节：**必须在重新登记之后**，否则 owner 还是空的。
+    if (stream.parkBytes) {
+      const parked = stream.parkQueue.splice(0);
+      stream.parkBytes = 0;
+      for (const chunk of parked) pushFrames(peer, mux.encodeDataChunks(stream.id, stream.generation, chunk));
+    }
+    // socket 在寄存期间自己关了：补一条 CLOSE，让对端知道这条流结束了。
+    if (stream.socket.destroyed) {
+      pushFrames(peer, [mux.encodeClose(stream.id, stream.generation)]);
+    }
+    emit('stream-added', { peer: peer.steamId || String(peer.connection), stream: stream.id, migrated: true });
+    return stream;
+  };
+
+  /**
+   * 干道断了：把挂在它上面的流**寄存**起来（socket 不动），等新干道来接。
+   *
+   * 不销毁的理由见 STREAM_MIGRATE_GRACE_MS 与 orphanStreams 的注释。
+   */
+  const parkPeerStreams = (peer, reason) => {
+    if (!peer.streams.size) return 0;
+    const now = Date.now();
+    let parked = 0;
+    for (const stream of [...peer.streams.values()]) {
+      peer.streams.delete(stream.id);
+      if (stream.socket.destroyed) continue;
+      stream.owner = null;
+      stream.parkedAt = now;
+      const prev = orphanStreams.get(stream.id);
+      // 同一个流号又寄进来一份：旧的那份不可能还活着，直接收掉，别让两份抢一个流号。
+      if (prev && prev !== stream) { try { prev.socket.destroy(); } catch { /* ignore */ } }
+      orphanStreams.set(stream.id, stream);
+      parked += 1;
+    }
+    stats.streams = peer.streams.size;
+    stats.streamsParked = (stats.streamsParked || 0) + parked;
+    if (parked) emit('notice', { text: `干道断了，先把 ${parked} 条流寄存 ${STREAM_MIGRATE_GRACE_MS / 1000} 秒等重挂（原因：${reason}）` });
+    return parked;
+  };
+
+  /** 兜底：寄存超过宽限期还没等到新干道的流，真收掉。 */
+  const sweepOrphans = (now = Date.now()) => {
+    if (!orphanStreams.size) return 0;
+    let gone = 0;
+    for (const [id, stream] of [...orphanStreams]) {
+      if (stream.socket.destroyed) { orphanStreams.delete(id); continue; }
+      if (now - stream.parkedAt < STREAM_MIGRATE_GRACE_MS) continue;
+      orphanStreams.delete(id);
+      gone += 1;
+      stats.streamsMigrateExpired = (stats.streamsMigrateExpired || 0) + 1;
+      try { stream.socket.destroy(); } catch { /* ignore */ }
+      emit('stream-left', {
+        peer: '（无干道）',
+        stream: id,
+        kind: 'TunnelClosed',
+        reason: `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`,
+        ageMs: now - stream.bornAt,
+        bytesToPeer: stream.bytesToPeer,
+        bytesFromPeer: stream.bytesFromPeer,
+      });
+    }
+    return gone;
+  };
+
+  /** 真正销毁一条干道上的所有流（协议违规、会话停止 —— 这两种情况不该迁移）。 */
+  const destroyPeerStreams = (peer, reason) => {
+    for (const stream of [...peer.streams.values()]) {
+      peer.streams.delete(stream.id);
+      stream.owner = null;
+      try { if (!stream.socket.destroyed) stream.socket.destroy(); } catch { /* ignore */ }
+      emit('stream-left', {
+        peer: peer.steamId || String(peer.connection),
+        stream: stream.id,
+        kind: 'TunnelClosed',
+        reason,
+        ageMs: Date.now() - stream.bornAt,
+        bytesToPeer: stream.bytesToPeer,
+        bytesFromPeer: stream.bytesFromPeer,
+      });
+    }
+    stats.streams = peer.streams.size;
+  };
+
+  /**
+   * 收到一帧。
+   *
+   * 顺序按规格 §二十五 的接收路径走：**先认流、再验世代、最后才动 socket**。
+   * 世代不匹配就直接丢，绝不写进本机 socket —— 否则旧连接迟到的字节会污染这条流。
+   */
+  const handleStreamFrame = (peer, frame) => {
+    const { type, streamId } = frame;
+    if (type === mux.TYPE.Open) {
+      // 对端开了新流：在游戏端口上补一个连接。数据会跟在后面，所以先连再写。
+      openStream(peer, streamId, frame.generation);
+      return;
+    }
+    if (streamId === mux.STREAM_ID_SESSION) {
+      // 整条干道级别的控制帧（Ping/Pong）。没接收端点时只记账，不影响任何流。
+      if (type === mux.TYPE.Ping) pushFrames(peer, [mux.encodePong()]);
+      return;
+    }
+    const stream = peer.streams.get(streamId);
+    if (!stream) {
+      // 对端已经收到过我们的 Reset/Close，后面的零星帧直接忽略。
+      if (type !== mux.TYPE.Reset) stats.dropped += 1;
+      return;
+    }
+
+    const verdict = mux.checkGeneration(frame, stream.generation);
+    if (verdict === 'stale') {
+      // 旧连接上迟到的帧 —— 规格 §十七 硬要求：直接丢弃，不许写进 socket。
+      stats.staleFrames = (stats.staleFrames || 0) + 1;
+      return;
+    }
+    if (verdict === 'future') {
+      // 比本地世代新却不是 Open：协议违规。只掐这一条流，不牵连其它（规格 §二十五）。
+      stats.dropped += 1;
+      pushFrames(peer, [mux.encodeReset(streamId, stream.generation, mux.RESET_REASON.Protocol)]);
+      peer.streams.delete(streamId);
+      stats.streams = peer.streams.size;
+      try { if (!stream.socket.destroyed) stream.socket.destroy(); } catch { /* ignore */ }
+      return;
+    }
+
+    if (type === mux.TYPE.Data) { writeStream(stream, frame.payload); return; }
+    if (type === mux.TYPE.Window) { stream.remoteCredit = mux.decodeWindowCredit(frame.payload); return; }
+    if (type === mux.TYPE.Close) { if (!stream.socket.destroyed) stream.socket.end(); return; }
+    if (type === mux.TYPE.Reset) {
+      stats.streamsReset = (stats.streamsReset || 0) + 1;
+      if (!stream.socket.destroyed) stream.socket.destroy();
+    }
+  };
+
   const attachPeer = (connection, steamId) => {
     let peer = peers.get(connection);
     if (peer) return peer;
     peer = {
       connection,
       steamId,
-      socket: net.createConnection({ host: gameHost, port: Number(gamePort) }),
+      framed: null,           // null=还没听到对端开口, true=多路复用, false=老对端（单连接透传）
+      decoder: mux.createFrameDecoder(),
+      streams: new Map(),     // streamId -> { id, socket, connected, queue, queueBytes }
+      socket: null,           // 只为老对端模式准备（那条路径上一条 Steam 连接只有一条流）
       connected: false,
       queue: [],
       out: [],
@@ -710,6 +1090,26 @@ function createSteamHost(options = {}) {
     stats.connections = peers.size;
     stats.totalPeers += 1;
 
+    // ★ 房主**不主动开口**：多路复用的 HELLO 由加入者先发，房主认出魔数之后才回一条。
+    //
+    // 为什么必须这样 —— 这是一条裸字节管道，先开口那一侧的魔数在旧版对端眼里就是业务数据：
+    //   · 房主先发 ⇒ 0.13.3 的加入者会把 "SHLMUX\x01" 当成 HTTP 响应开头的几个字节，
+    //     整页解析失败。而"房主先升级、朋友后升级"恰好是最常见的升级顺序。
+    //   · 房主被动应答 ⇒ 新房主对旧加入者**一个字节都不多发**，旧加入者照旧走
+    //     attachLegacySocket，完全无感。
+    // 代价只有一个组合：旧房主 + 新加入者（加入者发出去的魔数会被旧房主转发进游戏端口）。
+    // 这一条靠升级顺序规避：房主先升。见 docs/0.14.0-网络架构重构.md 的 4.3。
+    emit('peer-joined', { peer: steamId || String(connection) });
+    return peer;
+  };
+
+  /** 老对端（≤0.13.3）走这条路：一条 Steam 连接对着一个游戏端口 socket，字节原样透传。 */
+  const attachLegacySocket = (peer) => {
+    if (peer.socket) return peer.socket;
+    const connection = peer.connection;
+    const steamId = peer.steamId;
+    peer.socket = net.createConnection({ host: gameHost, port: Number(gamePort) });
+    peer.legacy = true;
     peer.socket.setNoDelay(true);
     peer.socket.on('connect', () => {
       peer.connected = true;
@@ -777,9 +1177,9 @@ function createSteamHost(options = {}) {
         });
       }
     });
-    emit('peer-joined', { peer: steamId || String(connection) });
-    return peer;
+    return peer.socket;
   };
+
 
   const handleStateChange = (change) => {
     const states = connectionStates(moduleRef);
@@ -822,10 +1222,39 @@ function createSteamHost(options = {}) {
         peers.delete(connection);
         stats.peers = peers.size;
         stats.connections = peers.size;
-        peer.socket.destroy();
+        // 干道断了：把流**寄存**起来等新干道来接，而不是就地收掉（规格 §十六）。
+        // 以前这里 destroy 所有流的 socket —— 传输层打一个嗝就等于浏览器里所有请求
+        // 一起失败、整页资源重来一遍。寄存的代价只是几百 KB 内存和一个 8 秒的期限。
+        // **房主这边不主动拉新干道**：它是被动应答的一方，"新干道"由加入者重新发起
+        // （加入者那边 dropPeer 之后会 refillTrunks）。房主要做的只是别把流收掉。
+        parkPeerStreams(peer, change.info?.endDebugMessage || 'Steam 连接断开');
+        if (peer.socket) { try { peer.socket.destroy(); } catch { /* ignore */ } }
         if (firstGone(peer)) emit('peer-left', { peer: peer.steamId || String(connection), ...info });
       }
     }
+  };
+
+  /** 把字节喂给解码器，逐帧交给流层。协议错乱就断开这条干道（宁可重连也不要串线）。 */
+  const feedDecoder = (peer, chunk) => {
+    let frames;
+    try {
+      frames = peer.decoder.push(chunk);
+    } catch (err) {
+      stats.failed += 1;
+      emit('error', { stage: 'mux-decode', error: { code: err.code || 'EMUXFRAME', friendly: `Steam 数据流格式不对，已断开这条连接：${err.message}`, message: err.message } });
+      peer.dropped = true;
+      peers.delete(peer.connection);
+      stats.peers = peers.size;
+      stats.connections = peers.size;
+      // 协议错乱是另一回事：这条干道上的字节已经不可信，**不许寄存**（否则错的字节
+      // 会被搬到新干道上接着错）。直接收摊，让客户端重来。
+      destroyPeerStreams(peer, '数据流格式不对');
+      if (peer.socket) { try { peer.socket.destroy(); } catch { /* ignore */ } }
+      if (firstGone(peer)) emit('peer-left', { ...peerCloseInfo(peer, null, states, Date.now()), peer: peer.steamId || String(peer.connection), kind: 'BadFraming', reason: err.message });
+      try { steam.networkingSockets.closeConnection(peer.connection, 0, '数据格式不对', false); } catch { /* ignore */ }
+      return;
+    }
+    for (const frame of frames) handleStreamFrame(peer, frame);
   };
 
   const pump = () => {
@@ -838,14 +1267,63 @@ function createSteamHost(options = {}) {
     for (const message of messages) {
       const peer = peers.get(message.connection);
       if (!peer) { stats.dropped += 1; continue; }
-      const data = Buffer.isBuffer(message.data) ? message.data : Buffer.from(message.data || []);
-      stats.bytesFromPeer += data.length;
+      const data0 = Buffer.isBuffer(message.data) ? message.data : Buffer.from(message.data || []);
+      stats.bytesFromPeer += data0.length;
       stats.packetsFromPeer += 1;
-      peer.bytesFromPeer += data.length;
+      peer.bytesFromPeer += data0.length;
+
+      // 还没听到对端开口：第一条消息决定这局走"多路复用"还是"老对端透传"。
+      if (peer.framed === null) {
+        if (mux.isOurHello(data0)) {
+          peer.framed = true;
+          peer.connected = true;
+          stats.muxPeers = (stats.muxPeers || 0) + 1;
+          // 加入者先开口，房主认出魔数后才回一条（见 attachPeer 里的说明）。
+          // 回包必须排在 rest 里那些 OPEN 对应的数据帧**之前** —— 加入者要收到这条应答
+          // 才会把 framed 定成 true，先收到流数据会让它以为对端在乱说话。
+          pushFrames(peer, [mux.encodeHello()]);
+          const rest = data0.subarray(mux.HELLO_BYTES.length);
+          if (rest.length) feedDecoder(peer, rest);
+          // 一局只握手一次，之后所有本机连接都挂在上面 —— 上层只需要知道"通了"。
+          emit('peer-connected', { peer: peer.steamId || String(message.connection), mux: true });
+          continue;
+        }
+        // 是魔数，但版本对不上（比如 0.14.0 开发期的 v1 帧格式）。**绝不能**把这几个
+        // 字节当游戏流量转发出去 —— 那会污染 HTTP 请求头。吞掉魔数，退回单连接模式。
+        let data = data0;
+        if (mux.isHello(data)) {
+          stats.versionMismatch = (stats.versionMismatch || 0) + 1;
+          emit('notice', {
+            text: `对端的隧道协议版本是 ${mux.helloVersion(data)}，本机是 ${mux.MUX_VERSION}` +
+              ' —— 这一局退回单连接模式（能用，但要慢很多），两边升到同一版即可恢复多路复用',
+          });
+          data = data.subarray(mux.HELLO_BYTES.length);
+          if (!data.length) continue;
+        }
+        // 对端不是 0.14.0（或者根本没开口）：退回 0.13.3 的单连接行为，
+        // 这样"朋友还没升级"时也只是慢，不会完全连不上。
+        peer.framed = false;
+        stats.legacyPeers = (stats.legacyPeers || 0) + 1;
+        attachLegacySocket(peer);
+        if (!peer.connected) {
+          if (peer.queue.length > 256) {
+            // 连上之前就积压了 256 块。丢掉最早那块同样是在可靠流上挖洞，
+            // 与其带伤上路，不如断开让客户端重连一次。
+            stats.dropped += 1;
+            try { peer.socket.destroy(); } catch { /* 断开失败不影响其它连接 */ }
+            continue;
+          }
+          peer.queue.push(data);
+          continue;
+        }
+        peer.socket.write(data);
+        continue;
+      }
+      if (peer.framed === true) { feedDecoder(peer, data0); continue; }
+      const data = data0;
+      // 老对端：一个字节都不改，原样透传。
       if (!peer.connected) {
         if (peer.queue.length > 256) {
-          // 连上之前就积压了 256 块。丢掉最早那块同样是在可靠流上挖洞，
-          // 与其带伤上路，不如断开让客户端重连一次。
           stats.dropped += 1;
           try { peer.socket.destroy(); } catch { /* 断开失败不影响其它连接 */ }
           continue;
@@ -857,6 +1335,13 @@ function createSteamHost(options = {}) {
     }
     // 返回值供 startCallbackLoop 判断"这一轮有没有活"，决定下一次轮询是立刻还是退让。
     samplePeers({ peers, steam, emit, state: sampleState });
+    // 寄存流的清扫挂在这条本来就有的泵上（规格 §十八：不许每个流各起一个计时器）。
+    // 用一个时间戳把它压到 ORPHAN_SWEEP_MS 一次 —— 泵是 4ms 一轮，4ms 扫一遍孤儿纯浪费。
+    const now = Date.now();
+    if (orphanStreams.size && now - (sampleState.lastOrphanSweepAt || 0) >= ORPHAN_SWEEP_MS) {
+      sampleState.lastOrphanSweepAt = now;
+      sweepOrphans(now);
+    }
     return messages.length;
   };
 
@@ -898,7 +1383,15 @@ function createSteamHost(options = {}) {
     if (stopLoop) stopLoop();
     stopLoop = null;
     try { offStateChange?.(); } catch { /* ignore */ }
-    for (const peer of peers.values()) { try { peer.socket.destroy(); } catch { /* ignore */ } }
+    for (const peer of peers.values()) {
+      // 会话停了就不再重连，寄存区里那些流也没有"新干道"可等 —— 一起收干净。
+      destroyPeerStreams(peer, '隧道已停止');
+      try { peer.socket?.destroy(); } catch { /* ignore */ }
+    }
+    for (const stream of [...orphanStreams.values()]) {
+      try { if (!stream.socket.destroyed) stream.socket.destroy(); } catch { /* ignore */ }
+    }
+    orphanStreams.clear();
     peers.clear();
     stats.peers = 0;
     stats.connections = 0;
@@ -938,7 +1431,9 @@ function createSteamJoiner(options = {}) {
     // 只有"这次握手很快就被判死"才值得重试。默认见 PEER_RETRY_FAST_MS；
     // 做成可注入是为了测试能直接控制这个门槛，不必真的等满 5 秒。
     retryFastMs = PEER_RETRY_FAST_MS,
-    poolGapMs = null,
+    // 流多路复用总开关。默认开；关掉就退回 0.13.3 的"每条本机连接一条 Steam 连接"
+    // （测试里大量断言依赖老行为，也留一条随时能对照的路）。
+    mux: muxOption = null,
     onEvent = null,
     debug = false,
   } = options;
@@ -953,17 +1448,19 @@ function createSteamJoiner(options = {}) {
   const peers = new Map(); // localSocket -> { socket, connection, connected, queue }
   const maxConnections = Number(options.maxConnections) > 0 ? Number(options.maxConnections) : DEFAULT_MAX_PEERS;
   const retryFastLimit = Number.isFinite(Number(retryFastMs)) && Number(retryFastMs) >= 0 ? Number(retryFastMs) : PEER_RETRY_FAST_MS;
-  // 预热池目标条数。0 = 彻底关掉，退回"每条浏览器连接都现握手"的老行为。
-  const poolTargetLimit = (() => {
-    const raw = options.poolTarget != null ? options.poolTarget : process.env.SHL_STEAM_POOL;
-    if (raw == null || String(raw).trim() === '') return PEER_POOL_TARGET;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? Math.min(Math.floor(n), 16) : PEER_POOL_TARGET;
+  // 默认开多路复用。SHL_STEAM_MUX=0 或 options.mux=false 退回老行为。
+  const muxEnabled = (() => {
+    const raw = muxOption != null ? muxOption : process.env.SHL_STEAM_MUX;
+    if (raw == null || String(raw).trim() === '') return true;
+    const s = String(raw).trim().toLowerCase();
+    return !(s === '0' || s === 'false' || s === 'off' || s === 'no');
   })();
-  // 补货间隔。测试里调成 0 才跑得快；线上保持 250ms 是因为 Steam 本来就一条一条放行，
-  // 同时压只会互相拖慢。
-  const poolGapLimit = Number.isFinite(Number(poolGapMs)) && Number(poolGapMs) >= 0 ? Number(poolGapMs) : PEER_POOL_MIN_GAP_MS;
-  const poolState = { timer: null, failStreak: 0 };
+  // 唯一的流编号发号器。从 1 开始，0 留给"没有流"。
+  // 加入者只分配**偶数**流号（规格 §十一）：房主用奇数、加入者用偶数，两边永远不撞号。
+  let nextStreamId = mux.STREAM_ID_CLIENT_START;
+  // 一旦确认对面是老版本（等不到开场魔数），整局就退回单连接透传，不再反复试探。
+  let legacyHost = !muxEnabled;
+  let legacyAnnounced = false;
   let steam = null;
   let moduleRef = steamModule;
   let stopLoop = null;
@@ -976,18 +1473,128 @@ function createSteamJoiner(options = {}) {
     return null;
   };
 
+  /** 所有干道上正在跑的流总数 = 此刻有几条本机连接在用这条隧道。 */
+  const countStreams = () => {
+    let n = 0;
+    for (const peer of peers.values()) n += peer.streams ? peer.streams.size : 0;
+    return n;
+  };
+
+  /**
+   * 干道断了、但**本机客户端那条 TCP 还活着**的流（规格 §十六 的 stream recovery）。
+   *
+   * 为什么值得救：加入者这边一条流就是浏览器/游戏的一条真实 TCP 连接。干道一断就
+   * destroy 它，等于把这半局里所有正在传的东西一起作废 —— 页面重新加载、地图重新拉。
+   * 而干道断掉的原因多数是"传输层打了个嗝"（中继换路、CM 抖一下），重新握手只要
+   * 几十毫秒到一两秒（见 STREAM_MIGRATE_GRACE_MS）。所以先寄存，等新干道谈妥之后
+   * 用**同一个流号、更高的世代**重新 OPEN 一次，两边原地复活。
+   *
+   * 键就是流号：加入者的流号是全局唯一的偶数（规格 §十一），同一时刻只可能有一条活的。
+   */
+  const orphanStreams = new Map();   // streamId -> stream
+
+  /** 干道断了：把挂在它上面的流寄存在这里，**不动本机 socket**。 */
+  const parkTrunkStreams = (peer, reason) => {
+    if (!peer.streams || !peer.streams.size) return 0;
+    const now = Date.now();
+    let n = 0;
+    for (const stream of [...peer.streams.values()]) {
+      peer.streams.delete(stream.id);
+      const sock = stream.localSocket || stream.socket;
+      if (!sock || sock.destroyed) continue;
+      stream.trunk = null;          // 没有归属干道：socket 上的 data 会攒进 parkQueue
+      stream.parkedAt = now;
+      const prev = orphanStreams.get(stream.id);
+      if (prev && prev !== stream) { try { const p = prev.localSocket || prev.socket; p?.destroy(); } catch { /* ignore */ } }
+      orphanStreams.set(stream.id, stream);
+      n += 1;
+    }
+    stats.streams = countStreams();
+    stats.streamsParked = (stats.streamsParked || 0) + n;
+    if (n) emit('notice', { text: `干道断了，先把 ${n} 条本机连接寄存 ${STREAM_MIGRATE_GRACE_MS / 1000} 秒等新干道来接（原因：${reason}）` });
+    return n;
+  };
+
+  /**
+   * 新干道谈妥了：把寄存的流原地复活。
+   *
+   * 顺序很关键：**OPEN 必须先出去**，房主看到它才会把原来那个游戏端口的连接认回来，
+   * 后面补发的字节才有地方落。世代 +1 是规格 §十七 的要求 —— 旧干道上迟到的字节
+   * 带着旧世代，房主一看世代对不上就直接丢，不会写进复活后的流里。
+   */
+  const resumeOrphanStreams = (peer) => {
+    if (!orphanStreams.size) return 0;
+    let n = 0;
+    for (const [id, stream] of [...orphanStreams]) {
+      const sock = stream.localSocket || stream.socket;
+      if (!sock || sock.destroyed) { orphanStreams.delete(id); continue; }
+      if (peer.streams.size >= PEER_STREAM_MAX_PER_TRUNK) break;
+      orphanStreams.delete(id);
+      stream.generation += 1;
+      stream.trunk = peer;
+      stream.parkedAt = 0;
+      stream.migrations = (stream.migrations || 0) + 1;
+      peer.streams.set(id, stream);
+      pushFrames(peer, [mux.encodeOpen(id, stream.generation)]);
+      // 寄存期间浏览器/游戏继续发过来的字节，跟在 OPEN 后面按原顺序补发。
+      if (stream.parkBytes) {
+        const parked = stream.parkQueue.splice(0);
+        stream.parkBytes = 0;
+        for (const chunk of parked) pushFrames(peer, mux.encodeDataChunks(id, stream.generation, chunk));
+      }
+      n += 1;
+    }
+    stats.streams = countStreams();
+    stats.streamsMigrated = (stats.streamsMigrated || 0) + n;
+    if (n) emit('notice', { text: `新干道已谈妥，${n} 条本机连接原地复活（世代 +1，房主侧不会看到连接断开）` });
+    return n;
+  };
+
+  /** 兜底：寄存超过宽限期还没等到新干道的流，真收掉，让客户端自己重连。 */
+  const sweepOrphanStreams = (now = Date.now()) => {
+    if (!orphanStreams.size) return 0;
+    let gone = 0;
+    for (const [id, stream] of [...orphanStreams]) {
+      const sock = stream.localSocket || stream.socket;
+      if (!sock || sock.destroyed) { orphanStreams.delete(id); continue; }
+      if (now - stream.parkedAt < STREAM_MIGRATE_GRACE_MS) continue;
+      orphanStreams.delete(id);
+      gone += 1;
+      stats.streamsMigrateExpired = (stats.streamsMigrateExpired || 0) + 1;
+      try { sock.destroy(); } catch { /* ignore */ }
+      if (firstGone(stream)) {
+        emit('stream-left', {
+          peer: '（无干道）',
+          kind: 'TunnelClosed',
+          reason: `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`,
+          ageMs: now - stream.bornAt,
+          bytesToPeer: stream.bytesToPeer,
+          bytesFromPeer: stream.bytesFromPeer,
+        });
+      }
+    }
+    return gone;
+  };
+
   /**
    * 关掉一条通道（两个方向都收尾），并更新统计。
    *
-   * 注意 peers 是按 peer.key 索引的，不是按 socket —— 预热池里的连接还没有本机客户端
-   * （socket 为 null），它用一个唯一的占位对象当 key，被浏览器领走时再换成真 socket。
+   * 注意 peers 是按 peer.key 索引的：干道用对端 Steam 连接句柄当 key，老路径的透传连接
+   * 用本机 socket 当 key。（0.14.0 之前还有一种"预热池成员"——socket 为 null、拿占位对象当
+   * key，被浏览器领走时再换成真 socket；那个池子已经删了，见文件顶部 PEER_POOL 墓碑注释。）
    */
-  const dropPeer = (peer, { closeConnection = true, warmWhy = '' } = {}) => {
+  const dropPeer = (peer, { closeConnection = true, parkStreams = true } = {}) => {
     if (!peer || peer.dropped) return;
     peer.dropped = true;
+    // 干道死了，但上面那些本机连接（浏览器/游戏）很可能还活着 —— 规格 §十六：传输层
+    // 断开不等于会话结束。先把流寄存在 orphanStreams 里等新干道来接（8 秒宽限），
+    // 而不是反手把它们 destroy 掉。唯一的例外是协议错乱（parkStreams=false）：那种
+    // 情况把字节原样搬到新干道上只会接着错，必须真收掉。
+    if (peer.framed !== false && peer.streams && peer.streams.size) {
+      if (parkStreams) parkTrunkStreams(peer, 'Steam 连接断开');
+      else closeTrunkStreams(peer, '数据流格式不对', 'BadFraming');
+    }
     if (peer.reconnectTimer) { clearTimeout(peer.reconnectTimer); peer.reconnectTimer = null; }
-    if (peer.poolWatchdog) { clearTimeout(peer.poolWatchdog); peer.poolWatchdog = null; }
-    const wasWarm = peer.warm === true;
     peers.delete(peer.key);
     stats.connections = peers.size;
     if (closeConnection && peer.connection != null) {
@@ -1004,22 +1611,11 @@ function createSteamJoiner(options = {}) {
       // 那里，所以有积压时走 end()：先冲干净再 FIN，字节才真的到得了本机客户端。
       try { if (!peer.socket.destroyed && peer.socket.writableLength > 0) peer.socket.end(); else peer.socket.destroy(); } catch { /* ignore */ }
     }
-    // 池子里的连接死了要补货；被领走再死的则不用（那是正常业务流量）。
-    if (wasWarm) {
-      // 池子里的连接死了要补货；被领走再死的则不用（那是正常业务流量）。
-      //
-      // 死因要分开记：看门狗按寿命主动换新是**计划内**的，一条换一条，池子不额外抢握手
-      // 名额；自己断开是**计划外**的，补货就是一次额外的 Steam 握手。两者混在一起看
-      // 不出来 —— 曾经出现过 150 秒造 44 条（按 4 槽 × 34 秒只该造 ~18 条）却查不出
-      // 多出来的那些死在哪，现场日志里预热连接的死亡是静默的。
-      const lived = Date.now() - (peer.bornAt || Date.now());
-      stats.poolLifeMs = (stats.poolLifeMs || 0) + lived;
-      if (warmWhy === 'watchdog') stats.poolRetired = (stats.poolRetired || 0) + 1;
-      else stats.poolLost = (stats.poolLost || 0) + 1;
-      // "连上过并且活了一会儿"才算一次成功，否则记一次失败用来退避 ——
-      // 房主一直秒关的时候不能让补货变成死循环。
-      poolState.failStreak = (peer.connected && Date.now() - peer.bornAt > 1000) ? 0 : poolState.failStreak + 1;
-      refillPool();
+    if (peer.framed !== false) {
+      // 干道（不是老路径的透传连接）死了：立刻拉起下一条。
+      // 不这么做的话，最后一条干道断了就再也没人建，本机客户端会一直卡在排队或者
+      // "连上了一个不存在的干道"上 —— 而重连恰恰是浏览器此刻唯一能做的事，得给它一条路。
+      refillTrunks();
     }
   };
 
@@ -1079,6 +1675,502 @@ function createSteamJoiner(options = {}) {
 
   const sampleState = { lastPeerSampleAt: 0 };
 
+  // ── 干道还没建起来时的排队（0.14.0）────────────────────────────────────────
+  //
+  // connectP2P 当场失败（房主还没进房间、Steam 没起来）时**不能**像老代码那样把本机
+  // socket 直接掐掉：用户看到的是"点了没反应"，而浏览器的重试往往要等好几秒。
+  // 也不能在这里等握手 —— 规格 §二十一：回调里绝不允许 await，浏览器那条连接必须
+  // 立刻被受理。所以先把它挂在这条队列上，等 refillTrunks 建出干道再挂流。
+  const pendingSockets = [];
+  /** 排队的本机连接上限。再往上就是"Steam 一直没起来"，攒着只会白占内存。 */
+  const PENDING_SOCKET_MAX = 32;
+  /** 排队中的连接自己关掉时要把位置腾出来（浏览器取消导航、用户刷新都会发生）。 */
+  const dropPendingSocket = (socket) => {
+    const i = pendingSockets.indexOf(socket);
+    if (i >= 0) pendingSockets.splice(i, 1);
+  };
+
+  /** 把这批排队的连接一次性作废（判定成老房主、或者会话停了）。 */
+  const releasePendingSockets = (why) => {
+    if (!pendingSockets.length) return 0;
+    const n = pendingSockets.length;
+    for (const socket of pendingSockets.splice(0)) {
+      stats.dropped += 1;
+      emit('stream-left', { peer: `本机客户端 :${socket.remotePort || '?'}`, kind: 'TunnelClosed', reason: why });
+      try { if (!socket.destroyed) socket.destroy(); } catch { /* 断开失败不影响其它连接 */ }
+    }
+    return n;
+  };
+
+  // ── 流多路复用（0.14.0）───────────────────────────────────────────────────
+  // 为什么要做：浏览器每开一条 TCP 连接，老版本就要现握手一次 Steam P2P，而这个握手是
+  // **排队限速**的（实测单条 6.8 / 9.4 / 17.4 秒，最坏顶到 30 秒超时）。一个首页要开十几条
+  // 连接，于是用户看到的永远是"页面/地图转不出来"。多路复用之后一局只握一次手，
+  // 所有本机连接都作为"流"跑在同一条 Steam 干道上。
+
+  /** 把一串已编码的帧排进干道的发送队列，并尽快发出去。 */
+  const pushFrames = (peer, frames) => {
+    if (!peer || peer.dropped || !frames.length) return;
+    let shouldFlush = false;
+    for (const frame of frames) if (queueOut(peer, frame, tuning.outFlushBytes)) shouldFlush = true;
+    if (shouldFlush) {
+      const written = flushPeerOut(steam, peer, sendChunk, tuning);
+      if (written < 0) {
+        stats.sendStalls += 1;
+        emit('error', { stage: 'steam-send', error: { code: 'ESTEAMSEND', friendly: 'Steam 发送缓冲已满，已暂停读取本机连接等待排空', message: 'sendMessage buffer full' } });
+      }
+    } else {
+      flushPeerOutSoon(steam, peer, sendChunk, tuning);
+    }
+  };
+
+  /** 这条干道已经发出魔数、但**还没等到房主应答**（v2 未定帧），帧只能先扣在手里。 */
+  const holdsFrames = (trunk) => trunk != null && !trunk.dropped && trunk.framed === null;
+
+  /**
+   * 干道还没定帧时，把要发的帧**扣住先不发**。
+   *
+   * 为什么不能直接发：对面可能压根不是 0.14.0 —— 老房主会把我们发的字节原样转发给游戏
+   * 服务。OPEN 帧的头几个字节就会把 HTTP 请求头污染掉，那比慢更糟（请求直接失效）。
+   * 所以魔数发出去之后，在等到房主应答之前一个字节都不再出去；听到应答之后由
+   * flushHeldFrames 按原顺序补发。反过来判定成老房主时这些流只能作废（见 markLegacyHost）。
+   */
+  const holdFrames = (trunk, frames) => {
+    if (!trunk.heldFrames) trunk.heldFrames = [];
+    if (trunk.heldBytes == null) trunk.heldBytes = 0;
+    for (const frame of frames) {
+      /*
+       * 上限按字节算（1 MiB，与 PEER_QUEUE_MAX_BYTES 同一个量级）：扣住的帧只在
+       * "干道握手那一小会儿"存在，正常最多几十 KB；真涨到 1 MiB 说明对端一直不开口
+       * 而客户端还在猛灌 —— 这时候继续攒只是把内存和延迟一起拖大，不如断开让客户端重连。
+       */
+      if (trunk.heldBytes + frame.length > PEER_QUEUE_MAX_BYTES) {
+        stats.dropped += 1;
+        // 帧头已经定稿（见 stream-mux.cjs）：[len:4][type:1][streamId:4]… —— 从第 5 字节
+        // 起就是流号。只掐这一条流，不牵连干道上的其它流（规格 §二十五）。
+        const streamId = frame.length >= mux.FRAME_HEADER ? frame.readUInt32BE(5) : 0;
+        const stream = trunk.streams.get(streamId);
+        if (stream) {
+          trunk.streams.delete(streamId);
+          stats.streams = countStreams();
+          const sock = stream.localSocket || stream.socket;
+          try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* 断开失败不影响其它流 */ }
+        }
+        continue;
+      }
+      trunk.heldFrames.push(Buffer.from(frame));
+      trunk.heldBytes += frame.length;
+    }
+  };
+
+  /** 判定为多路复用之后，把扣住的帧按原顺序补发出去（顺序不能变：OPEN 必须排在最前）。 */
+  const flushHeldFrames = (trunk) => {
+    const frames = trunk.heldFrames;
+    if (!frames || !frames.length) return;
+    trunk.heldFrames = [];
+    trunk.heldBytes = 0;
+    pushFrames(trunk, frames);
+  };
+
+  /**
+   * 丢掉某条流还扣在手里的帧。
+   *
+   * 为什么必须丢：本机客户端在定帧之前就断了，那条流已经没了；补发时留着的 DATA 帧
+   * 会撞上一个房主那边根本没被 OPEN 过的流号 —— 房主只能记一次 dropped，白挨一发。
+   */
+  const dropHeldFramesFor = (trunk, streamId) => {
+    const frames = trunk && trunk.heldFrames;
+    if (!frames || !frames.length) return;
+    const kept = [];
+    let bytes = 0;
+    for (const frame of frames) {
+      if (frame.length >= mux.FRAME_HEADER && frame.readUInt32BE(5) === streamId) continue;
+      kept.push(frame);
+      bytes += frame.length;
+    }
+    trunk.heldFrames = kept;
+    trunk.heldBytes = bytes;
+  };
+
+  /** 收到一帧。 */
+  const handleStreamFrame = (peer, frame) => {
+    const { type, streamId } = frame;
+    if (streamId === mux.STREAM_ID_SESSION) {
+      if (type === mux.TYPE.Ping) pushFrames(peer, [mux.encodePong()]);
+      return;
+    }
+    const stream = peer.streams.get(streamId);
+    if (type === mux.TYPE.Open) {
+      // 客户端才是开流的那一方；房主给我们开流说明协议错乱。
+      stats.dropped += 1;
+      return;
+    }
+    if (!stream) { if (type !== mux.TYPE.Reset) stats.dropped += 1; return; }
+
+    const verdict = mux.checkGeneration(frame, stream.generation);
+    if (verdict === 'stale') { stats.staleFrames = (stats.staleFrames || 0) + 1; return; }
+    if (verdict === 'future') {
+      stats.dropped += 1;
+      // 只掐这一条流，不牵连其它（规格 §二十五）。
+      pushFrames(peer, [mux.encodeReset(streamId, stream.generation, mux.RESET_REASON.Protocol)]);
+      peer.streams.delete(streamId);
+      stats.streams = peer.streams.size;
+      try { if (stream.socket && !stream.socket.destroyed) stream.socket.destroy(); } catch { /* ignore */ }
+      return;
+    }
+
+    if (type === mux.TYPE.Data) {
+      stream.bytesFromPeer += frame.payload.length;
+      if (stream.localSocket && !stream.localSocket.destroyed) stream.localSocket.write(frame.payload);
+      else if (stream.socket && !stream.socket.destroyed) stream.socket.write(frame.payload);
+      else stats.dropped += 1;
+      return;
+    }
+    if (type === mux.TYPE.Window) { stream.remoteCredit = mux.decodeWindowCredit(frame.payload); return; }
+    if (type === mux.TYPE.Close) {
+      // 房主的游戏服务把这条连接关了。**数据帧一定排在 CLOSE 前面**（同一个有序队列），
+      // 所以这里把最后那段响应写完再 end 就行 —— 0.13.3 那个"最后一段字节丢掉"的坑
+      // 在多路复用里从结构上就不存在了。
+      const sock = stream.localSocket || stream.socket;
+      if (sock && !sock.destroyed) sock.end();
+      return;
+    }
+    if (type === mux.TYPE.Reset) {
+      stats.streamsReset = (stats.streamsReset || 0) + 1;
+      const sock = stream.localSocket || stream.socket;
+      if (sock && !sock.destroyed) sock.destroy();
+    }
+  };
+
+  const feedDecoder = (peer, chunk) => {
+    let frames;
+    try {
+      frames = peer.decoder.push(chunk);
+    } catch (err) {
+      stats.failed += 1;
+      emit('error', { stage: 'mux-decode', error: { code: err.code || 'EMUXFRAME', friendly: `Steam 数据流格式不对，已断开这条连接：${err.message}`, message: err.message } });
+      // parkStreams: false —— 协议错乱时不寄存。把已经串了位的字节原样搬到新干道上，
+      // 只会让错位继续传播；这里必须真收掉这条链路，让客户端从干净状态重来。
+      dropPeer(peer, { closeConnection: true, parkStreams: false });
+      return;
+    }
+    for (const frame of frames) handleStreamFrame(peer, frame);
+  };
+
+  /** 干道断了：挂在上面的所有流一起收摊（浏览器会自己重开，下一次会走别的干道）。 */
+  const closeTrunkStreams = (peer, reason, kind = 'TunnelClosed') => {
+    for (const stream of [...peer.streams.values()]) {
+      peer.streams.delete(stream.id);
+      const sock = stream.localSocket || stream.socket;
+      try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* ignore */ }
+      if (firstGone(stream)) {
+        emit('stream-left', {
+          peer: `流 ${stream.id}`,
+          kind,
+          reason,
+          ageMs: Date.now() - stream.bornAt,
+          bytesToPeer: stream.bytesToPeer,
+          bytesFromPeer: stream.bytesFromPeer,
+        });
+      }
+    }
+    stats.streams = countStreams();
+  };
+
+  /** 挑一条能干活的干道：已经谈妥多路复用、还没满、最闲的那条。 */
+  const pickTrunk = () => {
+    if (legacyHost) return null;
+    let best = null;
+    let bestLoad = Infinity;
+    for (const peer of peers.values()) {
+      if (peer.dropped || peer.legacy || peer.framed !== true) continue;
+      if (!peer.connected || peer.connection == null) continue;
+      if (peer.streams.size >= PEER_STREAM_MAX_PER_TRUNK) continue;
+      // 流的条数 + 还没发出去的积压（按 64KB 折算）一起看，免得挑到一条正堵着的干道。
+      const load = peer.streams.size + peerOutBytes(peer) / (64 * 1024);
+      if (load < bestLoad) { bestLoad = load; best = peer; }
+    }
+    return best;
+  };
+
+  /**
+   * 开一条干道。
+   *
+   * **故意先不开口**：老版本房主（≤0.13.3）收到我们主动发的魔数只会把它当成游戏流量
+   * 原样转发给游戏服务，把请求头污染掉。所以先听 —— 0.14.0 的房主一接受连接就会先报
+   * 魔数，听到了才谈得上多路复用；等不到就当老对端，这条干道退回单连接透传。
+   *
+   * 0.14.0 之前这里还有一个 `{ warm }` 参数，用来生成"预热池成员"（没有本机客户端、
+   * 等浏览器来领）。池子已删，参数一并去掉 —— 干道就是干道，没有第二种用途。
+   */
+  const spawnTrunk = () => {
+    if (stopped || peers.size >= maxConnections) return null;
+    let connection;
+    try {
+      connection = steam.networkingSockets.connectP2P(String(hostSteamId), 0);
+      if (connection == null || connection === 0) throw makeError('ESTEAMCONNECT', 'Steam P2P 连接创建失败');
+    } catch {
+      // 房主还没进房间、Steam 没起来等等 —— 安静地等下一次 refillTrunks。
+      return null;
+    }
+    const peer = {
+      key: { trunk: true },
+      socket: null,
+      legacy: legacyHost,
+      framed: legacyHost ? false : null,   // null=还没听到对端开口
+      decoder: mux.createFrameDecoder(),
+      streams: new Map(),
+      connection,
+      connected: false,
+      queue: [],
+      out: [],
+      bornAt: Date.now(),
+      attemptStartedAt: Date.now(),
+      bytesToPeer: 0,
+      bytesFromPeer: 0,
+      reconnects: 0,
+      readyCounted: false,
+      replay: [],
+      replayBytes: 0,
+      reconnectTimer: null,
+      // 定帧之前扣住的帧（见 holdFrames）。定帧之后一直是空的。
+      heldFrames: [],
+      heldBytes: 0,
+    };
+    peers.set(peer.key, peer);
+    stats.connections = peers.size;
+    stats.activeConnections = (stats.activeConnections || 0) + 1;
+    if (peer.framed === null) {
+      // **首包就是魔数**（见 PEER_HELLO_TIMEOUT_MS 上方：加入者先开口，房主应答）。
+      // 为什么不能等房主先说：旧加入者不认识魔数，房主主动发就会污染它的 HTTP 响应 ——
+      // 而升级顺序是"房主先升"，那个组合必然出现。
+      // 也没有"等不到应答就退回老路径"的定时器：新版房主是被动应答的，用超时判定只会
+      // 把新+新组合误判成老房主，把多路复用整个废掉。真等不到应答时，本机连接会一直
+      // 停在排队或扣帧状态（客户端自己会超时重连），而不是被我们错误地改成透传。
+      pushFrames(peer, [mux.encodeHello()]);
+    }
+    return peer;
+  };
+
+  /**
+   * 判定出"对面是老房主"之后，把还停在未定帧干道上的流全部作废。
+   *
+   * 为什么只能作废、不能退回单连接：这些流的 OPEN 帧从来**没有发出去过**（干道还没定帧
+   * 就不会发帧，见 holdFrames），所以退不回"这条 TCP 连接 = 一条 Steam 连接"的老模型 ——
+   * 老模型要求整条干道从头到尾就是这一条流。与其偷偷改语义，不如干净地掐掉，让客户端重连：
+   * 那时 legacyHost 已经是 true，重连会直接走老路径，数据一个字节都不会错位。
+   *
+   * 边界：这是**每个会话最多发生一次**的窗口 —— 从干道建好（发魔数）到收到房主第一个字节，
+   * 正常是一两个 RTT（毫秒级），只有"对面是老房主"时才会走到这里，而那次之后所有连接都走
+   * 已判定好的老路径。代价只落在"刚好在这个窗口里开出来的连接"上，最多几条。
+   */
+  const expireUndecidedStreams = (peer, reason) => {
+    if (!peer || !peer.streams || !peer.streams.size) return 0;
+    const expired = [];
+    for (const stream of [...peer.streams.values()]) {
+      peer.streams.delete(stream.id);
+      expired.push(stream);
+    }
+    peer.heldFrames = [];
+    peer.heldBytes = 0;
+    stats.streams = countStreams();
+    for (const stream of expired) {
+      stats.dropped += 1;
+      const sock = stream.localSocket || stream.socket;
+      try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* 断开失败不影响其它流 */ }
+      if (firstGone(stream)) {
+        emit('stream-left', {
+          peer: `流 ${stream.id}`,
+          kind: 'TunnelClosed',
+          reason,
+          ageMs: Date.now() - stream.bornAt,
+          bytesToPeer: stream.bytesToPeer,
+          bytesFromPeer: stream.bytesFromPeer,
+        });
+      }
+    }
+    return expired.length;
+  };
+
+  /**
+   * 认定对面是老房主：整局退回单连接透传。
+   *
+   * 做成"整局一个判断"而不是"每条连接各判各的"——对面是什么版本，是这一局的性质，
+   * 不是某条连接的偶发。学到一次就够了，后面开的连接不用再各等一次。
+   *
+   * 触发条件是**协议事实**，不是超时：我们一发魔数，新房子就会回魔数、老房主则会把
+   * 字节原样转发给游戏端口并把游戏的响应回给我们 —— 于是我们收到的第一个字节就是
+   * 非魔数。用超时判"是不是新版"会误伤新+新组合（见 PEER_HELLO_TIMEOUT_MS 上方）。
+   */
+  const markLegacyHost = (peer) => {
+    if (peer && peer.framed === null) {
+      peer.framed = false;
+      peer.legacy = true;
+      stats.legacyPeers = (stats.legacyPeers || 0) + 1;
+    }
+    if (!legacyHost) {
+      legacyHost = true;
+      // 已经谈妥多路复用的干道继续用（那条路本来就好），只是不再新开。
+      for (const p of peers.values()) {
+        if (p.framed === null) { p.framed = false; p.legacy = true; }
+      }
+      // 还停在未定帧干道上的流一条都发不出去，全部作废（见 expireUndecidedStreams）。
+      // 这里的提示每条干道只可能触发一次，所以不做去重。
+      for (const p of peers.values()) {
+        const n = expireUndecidedStreams(p, '对面是老版本（没有多路复用），这条流作废：请客户端重连一次，重连会走单连接模式');
+        if (n > 0) emit('notice', { text: `${n} 条本机连接排在一条还没谈妥的干道上，对面是老版本用不了多路复用，已让它们重连（重连走单连接模式）。` });
+      }
+      // 排队等干道的客户端同理：干道可能已经不会再来了，让它们重连去走老路径。
+      releasePendingSockets('对面是老版本，排队中的连接一并作废');
+    }
+    if (!legacyAnnounced) {
+      legacyAnnounced = true;
+      emit('notice', { text: '对面像是旧版本（没有多路复用）：本次会话退回单连接模式。双方都升到 0.14.0 之后，一局只需握一次手，页面和地图就不用再等握手了。' });
+    }
+  };
+
+  /** 有没有一条"还活着、还没被判定成老房主、还能再挂流"的干道。 */
+  const hasLiveTrunk = () => {
+    for (const peer of peers.values()) {
+      if (peer.dropped || !peer.streams || peer.framed === false) continue;
+      if (peer.streams.size >= PEER_STREAM_MAX_PER_TRUNK) continue;
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * 保证"活着且没满的干道"至少有 PEER_TRUNK_TARGET 条。够数就什么都不做。
+   *
+   * 为什么不是"先开三条放着"（规格 §三）：干道是长期连接，空闲不占带宽，但每多一条
+   * 就是一次额外握手 —— 而握手正是这条线路上最贵的东西。真扛不住时该扩容的判据是
+   * "这条干道满了"（PEER_STREAM_MAX_PER_TRUNK），由 pickTrunk 自然触发。
+   */
+  const refillTrunks = () => {
+    if (stopped || legacyHost || !steam) return;
+    if (hasLiveTrunk()) return;
+    const created = spawnTrunk();
+    if (created) {
+      // 干道是**等会儿**才谈妥的，所以这里只负责"把干道建出来"，真正的挂流交给
+      // 之后那次 refillTrunks（Connected、或者下一条本机连接进来时）。
+      stats.trunkCreated = (stats.trunkCreated || 0) + 1;
+    }
+  };
+
+  /**
+   * 干道建出来之后，把排队等着的本机连接挂上去。
+   *
+   * 顺序即先后（队列本身就是按到达顺序 push 的）：早到的连接先拿到流号，
+   * 浏览器那种"主请求先发、子资源后发"的次序才不会被搅乱。
+   */
+  const drainPendingSockets = () => {
+    if (!pendingSockets.length) return;
+    for (const socket of [...pendingSockets]) {
+      if (socket.destroyed) { dropPendingSocket(socket); continue; }
+      const trunk = pickTrunk();
+      if (!trunk) return;
+      dropPendingSocket(socket);
+      bindStream(socket, trunk);
+      stats.totalPeers += 1;
+      emit('client-added', { peer: `${socket.remoteAddress}:${socket.remotePort}`, trunk: true, queued: true });
+    }
+  };
+
+  /**
+   * 开一条流 = 本机客户端的一条 TCP 连接。
+   *
+   * 关键：**不等握手**。OPEN 帧和正文直接排进干道的队列，干道什么时候谈妥什么时候发，
+   * 顺序天然正确。用户等的是"干道握手"，而干道是提前养好的，所以通常是 0 秒。
+   */
+  const bindStream = (socket, trunk) => {
+    // 加入者是规格 §十一 里的 Client：只分配**偶数**流号，房主用奇数，两边永远不撞号。
+    const streamId = nextStreamId;
+    nextStreamId += 2;
+    if (nextStreamId > 0xfffffffe) nextStreamId = mux.STREAM_ID_CLIENT_START;
+    const stream = {
+      id: streamId,
+      generation: 1,          // 这条流的世代：transport 重建后 +1，用来丢旧连接的迟到帧
+      socket,
+      trunk,
+      bornAt: Date.now(),
+      bytesToPeer: 0,
+      bytesFromPeer: 0,
+      // 干道断开、这条流被寄存期间，浏览器/游戏继续发来的字节攒在这里（上限 STREAM_PARK_MAX_BYTES）。
+      parkQueue: [],
+      parkBytes: 0,
+      parkedAt: 0,
+      migrations: 0,
+    };
+    trunk.streams.set(streamId, stream);
+    stats.streams = countStreams();
+    stats.totalStreams = (stats.totalStreams || 0) + 1;
+    socket.setNoDelay(true);
+    // 先发 OPEN，房主看到它才会去连游戏端口；正文跟在后面，顺序由同一个队列保证。
+    // 但**定帧之前一个字节都不发**（见 holdFrames）：对面可能是老房主，OPEN 的帧头
+    // 喂给游戏服务就是污染请求头。扣住，等听到魔数再按原顺序补发。
+    if (holdsFrames(trunk)) holdFrames(trunk, [mux.encodeOpen(streamId, stream.generation)]);
+    else pushFrames(trunk, [mux.encodeOpen(streamId, stream.generation)]);
+    socket.on('data', (chunk) => {
+      stats.bytesToPeer += chunk.length;
+      stats.packetsToPeer += 1;
+      stream.bytesToPeer += chunk.length;
+      // 一律读 stream.trunk，**不认闭包里的 trunk**：干道断了以后这条流会被重新挂到
+      // 另一条干道上（resumeOrphanStreams），闭包里那条已经不是它的归属了。
+      const owner = stream.trunk;
+      if (!owner || owner.dropped) {
+        // 寄存中：**攒着，别丢**。这些字节是浏览器正在发的请求正文，丢掉就是请求损坏；
+        // 而寄存的初衷恰恰是"这半局不作废"。攒不下（超过 512 KiB）说明不是打嗝，
+        // 这条流真没救了，断开让客户端自己重来。
+        if (stream.parkBytes + chunk.length > STREAM_PARK_MAX_BYTES) {
+          stats.dropped += 1;
+          try { socket.destroy(); } catch { /* 断一条流不影响别的流 */ }
+          return;
+        }
+        stream.parkQueue.push(Buffer.from(chunk));
+        stream.parkBytes += chunk.length;
+        return;
+      }
+      if (holdsFrames(owner)) {
+        // 干道还在等房主开口：正文也一起扣住，否则它会在 OPEN 之前漏出去。
+        holdFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
+        return;
+      }
+      if (owner.framed !== true) {
+        // 这条干道已经被判定成"老房主"：走老路径的连接不在这里，这条流已作废。
+        stats.dropped += 1;
+        return;
+      }
+      pushFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
+    });
+    // 错误处理要保持文件里既有风格：socket 的错误（ECONNRESET 之类）属正常断开，
+    // 后续 close 会把流清掉，这里不需要额外记账。
+    socket.on('error', () => { /* 客户端断开属正常 */ });
+    socket.on('close', () => {
+      // 还扣在手里的帧要跟着这条流一起丢掉：这条流已经不会再有 OPEN 了，
+      // 补发时那半条 DATA 会撞上一个房主那边根本不存在的流号。
+      // 这条流此刻的归属干道（可能为空 —— 寄存期间本机客户端自己关掉了）。
+      const owner = stream.trunk;
+      dropHeldFramesFor(owner, streamId);
+      // 寄存表里也要摘掉，否则这条已经关掉的本地连接会被清扫器当成"待重挂的流"，
+      // 一路带到新干道上，凭空给房主多开一个游戏端口的连接。
+      orphanStreams.delete(streamId);
+      if (owner) owner.streams.delete(streamId);
+      stats.streams = countStreams();
+      if (owner && !owner.dropped && owner.framed === true) pushFrames(owner, [mux.encodeClose(streamId, stream.generation)]);
+      if (firstGone(stream)) {
+        emit('stream-left', {
+          peer: `本机客户端 :${socket.remotePort || '?'}`,
+          kind: 'LocalClientClosed',
+          reason: '浏览器/游戏自己关掉了这条本机连接',
+          ageMs: Date.now() - stream.bornAt,
+          bytesToPeer: stream.bytesToPeer,
+          bytesFromPeer: stream.bytesFromPeer,
+        });
+      }
+    });
+    return stream;
+  };
+
   /**
    * Steam 说这条连接要关了，但**对端可能刚把最后一段数据交给我们**，它还躺在
    * Steam 的接收队列里没被泵走。泵是按 tick 跑的，而状态回调随时会来 —— 一旦
@@ -1089,10 +2181,11 @@ function createSteamJoiner(options = {}) {
    * Connection: close），房主随即收掉 Steam 连接，于是那段响应永远到不了浏览器，
    * 表现就是页面/地图加载不出来、刷新一下才好。
    *
-   * 所以拆连接之前先把队列读干净、写进本机 socket。读不到就算了，绝不死循环。
+   * 所以拆连接之前先把队列读干净、写进本机 socket（多路复用模式则交给流层路由）。
    */
   const drainReceivedInto = (peer) => {
-    if (!peer || peer.connection == null || !peer.socket || peer.socket.destroyed) return 0;
+    if (!peer || peer.connection == null) return 0;
+    if (peer.framed !== true && (!peer.socket || peer.socket.destroyed)) return 0;
     let moved = 0;
     for (;;) {
       const batch = steam.networkingSockets.receiveMessages(peer.connection, tuning.maxMessageBatch) || [];
@@ -1102,14 +2195,16 @@ function createSteamJoiner(options = {}) {
         stats.bytesFromPeer += data.length;
         stats.packetsFromPeer += 1;
         peer.bytesFromPeer += data.length;
-        if (!peer.socket.destroyed && peer.connected) peer.socket.write(data);
-        else { peer.queue.push(data); moved += 1; continue; }
+        if (peer.framed === true) feedDecoder(peer, data);
+        else if (!peer.socket.destroyed) peer.socket.write(data);
+        else peer.queue.push(data);
         moved += 1;
       }
       if (batch.length < tuning.maxMessageBatch) break;
     }
     return moved;
   };
+
 
   const handleStateChange = (change) => {
     const peer = findByConnection(change.connection);
@@ -1118,23 +2213,15 @@ function createSteamJoiner(options = {}) {
     if (change.newState === states.Connected) {
       peer.connected = true;
       stats.sessionId = String(hostSteamId);
-      if (peer.warm) {
-        // 池子里的连接连上了。给它一个寿命上限：房主那边每条连接都对应一个到游戏端口的
-        // 本机 socket，而游戏服务器 ~60 秒（Node 的 headersTimeout）就会把"一句话没说"
-        // 的连接关掉。与其等它被关掉再补货，不如主动换新，池子里永远是新鲜的。
-        //
-        // 寿命要**抖开**：几条预热连接是在同一秒里养起来的，如果都用同一个到期时间，
-        // 它们会一起死、一起重握，正好撞上用户此刻的真实连接 —— 白白排在它前面。
-        // 只数一次：真实 Steam 上同一条连接会不止一次报 Connected（中继换路会重报），
-        // 不设这个开关的话"就绪"会比"累计开"还大，看着像池子开了双份。
-        if (!peer.readyCounted) { peer.readyCounted = true; stats.poolReady = (stats.poolReady || 0) + 1; }
-        if (peer.poolWatchdog) clearTimeout(peer.poolWatchdog);
-        const idleMs = Math.round(PEER_POOL_MAX_IDLE_MS * (0.6 + Math.random() * 0.3));
-        peer.poolWatchdog = setTimeout(() => {
-          peer.poolWatchdog = null;
-          if (peer.warm && !peer.dropped) dropPeer(peer, { closeConnection: true, warmWhy: 'watchdog' });
-        }, idleMs);
-        if (peer.poolWatchdog.unref) peer.poolWatchdog.unref();
+      if (peer.framed !== false) {
+        // 多路复用干道：Steam 连上只代表"链路通了"，真正谈妥要等听到开场魔数（见 pump）。
+        // 所以这里**不能**补发 peer.queue —— 那是老模型"连上之前的积压"，而干道的积压
+        // 现在扣在 heldFrames 里，必须等定帧之后按帧序补发，否则 OPEN 会排在正文后面。
+        // 也不在这里做重连：一条干道断了只是断一条，重连交给 refillTrunks 重新拉。
+        if (!peer.readyCounted) { peer.readyCounted = true; stats.trunksReady = (stats.trunksReady || 0) + 1; }
+        emit('peer-connected', { peer: `房主 ${hostSteamId}（Steam 干道已连上，等待开场魔数）`, mux: true });
+        // 这条干道还在等魔数、还没满，refillTrunks 会看到"够数了"而不重复建。
+        refillTrunks();
         return;
       }
       const pending = peer.queue.splice(0);
@@ -1160,25 +2247,26 @@ function createSteamJoiner(options = {}) {
       const info = peerCloseInfo(peer, change, states, Date.now());
       // 拆连接之前先把 Steam 接收队列里剩下的字节搬给本机客户端：
       // 对端常常是"发完最后一个响应就关"，那点字节不能因为我们收连接就丢掉。
-      if (!peer.warm) drainReceivedInto(peer);
-      if (peer.warm) {
-        // 池子里的连接死了：没有人在等它，安静丢掉，补货交给 refillPool。
-        dropPeer(peer, { closeConnection: false, warmWhy: 'peer-closed' });
-        return;
-      }
+      drainReceivedInto(peer);
       const attemptMs = peer.attemptStartedAt ? Date.now() - peer.attemptStartedAt : null;
       // 一个字节都没回来 ⇒ 这次握手或首包丢了。对方可能只是这一条连接没建成，
       // 悄悄重连一次比把浏览器的连接一起掐掉好得多（后者表现就是页面一直转圈）。
       // 但**只重试快失败**：慢失败（等满 Steam 的建连超时）说明链路在挣扎，
       // 再压三次握手只会把浏览器的等待拉长到几十秒，见 PEER_RETRY_FAST_MS 的注释。
       const fastFail = attemptMs != null && attemptMs < retryFastLimit;
-      if (peer.bytesFromPeer === 0 && !peer.socket.destroyed && fastFail && peer.reconnects < PEER_RECONNECT_MAX) {
+      // peer.socket 只有老路径才有（干道的 socket 是 null），所以这里必须显式判空 ——
+      // 干道重连不靠逐流重放，它整条重拉，语义完全不同（见上面的 mux 分支）。
+      if (peer.socket && peer.bytesFromPeer === 0 && !peer.socket.destroyed && fastFail && peer.reconnects < PEER_RECONNECT_MAX) {
         emit('peer-left', { peer: `房主 ${hostSteamId}`, ...info, attemptMs, willRetry: true, retry: peer.reconnects + 1 });
         schedulePeerReconnect(peer);
         return;
       }
       if (firstGone(peer)) emit('peer-left', { peer: `房主 ${hostSteamId}`, ...info, attemptMs, retried: peer.reconnects });
       dropPeer(peer, { closeConnection: false });
+      // 干道断了：挂在上面的流由 dropPeer **寄存**下来（规格 §十六：传输断开 ≠ 会话结束），
+      // 本机连接一条都没断。这里立刻拉一条新干道 —— 它一谈妥就会把寄存的流原地复活
+      // （resumeOrphanStreams），用户那边完全看不到这次断链。
+      refillTrunks();
     }
   };
 
@@ -1194,10 +2282,56 @@ function createSteamJoiner(options = {}) {
       const messages = steam.networkingSockets.receiveMessages(peer.connection, tuning.maxMessageBatch) || [];
       handled += messages.length;
       for (const message of messages) {
-        const data = Buffer.isBuffer(message.data) ? message.data : Buffer.from(message.data || []);
+        let data = Buffer.isBuffer(message.data) ? message.data : Buffer.from(message.data || []);
         stats.bytesFromPeer += data.length;
         stats.packetsFromPeer += 1;
         peer.bytesFromPeer += data.length;
+
+        // ── 分帧判定（0.14.0）────────────────────────────────────────────────
+        // 干道的首包是我们自己发的魔数（见 spawnTrunk），这里等的是**房主的应答**：
+        // 收到魔数说明对面也是 0.14.0，这条 Steam 连接就是干道，本机所有连接作为流跑在上面。
+        // 收到非魔数说明对面是老房主 —— 它把我们发的东西（含魔数）当成游戏流量转发了，
+        // 于是这条干道报废，整局退回单连接透传。
+        if (peer.framed === null) {
+          if (mux.isOurHello(data)) {
+            // 房主应答了：谈妥多路复用。
+            peer.framed = true;
+            peer.legacy = false;
+            peer.connected = true;
+            stats.muxPeers = (stats.muxPeers || 0) + 1;
+            emit('peer-connected', { peer: `房主 ${hostSteamId}（多路复用干道，1 条 Steam 连接承载所有本机连接）`, mux: true });
+            // 魔数后面可能紧跟真实帧（房主把 HELLO 应答和第一批帧合在一条消息里发出来）。
+            const rest = data.subarray(mux.HELLO_BYTES.length);
+            if (rest.length) feedDecoder(peer, rest);
+            // 定帧之前扣住的帧现在才能发 —— 顺序保持原样，OPEN 在最前。
+            flushHeldFrames(peer);
+            // 干道谈妥了，先把排队等它、以及后面才到的本机连接挂上去。挂完若还有排队
+            // （这条已满），refillTrunks 会再拉一条新干道把它们接走。
+            drainPendingSockets();
+            // 规格 §十六：上一条干道断掉时寄存下来的流，在这里原地复活 —— 同一个流号、
+            // 世代 +1 重发 OPEN，房主侧把原来那个游戏端口连接认回来，两边都不用重来。
+            resumeOrphanStreams(peer);
+            refillTrunks();
+            continue;
+          }
+          if (mux.isHello(data)) {
+            // 魔数对、版本号不对：对面是另一个 0.14.x。这种只能退回单连接模式 ——
+            // 帧格式不一致时硬解只会把这一局弄成随机错乱。
+            stats.versionMismatch = (stats.versionMismatch || 0) + 1;
+            emit('notice', { text: `对端的隧道协议版本是 ${mux.helloVersion(data)}，本机是 ${mux.MUX_VERSION} —— 这一局退回单连接模式（能用，但要慢很多），两边升到同一版即可恢复多路复用` });
+            // 魔数这 7 个字节绝不能进游戏服务（房主侧 pump 对这种情况也是这么剥的）。
+            if (data.length >= mux.HELLO_BYTES.length) data = data.subarray(mux.HELLO_BYTES.length);
+            markLegacyHost(peer);
+          } else {
+            // 不是魔数 ⇒ 对面是老房主（≤0.13.3）。整局退回单连接透传，下面就走老路径。
+            markLegacyHost(peer);
+          }
+        } else if (peer.framed === true) {
+          feedDecoder(peer, data);
+          continue;
+        }
+
+        // ── 老路径（legacy 透传）────────────────────────────────────────────
         // 对端已经开口了 —— 重放留档立刻作废（半程的响应没法重放）。
         if (peer.replay && peer.replay.length) { peer.replay = []; peer.replayBytes = 0; }
         if (peer.socket && !peer.socket.destroyed) peer.socket.write(data);
@@ -1206,98 +2340,19 @@ function createSteamJoiner(options = {}) {
     }
     samplePeers({
       peers, steam, emit, state: sampleState,
-      // 池子状态一起报出去：现场只要看"命中/未命中"，就知道用户还要不要等握手。
-      pool: { target: poolTargetLimit, warm: warmCount(), created: stats.poolCreated, ready: stats.poolReady, hits: stats.poolHits, misses: stats.poolMisses, retired: stats.poolRetired, lost: stats.poolLost, lifeMs: stats.poolLifeMs },
     });
+    // 寄存流的兜底清扫。**不另起计时器**（规格 §十八：整个网络层只允许一个统一调度器），
+    // 挂在本来就 4ms 一轮的泵上，用时间戳把周期压到 ORPHAN_SWEEP_MS。
+    const sweepNow = Date.now();
+    if (orphanStreams.size && sweepNow - (sampleState.lastOrphanSweepAt || 0) >= ORPHAN_SWEEP_MS) {
+      sampleState.lastOrphanSweepAt = sweepNow;
+      sweepOrphanStreams(sweepNow);
+    }
     return handled;
   };
 
-  // ── 预热连接池 ────────────────────────────────────────────────────────────
-  // 见文件顶部 PEER_POOL_TARGET 的长注释：握手是排队限速的，唯一的解法是
-  // 让它在用户看不见的时候完成。这里负责"养着几条连好但还没人用的 P2P 连接"。
-
-  /** 池子里活着的、已经连上、还没有本机客户端的连接有几条。 */
-  const warmCount = () => {
-    let n = 0;
-    for (const peer of peers.values()) if (peer.warm && !peer.dropped) n += 1;
-    return n;
-  };
-
-  /** 从池子里领一条已经连上的连接。领不到返回 null，调用方照旧现握手。 */
-  const takeWarmPeer = () => {
-    for (const peer of peers.values()) {
-      if (!peer.warm || peer.dropped || !peer.connected || peer.connection == null) continue;
-      peer.warm = false;
-      if (peer.poolWatchdog) { clearTimeout(peer.poolWatchdog); peer.poolWatchdog = null; }
-      peers.delete(peer.key);
-      return peer;
-    }
-    return null;
-  };
-
-  /** 之后按退避补货。poolState.timer 保证同时只有一次补货在跑。 */
-  const refillPool = () => {
-    if (stopped || poolTargetLimit <= 0 || poolState.timer) return;
-    if (warmCount() >= poolTargetLimit) return;
-    const delay = poolState.failStreak > 0
-      ? Math.min(PEER_POOL_RETRY_MS * poolState.failStreak, PEER_POOL_RETRY_MAX_MS)
-      : poolGapLimit;
-    poolState.timer = setTimeout(() => {
-      poolState.timer = null;
-      if (stopped || warmCount() >= poolTargetLimit) return;
-      // 一次只开一条：Steam 那边本来就是一条一条放行的，同时压只会互相拖慢。
-      const created = spawnWarmPeer();
-      if (!created) poolState.failStreak += 1;
-      else poolState.failStreak = 0;
-      refillPool();
-    }, delay);
-    if (poolState.timer && poolState.timer.unref) poolState.timer.unref();
-  };
-
   /**
-   * 开一条"没有本机客户端"的 P2P 连接放进池子。
-   *
-   * key 用唯一占位对象而不是 socket：peers 是按 key 索引的，池子里的成员还没有 socket。
-   * 被浏览器领走时 takeWarmPeer 会把它从旧 key 摘下来，再由 bindLocalSocket 用真 socket 挂上去。
-   */
-  const spawnWarmPeer = () => {
-    if (stopped || peers.size >= maxConnections) return null;
-    let connection;
-    try {
-      connection = steam.networkingSockets.connectP2P(String(hostSteamId), 0);
-      if (connection == null || connection === 0) throw makeError('ESTEAMCONNECT', 'Steam P2P 连接创建失败');
-    } catch {
-      // 房主还没进房间、Steam 没起来等等 —— 这是后台预热，安静地等下一次。
-      return null;
-    }
-    const peer = {
-      key: { warm: true },
-      socket: null,
-      warm: true,
-      connection,
-      connected: false,
-      queue: [],
-      out: [],
-      bornAt: Date.now(),
-      attemptStartedAt: Date.now(),
-      bytesToPeer: 0,
-      bytesFromPeer: 0,
-      reconnects: 0,
-      readyCounted: false,
-      replay: [],
-      replayBytes: 0,
-      reconnectTimer: null,
-      poolWatchdog: null,
-    };
-    peers.set(peer.key, peer);
-    stats.connections = peers.size;
-    stats.poolCreated = (stats.poolCreated || 0) + 1;
-    stats.activeConnections = (stats.activeConnections || 0) + 1;
-    return peer;
-  };
-
-  /**
-   * 把一条本机客户端 socket 挂到 peer 上（新开的和从池子里领来的走同一条路）。
+   * 把一条本机客户端 socket 挂到 peer 上（老路径：一条本机连接 = 一条 Steam 连接）。
    * 监听器必须在拿去用之前就挂上，否则浏览器在挂上之前发来的字节会丢。
    */
   const bindLocalSocket = (peer, socket) => {
@@ -1352,31 +2407,19 @@ function createSteamJoiner(options = {}) {
     });
   };
 
-  const server = net.createServer((socket) => {
-    if (stopped) { socket.destroy(); return; }
-    if (peers.size >= maxConnections) {
-      stats.rejected += 1;
-      emit('rejected', { reason: 'max-connections', peer: `${socket.remoteAddress}:${socket.remotePort}`, limit: maxConnections });
-      socket.destroy();
-      return;
-    }
-    // 池子里有连好的就直接用 —— 浏览器这条连接的建连耗时就是 0。
-    // 这是"地图/贴图每次都要重新握手、于是永远加载不出来"的解药，见 PEER_POOL_TARGET。
-    const warm = takeWarmPeer();
-    if (warm) {
-      bindLocalSocket(warm, socket);
-      stats.connections = peers.size;
-      stats.totalPeers += 1;
-      stats.poolHits = (stats.poolHits || 0) + 1;
-      emit('client-added', { peer: `${socket.remoteAddress}:${socket.remotePort}`, warm: true, waitedMs: Date.now() - warm.bornAt });
-      refillPool();
-      return;
-    }
-
+  /**
+   * 老房主模式（对面是 ≤0.13.3）下的受理路径 —— 也就是 0.13.x 原本那段代码，一行没改。
+   *
+   * 为什么整段留着：多路复用是靠**带内握手**谈出来的，谈不成就要能干净地退回"一条本机
+   * 连接 = 一条 Steam 连接"。老模型在功能上完全够用（就是慢），而且现场升级顺序是
+   * "房主先升、朋友后升"，所以这个组合一定会长期存在。
+   */
+  const acceptLegacy = (socket) => {
     const peer = {
       key: socket,
       socket,
-      warm: false,
+      legacy: true,          // 老路径：写 peer.socket，不走帧
+      framed: false,
       connection: null,
       connected: false,
       queue: [],
@@ -1389,18 +2432,14 @@ function createSteamJoiner(options = {}) {
       replay: [],
       replayBytes: 0,
       reconnectTimer: null,
-      poolWatchdog: null,
     };
     bindLocalSocket(peer, socket);
     stats.connections = peers.size;
     stats.totalPeers += 1;
-    // 池子空了才会走到这里 —— 这条连接的用户得等一次完整握手。这个数字只涨不跌，
-    // 现场只要看它就知道池子到底有没有起作用（0 = 用户一次都没等过）。
-    stats.poolMisses = (stats.poolMisses || 0) + 1;
     emit('client-added', { peer: `${socket.remoteAddress}:${socket.remotePort}` });
 
-    // 每条本机连接对应一条独立的 Steam P2P 连接 —— 这是「通用内网穿透」的关键：
-    // 浏览器、RDP、游戏等都会开多条并发连接，一条隧道只能扛一路。
+    // 老房主不认识帧（那还是 0.14.0 才有的东西），所以这里仍然是"每条本机连接一条
+    // 独立的 Steam P2P 连接"。这是老版本**唯一**能用的语义，不是这次重构的目标。
     try {
       const connection = steam.networkingSockets.connectP2P(String(hostSteamId), 0);
       if (connection == null || connection === 0) throw makeError('ESTEAMCONNECT', 'Steam P2P 连接创建失败');
@@ -1415,8 +2454,65 @@ function createSteamJoiner(options = {}) {
       stats.connections = peers.size;
       return;
     }
-    // 池子被领走一条就补一条 —— 补货在后台，不挡任何人的路。
-    refillPool();
+  };
+
+  /**
+   * 新受理路径（0.14.0）：本机连接变成干道上的一条**流**。
+   *
+   * 核心指标：**Steam 连接数与本机连接数无关**。浏览器开 25 条 TCP，这里也只会有 1 条
+   * Steam 干道 —— 而握手（校园网下单条 6~30 秒）是这条线路上最贵的东西，25 次握手就是
+   * "页面永远转不出来"的全部原因。
+   *
+   * 规格 §二十一：这个回调**绝不允许 await、绝不允许等握手**。浏览器那条连接必须在
+   * 本回合内被受理完（拿不到干道就排队，见 pendingSockets），否则用户看到的就是卡住。
+   */
+  const acceptStream = (socket) => {
+    if (stopped) { socket.destroy(); return; }
+    let trunk = pickTrunk();
+    if (!trunk) {
+      // 没有能立刻用的干道：现建一条。connectP2P 是同步的，失败就返回 null。
+      // 排在干道建立之前，浏览器这条连接是"零等待"的。
+      refillTrunks();
+      trunk = pickTrunk();
+    }
+    if (trunk) {
+      bindStream(socket, trunk);
+      stats.connections = peers.size;
+      stats.totalPeers += 1;
+      emit('client-added', { peer: `${socket.remoteAddress}:${socket.remotePort}`, trunk: true });
+      // 干道满了就再拉一条（pickTrunk 已经跳过满的，所以这是"用完即补"）。
+      refillTrunks();
+      return;
+    }
+    // 连干道都建不出来（房主还没进房间、Steam 没起来）。**不能**像老代码那样直接掐掉
+    // 这条连接：用户看到的是"点了没反应"，而浏览器的重试要等好几秒。
+    // 挂进排队等下一次干道建好，客户端那边只是慢，不是错。
+    if (pendingSockets.length >= PENDING_SOCKET_MAX) {
+      stats.rejected += 1;
+      emit('rejected', { reason: 'pending-full', peer: `${socket.remoteAddress}:${socket.remotePort}`, limit: PENDING_SOCKET_MAX });
+      socket.destroy();
+      return;
+    }
+    pendingSockets.push(socket);
+    socket.setNoDelay(true);
+    socket.on('error', () => { /* 客户端断开属正常 */ });
+    socket.on('close', () => dropPendingSocket(socket));
+    emit('notice', { text: `Steam 连接暂时建不起来，已把这条本机连接排队（当前 ${pendingSockets.length} 条）。干道一通就会挂上去，不需要刷新页面。` });
+    refillTrunks();
+  };
+
+  const server = net.createServer((socket) => {
+    if (stopped) { socket.destroy(); return; }
+    if (peers.size >= maxConnections) {
+      stats.rejected += 1;
+      emit('rejected', { reason: 'max-connections', peer: `${socket.remoteAddress}:${socket.remotePort}`, limit: maxConnections });
+      socket.destroy();
+      return;
+    }
+    // 加入者这边**没有**"先听房主开口"这一步：首包由我们自己发（见 spawnTrunk 里的
+    // pushFrames(encodeHello)）。等房主先说会打断旧加入者，代价大得多。
+    if (legacyHost) acceptLegacy(socket);
+    else acceptStream(socket);
   });
 
   const ready = new Promise((resolve, reject) => {
@@ -1444,9 +2540,17 @@ function createSteamJoiner(options = {}) {
           intervalMs: tuning.callbackIntervalMs,
           onFatal: (err) => emit('error', { stage: 'callbacks', error: { code: 'ESTEAMCALLBACK', friendly: `Steam 回调出错：${err.message}`, message: err.message } }),
         });
+        // Phase 7：Relay 状态**不等第一次业务请求**才初始化（规格 §五）。
+        // 走到这里说明 SDK 拿到了 Steam 实例、networkingSockets 可用 —— 这已经蕴含 Steam
+        // 在线（真没登录的话 initSteamSdk 那一步就会抛出来）。不做二次探测，因为探测不到。
+        relayMonitor.setNetUtils(steam.networkingUtils);
+        relayMonitor.init();
+        healthMonitor.setSteamLoggedOn(true);
+        healthMonitor.setTransportReady(true);
         emit('listening', { protocol: 'STEAM', role: 'joiner', bindHost, port: listenPort, hostSteamId: String(hostSteamId) });
-        // 隧道一起来就开始养池子 —— 越早养好，浏览器第一次开页面就越不用等握手。
-        refillPool();
+        // 隧道一起来就把干道先握上 —— 用户第一次开页面时它通常已经谈妥了，于是"零等待"。
+        // 一条就够（PEER_TRUNK_TARGET）：干道空闲时不占带宽，多开一条只是多一次握手。
+        refillTrunks();
         resolve({ host: bindHost, port: listenPort, hostSteamId: String(hostSteamId) });
       } catch (err) {
         stats.failed += 1;
@@ -1459,16 +2563,150 @@ function createSteamJoiner(options = {}) {
   const stop = async () => {
     if (stopped) return;
     stopped = true;
-    if (poolState.timer) { clearTimeout(poolState.timer); poolState.timer = null; }
+    // 唯一的调度器停了，它的采样与诊断计时器一起停 —— 不留孤儿计时器（规格 §十八 / §三十八-H）。
+    try { healthScheduler.stop(); } catch { /* 停不下来也不能拦住关会话 */ }
     if (stopLoop) stopLoop();
     stopLoop = null;
     try { offStateChange?.(); } catch { /* ignore */ }
-    for (const peer of [...peers.values()]) dropPeer(peer);
+    // 还在排队等干道的本机连接要一起收掉：会话都停了，它们永远等不到干道了。
+    releasePendingSockets('会话已停止');
+    // parkStreams: false —— 会话都停了，没有"下一条干道"会来接这些流，寄存只是让它们
+    // 多活 8 秒再被清扫器收掉。这里直接收摊，本机客户端立刻拿到断开、自己去重连。
+    for (const peer of [...peers.values()]) dropPeer(peer, { parkStreams: false });
+    // 更早之前断掉的那条干道寄存下来的流（还在等新干道）也要一起收掉。
+    for (const stream of [...orphanStreams.values()]) {
+      const sock = stream.localSocket || stream.socket;
+      try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* ignore */ }
+    }
+    orphanStreams.clear();
     peers.clear();
     stats.connections = 0;
     await new Promise((resolve) => server.close(() => resolve()));
     emit('stopped', {});
   };
+
+  // ── Phase 7：网络健康（规格 §三十 / §三十一）─────────────────────────────────
+  // 这一层**只读**：判定只在 network-health.cjs 的 linkState() 一处发生，日志与界面都拿它
+  // 的快照，谁都不许再判一遍 —— "连接中"这种模糊词就是从"各处自己判一下"长出来的。
+  // 每个字段都现场从 peers / stats 算出来，不另存一份镜像：镜像迟早会和真身不一致。
+  const relayMonitor = relayStatus.createRelayStatusMonitor({
+    onEvent: (type, payload) => emit(type, payload),
+  });
+
+  /** 干道峰值 + "曾经连上过几条"的累计：后者用 WeakSet 记，不持有 peer，不制造泄漏。 */
+  let trunkPeak = 0;
+  let trunksEverLive = 0;
+  const liveSeen = new WeakSet();
+  const queuedOutBytes = () => {
+    let n = 0;
+    for (const p of peers.values()) for (const chunk of (p.out || [])) n += chunk.length;
+    return n;
+  };
+  const surveyPeers = () => {
+    const all = [...peers.values()];
+    const live = [];
+    for (const p of all) {
+      if (!p.connected) continue;
+      live.push(p);
+      if (!liveSeen.has(p)) { liveSeen.add(p); trunksEverLive += 1; }
+    }
+    if (live.length > trunkPeak) trunkPeak = live.length;
+    return { all, live };
+  };
+
+  const managerShim = {
+    health() {
+      const { all, live } = surveyPeers();
+      // 只报三种**事实**：连通了 / 有连接但还没通 / 一条都没有。
+      // **不猜** BACKOFF，也不猜 DEGRADED —— 适配器这边没有足够证据区分它们，
+      // 编一个出来只会让人对着面板去查一个不存在的问题（§三十一 不许模糊，同理也不许假）。
+      const state = live.length
+        ? CONN_STATE.CONNECTED
+        : (all.length ? CONN_STATE.CONNECTING : CONN_STATE.DISCONNECTED);
+      const prime = live.find((p) => p.framed === true) || live[0] || all[0] || null;
+      return {
+        steamConnectionsCreated: stats.totalPeers || 0,
+        steamConnectionsSucceeded: trunksEverLive,
+        steamConnectionsFailed: stats.failed || 0,
+        steamConnectionsClosed: 0,
+        activeSteamConnections: live.length,
+        maxActiveSteamConnections: trunkPeak,
+        failStreak: 0,
+        lastFailure: null,
+        queuedBytes: queuedOutBytes(),
+        primary: prime
+          ? {
+            state,
+            peer: prime.steamId != null ? String(prime.steamId) : String(hostSteamId),
+            // 适配器不测 RTT：宁可让界面显示"—"，也不要编一个数出来。
+            rtt: null,
+            ageMs: prime.bornAt ? Date.now() - prime.bornAt : 0,
+            attempt: 1,
+            failureText: '',
+            failureClass: '',
+            retryInMs: null,
+          }
+          : null,
+        // 规格 §三：Backup 是 0~1 条、**不强制存在**。适配器当前只有干道这一条路，如实报 null。
+        backup: null,
+      };
+    },
+  };
+
+  const sessionShim = {
+    health() {
+      const { all, live } = surveyPeers();
+      let paused = 0;
+      for (const p of all) if (p.paused) paused += 1;
+      return {
+        // 会话停了就是 CLOSED；干道还在就是 ACTIVE；一条都没有就是 IDLE（"正在重连"由
+        // primaryState 去表达）。适配器目前不区分 RECOVERING/DEGRADED —— 那是 Phase 6 的事，
+        // 在那之前宁可不报，也不报一个自己都不信的中间态。
+        state: stopped ? SESSION_STATE.CLOSED : (live.length ? SESSION_STATE.ACTIVE : SESSION_STATE.IDLE),
+        activeStreams: countStreams(),
+        streamsOpened: stats.totalStreams || 0,
+        streamsClosed: stats.streamsClosed || 0,
+        streamsReset: 0,
+        staleFrames: 0,
+        droppedFrames: stats.dropped || 0,
+        queuedBytes: queuedOutBytes(),
+        globalPaused: false,
+        pausedStreams: paused,
+      };
+    },
+  };
+
+  const healthMonitor = createNetworkHealthMonitor({
+    relay: relayMonitor,
+    manager: managerShim,
+    session: sessionShim,
+    onEvent: (type, payload) => emit(type, payload),
+    // 初值都是 false：SDK 还没起来之前不许显示"已就绪"。
+    steamLoggedOn: false,
+    transportReady: false,
+  });
+
+  // 整个网络层**只允许这一个调度器**（规格 §十八）：Relay 轮询、健康采样、诊断日志
+  // 全部挂在它上面，不许每个 peer / 每个流 / 每个 socket 各起一个 setInterval。
+  //
+  // 刻度取 250ms 而不是默认的 4ms：4ms 是给数据泵用的忙刻度，诊断层不需要那么勤，
+  // 拿它轮询 Relay 等于每秒问 Steam 250 次（纯浪费，还会把日志刷爆）。
+  // 三个任务各自用 every 定自己的周期，互不牵连。
+  const NET_POLL_INTERVAL_MS = Number.isFinite(options.netPollIntervalMs) && options.netPollIntervalMs > 0
+    ? options.netPollIntervalMs
+    : 5000;
+  const NET_LOG_INTERVAL_MS = Number.isFinite(options.netLogIntervalMs) && options.netLogIntervalMs > 0
+    ? options.netLogIntervalMs
+    : 30000;
+  const healthScheduler = createMuxScheduler({ intervalMs: 250, onEvent: (type, payload) => emit(type, payload) });
+  healthScheduler.every('relay-poll', NET_POLL_INTERVAL_MS, () => relayMonitor.poll());
+  healthScheduler.every('health-sample', NET_POLL_INTERVAL_MS, () => healthMonitor.sample());
+  healthScheduler.every('net-log', NET_LOG_INTERVAL_MS, () => {
+    const lines = healthMonitor.logLines();
+    if (lines.length) emit('net-status', { lines, summary: healthMonitor.summaryLine() });
+    healthMonitor.assertInvariants();
+  });
+  healthScheduler.start();
 
   const reportRoute = createRouteReporter(steam, stats);
 
@@ -1477,6 +2715,9 @@ function createSteamJoiner(options = {}) {
     stop,
     stats,
     isHost: false,
+    // 规格 §三十一：界面拿这一份就够显示"Steam 在线 / Relay 可用 / P2P 已连 / 几条流 / RTT"，
+    // 不需要自己再判一遍状态。读不到真实读数时字段是 null，界面显示"—"，不显示假状态。
+    netState: () => healthMonitor.snapshot(),
     route: () => reportRoute([...peers.values()].filter((p) => p.connected && p.connection != null).map((p) => p.connection)),
     options: { role: 'joiner', protocol: 'STEAM', bindHost, localPort: listenPort, hostSteamId: String(hostSteamId), appId, maxConnections },
   };
@@ -1516,6 +2757,10 @@ function peerSample(peer, now) {
     bytesFromPeer: peer.bytesFromPeer || 0,
     paused: !!peer.paused,
     stalled: !!peer.stalled,
+    // 多路复用之后"一条 Steam 连接"不等于"一条本机连接"，这两个字段必须一起看，
+    // 否则日志会显示"只有 3 条连接"却跑着 20 个流，看起来像丢数据。
+    streams: peer.streams ? peer.streams.size : 0,
+    framed: peer.framed === true ? 'mux' : peer.framed === false ? 'legacy' : '',
   };
 }
 

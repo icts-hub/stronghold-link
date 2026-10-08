@@ -289,6 +289,18 @@
 <div class="metric"><span class="metric__k">Local quality</span><span class="metric__v is-dim" id="routeQuality">—</span></div>
 </div>
 <p class="tech tech-dim" id="routeDiagnosis" style="margin-top:8px">—</p>
+<!-- 0.14.0 网络层状态（规格 §三十一）：不再用"连接中"这种模糊词，
+     直接给 Steam 登录 / Relay 可用 / P2P 主备 / 流数与 RTT 的原始读数。
+     文案一律由网络层给出（linkState 的判定规则只有一份），界面只负责显示。 -->
+<div class="metrics metrics--wide" style="margin-top:var(--sp-3)">
+<div class="metric"><span class="metric__k">P2P link</span><span class="metric__v metric__v--text is-dim" id="routeLinkState">—</span></div>
+<div class="metric"><span class="metric__k">Steam / Relay</span><span class="metric__v metric__v--text is-dim" id="routeNetLayers">—</span></div>
+</div>
+<div class="metrics metrics--wide" style="margin-top:var(--sp-2)">
+<div class="metric"><span class="metric__k">Primary / Backup</span><span class="metric__v metric__v--text is-dim" id="routeTransport">—</span></div>
+<div class="metric"><span class="metric__k">Streams / RTT</span><span class="metric__v metric__v--text is-dim" id="routeMux">—</span></div>
+</div>
+<p class="tech tech-dim" id="routeNetNote" style="margin-top:8px" hidden>—</p>
 <div class="metrics metrics--wide" style="margin-top:var(--sp-3)">
 <div class="metric"><span class="metric__k">Steam globals</span><span class="metric__v metric__v--text is-dim" id="routeNetConfig">—</span></div>
 <div class="metric"><span class="metric__k">Link tuning</span><span class="metric__v metric__v--text is-dim" id="routeTuning">—</span></div>
@@ -1844,9 +1856,11 @@ function renderSessionRoute(){
  const r=routeSnapshot;
  const link=$('routeLink'),pops=$('routePops'),remote=$('routeRemote'),ping=$('routePing'),rawRx=$('routeRawRx'),steamRx=$('routeSteamRx');
  const sendCap=$('routeSendRate'),backlog=$('routeBacklog'),queueT=$('routeQueue'),quality=$('routeQuality'),diag=$('routeDiagnosis'),netCfg=$('routeNetConfig'),tune=$('routeTuning');
+ const linkState=$('routeLinkState'),netLayers=$('routeNetLayers'),transport=$('routeTransport'),mux=$('routeMux'),netNote=$('routeNetNote');
  if(!r){
-  for(const el of [link,remote,ping,rawRx,steamRx,sendCap,queueT,quality,diag,netCfg,tune]){if(el)el.textContent='—'}
+  for(const el of [link,remote,ping,rawRx,steamRx,sendCap,queueT,quality,diag,netCfg,tune,linkState,netLayers,transport,mux]){if(el)el.textContent='—'}
   if(pops)pops.textContent='— / —';if(backlog)backlog.textContent='—';
+  if(netNote)netNote.hidden=true;
   return;
  }
  const known=typeof r.route==='string'&&r.route!=='UNKNOWN';
@@ -1897,6 +1911,42 @@ function renderSessionRoute(){
  if(tune){
   const t=r.tuning;
   tune.textContent=t?('分片 '+fmtBytes(t.maxChunk)+' · 批次 '+t.maxMessageBatch+' · 轮询 '+t.callbackIntervalMs+' ms'):'—';
+ }
+ // ── 0.14.0 网络层（规格 §三十一）─────────────────────────────────────────
+ // 这几项全部来自网络层 r.netState（network-health.cjs 的只读快照 + linkState）。
+ // 界面**不重新判断**任何状态：拿不到就显示 —，绝不自己编一个"连接中"糊过去。
+ const n=r.netState;
+ if(linkState){
+  linkState.textContent=(n&&n.stateLabel)?n.stateLabel:(n&&n.state?n.state:'—');
+  // 只有"真连上了 / 正在救"才高亮，别的状态一律保持次要色，避免满屏都在喊。
+  linkState.className='metric__v metric__v--text'+((n&&(n.state==='P2P_CONNECTED'||n.state==='SESSION_RECOVERING'||n.state==='P2P_DEGRADED'))?'':' is-dim');
+ }
+ if(netLayers){
+  if(!n)netLayers.textContent='—';
+  else{
+   const rel=n.relayReady?'可用':(n.relayAvailability===null||n.relayAvailability===undefined?'未知':('不可用 '+n.relayAvailability));
+   netLayers.textContent=(n.steamLoggedOn?'已登录':'未登录')+' / '+rel;
+  }
+ }
+ if(transport){
+  if(!n)transport.textContent='—';
+  else{
+   const b=n.backupState?(' / '+(n.backupLabel||n.backupState)):' / 无';
+   transport.textContent=(n.primaryLabel||n.primaryState||'—')+b;
+  }
+ }
+ if(mux){
+  if(!n)mux.textContent='—';
+  else{
+   const rtt=Number.isFinite(n.avgRTT)?(n.avgRTT+' ms'):'—';
+   mux.textContent=n.activeStreams+' 条 / '+rtt+(n.queuedBytes?(' · 积压 '+fmtBytes(n.queuedBytes)):'');
+  }
+ }
+ // 统计行只在真的走过一次采样后出现，避免刚开局就摆一堆 0 出来当"数据"。
+ if(netNote){
+  const has=n&&Number.isFinite(n.samples)&&n.samples>0;
+  netNote.hidden=!has;
+  if(has)netNote.textContent=(n.statusText||'')+' ｜ P2P 建 '+(n.steamConnectionsCreated||0)+' 成 '+(n.steamConnectionsSucceeded||0)+' 败 '+(n.steamConnectionsFailed||0)+' ｜ 流 开 '+(n.streamsOpened||0)+' 关 '+(n.streamsClosed||0)+' 重 '+(n.streamsReset||0);
  }
 }
  async function refreshRoute(){try{routeSnapshot=await window.strongholdLink.session.route();renderSessionRoute();renderStripRoute()}catch(e){/* 读不到就保持原状，不显示假数据 */}}

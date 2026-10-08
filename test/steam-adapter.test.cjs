@@ -14,13 +14,95 @@ const {
 } = require('../network/steam-adapter.cjs');
 const { createMockSdk, HOST_STEAM_ID, STATE } = require('./steam-mock.cjs');
 const h = require('./helpers.cjs');
+// 多路复用的帧格式（已定稿在 stream-mux.cjs）—— 加入者侧所有上行数据都是帧，
+// 假房主想喂它什么东西、想读它发了什么，都得自己编解码。
+const mux = require('../network/stream-mux.cjs');
 
 const CONN = 101;
 
-// 预热连接池（0.13.0）是"用户看不见的时候偷偷养几条连好的连接"用的。它会在后台自己
-// 建连接，于是所有"数一共有几条 Steam 连接"的断言都会失准。除了专门测池子的那两个
-// 用例，其余一律关掉 —— 被测的是数据通路，不是池子。
-const joinJoiner = (options = {}) => createSteamJoiner({ poolTarget: 0, ...options });
+/**
+ * 加入者测试的默认接线：**老路径（单连接透传）**。
+ *
+ * 为什么默认关多路复用（0.14.0 默认是开的）：
+ *  - 下面这些用例测的是"一条本机连接 = 一条 Steam 连接"的老语义 —— 重连重放、慢失败不重试、
+ *    预热池命中、断开方与理由。这些机制在新架构里根本没有对应物（一局只有一条干道，
+ *    它一死所有流一起死，本机客户端自己重连），照搬过来只会把两种语义搅在一起。
+ *  - 老路径本身还不能删：现场升级顺序是"房主先升、朋友后升"，"新加入者 + 旧房主"会长期存在，
+ *    而多路复用最终就是靠 markLegacyHost 退回这条路的。所以它必须继续被这批用例钉住。
+ *  - 多路复用自己那条路（Steam 连接数与本机连接数无关、流号是偶数、不串线）由
+ *    "★ 加入者多路复用"那条用例专门覆盖，它才是 0.14.0 的核心指标。
+ *
+ * poolTarget 已经彻底不存在了（0.14.0 的 Phase 5 把预热池整段删掉，见 steam-adapter.cjs
+ * 文件顶部那段墓碑注释）。需要老路径行为的用例显式传 mux: false。
+ */
+const joinJoiner = (options = {}) => createSteamJoiner({ mux: false, ...options });
+
+/**
+ * 把"假房主"这一侧接起来：加入者的干道建好之后，房主用**魔数应答**（见 steam-adapter.cjs
+ * 里 PEER_HELLO_TIMEOUT_MS 上方的握手方向说明：加入者先开口，房主应答）。
+ *
+ * 为什么必须显式回这一下：定帧（peer.framed === true）之前加入者一个业务字节都不发出去 ——
+ * 万一对面是 0.13.3，那串帧会被原样转发给游戏服务，把 HTTP 请求头污染掉。所以测试里
+ * 第一件事就是让加入者听到房主的应答。
+ *
+ * 返回第一条（也是新架构下唯一一条）Steam 连接，它同时是后续 pushToClient 用的 handle。
+ */
+const answerHello = async (mock, joiner, { timeoutMs = 3000 } = {}) => {
+  assert.ok(
+    await h.waitFor(() => mock.state.connectedTo.length >= 1, { timeoutMs }),
+    '加入者应主动建一条 Steam 干道（首包是魔数）',
+  );
+  const handle = mock.state.connectedTo[0].handle;
+  // 加入者建连后先发魔数；房主的应答跟在后面回来。顺序反过来也没关系 —— 两边都是队列。
+  assert.ok(
+    await h.waitFor(() => mock.state.sent.some((s) => s.connection === handle && s.data.includes(mux.HELLO_BYTES)), { timeoutMs }),
+    '加入者的首包必须是魔数（对面是老房主时它会把这个字节转给游戏服务，正因如此才必须先发）',
+  );
+  mock.state.emitState({ connection: handle, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+  mock.state.pushToClient(handle, mux.encodeHello());
+  assert.ok(
+    await h.waitFor(() => (joiner.stats.muxPeers || 0) >= 1, { timeoutMs }),
+    '房主应答魔数之后应进入多路复用（stats.muxPeers）',
+  );
+  return handle;
+};
+
+/**
+ * 收集**加入者**发往某条 Steam 连接的全部帧。
+ *
+ * 一条消息里可能挤着好几帧（HELLO 后面跟着 OPEN/DATA 就是最常见的一种），所以必须用
+ * createFrameDecoder 逐帧切，不能拿 Buffer.concat 当一帧读。
+ */
+const framesFrom = (mock, connection, { skipHello = false } = {}) => {
+  const chunks = mock.state.sent.filter((s) => s.connection === connection).map((s) => s.data);
+  if (!chunks.length) return [];
+  let wire = Buffer.concat(chunks);
+  if (skipHello) {
+    // 魔数是裸 7 字节，不是帧，解码器会当场抛 EMUXFRAME —— 先切掉。
+    assert.ok(wire.length >= mux.HELLO_BYTES.length && wire.subarray(0, mux.HELLO_MAGIC_BYTES.length).equals(Buffer.from(mux.HELLO_MAGIC)), '第一条消息应当是魔数');
+    wire = wire.subarray(mux.HELLO_BYTES.length);
+  }
+  if (!wire.length) return [];
+  const decoder = mux.createFrameDecoder();
+  return decoder.push(wire);
+};
+
+/** 按流号取**加入者发出**的帧（顺序即发送顺序）。 */
+const framesForStream = (mock, connection, streamId) =>
+  framesFrom(mock, connection, { skipHello: true }).filter((f) => f.streamId === streamId);
+
+/**
+ * 这条流在加入者 OPEN 帧里报的世代号。
+ *
+ * 假房主回帧时必须原样带上它：世代号对不上会被判成"迟到帧"直接丢掉（规格 §十七），
+ * 那是协议在正常工作，不是我们要测的东西。
+ */
+const generationOf = (mock, connection, streamId) => {
+  const open = framesForStream(mock, connection, streamId).find((f) => f.type === mux.TYPE.Open);
+  assert.ok(open, `流 ${streamId} 应该已经发过 OPEN 帧`);
+  return open.generation;
+};
+
 
 test('SteamID 校验：只接受 7656119 开头的 17 位数字', () => {
   assert.equal(STEAM_ID_PATTERN.test('76561198000000001'), true);
@@ -107,7 +189,7 @@ test('房主：Steam 对端连进来后，消息能双向搬运到本地服务�
   }
 });
 
-test('房主：每个对端各占一条独立的本地连接（互不串线）', async () => {
+test('房主：认出对端版本之前不开本地连接、也不发一个字节；老对端开口后各占一条（互不串线）', async () => {
   const game = await h.startEchoServer();
   const mock = createMockSdk();
   const host = createSteamHost({ gamePort: game.port, sdk: mock.sdk });
@@ -119,18 +201,195 @@ test('房主：每个对端各占一条独立的本地连接（互不串线）',
       mock.state.emitState({ connection, newState: STATE.Connected, info: { identityRemote: `7656119800000000${connection}` } });
     }
     assert.equal(host.stats.peers, 2);
-    assert.ok(await h.waitFor(() => game.connections() === 2, { timeoutMs: 3000 }), '本地服务应看到两条独立连接');
 
+    // ★ 阶段一：对端连上了，但还没开口。房主此时必须保持沉默。
+    //   两条依据：
+    //   · 规格 §二十三 —— 不许为"将来可能来的请求"提前建连接，本机 TCP 只能由对端真的开了一条流来驱动；
+    //   · 4.3 的握手方向 —— 房主先发出去的字节，在 0.13.3 的加入者眼里就是 HTTP 响应开头的字节
+    //     （"SHLMUX\x01" 会被它原样写进浏览器那条 TCP 流），而"房主先升、朋友后升"是最常见的升级顺序。
+    //   这一段以前是"连上就建一条本地连接"，也就是 0.13.3 的行为，正是这次重构要消灭的。
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(game.connections(), 0, '对端还没开口，房主不该为它提前连游戏端口');
+    assert.equal(mock.state.sent.length, 0, '房主在认出对端版本之前一个字节都不能发出去');
+
+    // ★ 阶段二：两个对端都发来非魔数首包（= 老版本加入者），退回单连接透传。
+    //   这时候才该出现"每个对端一条独立的本地连接"，而且回包各走各的 Steam 连接。
     mock.state.pushToHost(CONN, 'peer-A');
     mock.state.pushToHost(second, 'peer-B');
+    assert.ok(await h.waitFor(() => game.connections() === 2, { timeoutMs: 3000 }), '老对端开口后本地服务应看到两条独立连接');
     assert.ok(await h.waitFor(() => mock.state.sent.filter((s) => ['peer-A', 'peer-B'].includes(s.data.toString())).length >= 2, { timeoutMs: 3000 }));
     const forA = mock.state.sent.find((s) => s.data.toString() === 'peer-A');
     const forB = mock.state.sent.find((s) => s.data.toString() === 'peer-B');
     assert.equal(forA.connection, CONN, 'A 的回包必须走 A 的连接');
     assert.equal(forB.connection, second, 'B 的回包必须走 B 的连接');
+    // 退化的只是这一局：没有任何魔数漏进游戏端口。
+    assert.equal(host.stats.legacyPeers, 2);
+    assert.equal(host.stats.muxPeers || 0, 0);
   } finally {
     await host.stop();
     await game.close();
+  }
+});
+
+test('★ 房主多路复用：等魔数才应答、等 OPEN 才连游戏端口，一条 Steam 连接承载多条流且不串线', async () => {
+  // 房主侧是整个 0.14.0 的另一半：加入者那一半（偶数流号、OPEN 在前、定帧前扣住字节）
+  // 全靠房主这一侧配合才成立。这里钉住三件事：
+  //   · 4.3 的握手方向 —— 房主**不主动开口**，认出魔数才回一条 HELLO（回早了会污染旧加入者的 HTTP 响应）
+  //   · 规格 §二十三 —— 不是"连上就建本地连接"，而是"收到 OPEN 才建"
+  //   · 规格 §九 / §三十七 —— N 条流共用 1 条 Steam 连接
+  const game = await h.startEchoServer();
+  const mock = createMockSdk();
+  const events = [];
+  const host = createSteamHost({
+    gamePort: game.port, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    await h.wait(60);
+    assert.equal(mock.state.sent.length, 0, '房主不主动开口：对端还没发魔数之前一个字节都不发');
+
+    // 对端开口：HELLO + 两条 OPEN + 流 2 的一段数据（挤在同一条消息里，真机上很常见）。
+    mock.state.pushToHost(CONN, Buffer.concat([
+      mux.encodeHello(),
+      mux.encodeOpen(2, 1),
+      mux.encodeOpen(4, 1),
+      mux.encodeData(2, 1, Buffer.from('hello-from-client')),
+    ]));
+    assert.ok(await h.waitFor(() => (host.stats.muxPeers || 0) === 1, { timeoutMs: 3000 }),
+      '认出魔数后应计成一个多路复用对端');
+    assert.equal(host.stats.legacyPeers || 0, 0, '认出魔数就不该退回单连接模式');
+
+    // 房主回一条魔数 —— 而且**只回一条**（每帧回一次的话版本协商会被自己搅乱）。
+    assert.ok(await h.waitFor(
+      () => mock.state.sent.some((s) => s.connection === CONN && s.data.includes(mux.HELLO_BYTES)),
+      { timeoutMs: 2000 },
+    ), '房主认出魔数后必须回一条魔数，加入者才敢定帧');
+    assert.equal(mock.state.sent.filter((s) => s.data.includes(mux.HELLO_BYTES)).length, 1, 'HELLO 应答只该发一次');
+
+    // OPEN 才连游戏端口：两条流 ⇒ 游戏服务看到两条连接，而 Steam 连接仍然只有一条。
+    assert.ok(await h.waitFor(() => game.connections() === 2, { timeoutMs: 3000 }),
+      '每条流对应游戏端口上的一条连接');
+    assert.equal(host.stats.peers, 1, 'N 条流共用 1 条 Steam 连接 —— 这正是本次重构的核心指标');
+    assert.equal(host.stats.streams, 2, '两条流都要登记在册');
+
+    // 上行真的落到了游戏服务上（echo 会原样回），而且回包带的是**流 2** 的号。
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, CONN, { skipHello: true }).some((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'hello-from-client'),
+      { timeoutMs: 3000 },
+    ), '游戏服务的回声应装箱回对端');
+    const echo = framesFrom(mock, CONN, { skipHello: true })
+      .find((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'hello-from-client');
+    assert.equal(echo.streamId, 2, '回声必须走原来那条流的号，不能串到别的流上');
+
+    // 下行隔离：只给流 4 写，回声只能出现在流 4 上。
+    mock.state.pushToHost(CONN, mux.encodeData(4, 1, Buffer.from('only-four')));
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, CONN, { skipHello: true }).some((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'only-four'),
+      { timeoutMs: 3000 },
+    ), '流 4 的数据应到达它的游戏连接并回声回来');
+    const isolated = framesFrom(mock, CONN, { skipHello: true })
+      .filter((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'only-four');
+    assert.equal(isolated.length, 1, '只该回声一次');
+    assert.equal(isolated[0].streamId, 4, '流 4 的数据绝不能出现在流 2 上（串线就是两个游戏请求互相污染）');
+
+    // 对端关掉一条流：房主用 end() 收尾，不是 destroy() —— 那是规格 §十二 的要求
+    // （最后一段数据还在管道里，destroy 会把它一起丢掉）。
+    mock.state.pushToHost(CONN, mux.encodeClose(4, 1));
+    assert.ok(await h.waitFor(() => game.connections() === 1, { timeoutMs: 3000 }),
+      '关掉一条流只该让游戏端口少一条连接，另一条继续跑');
+    assert.equal(host.stats.peers, 1, '关流绝不能动 Steam 连接');
+  } finally {
+    await host.stop();
+    await game.close();
+  }
+});
+
+test('★ 房主：对端的干道断了 —— 游戏端口那条连接不拆，新干道用同一个流号 + 世代重开后原地认回来（规格 §十六 / §十七）', async () => {
+  // 这一条与加入者侧那条迁移用例是一对：加入者负责"寄存 + 用同一个流号、世代 +1 重开"，
+  // 房主负责"别把游戏端口那条连接拆掉，等它回来"。两边缺一半，用户看到的都还是掉线。
+  // 为什么值得这么做（而不是让浏览器重连）：房主这条连接的另一端是游戏自己的 Web 服务，
+  // 它保存着这一局的会话状态；拆掉再连，等于让游戏从零开始处理一个陌生的新请求。
+  const net = require('node:net');
+  const gameSockets = new Set();
+  const game = net.createServer((socket) => {
+    gameSockets.add(socket);
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+    socket.on('data', (chunk) => socket.write(chunk));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const events = [];
+  const host = createSteamHost({
+    gamePort, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    mock.state.pushToHost(CONN, Buffer.concat([
+      mux.encodeHello(),
+      mux.encodeOpen(2, 1),
+      mux.encodeData(2, 1, Buffer.from('before-outage')),
+    ]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), 'OPEN 之后游戏端口应有一条连接');
+    const gameSocket = [...gameSockets][0];
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, CONN, { skipHello: true }).some((f) => f.payload.toString() === 'before-outage'),
+      { timeoutMs: 3000 },
+    ), '断链前的数据通路要先正常工作，否则后面的断言说明不了问题');
+
+    // ── 干道断（真机上是 5003 / I/O Operation Failed）──
+    mock.state.emitState({
+      connection: CONN,
+      newState: STATE.ClosedByPeer,
+      info: { identityRemote: '76561198000000002', endDebugMessage: 'I/O Operation Failed' },
+    });
+    await h.wait(120);
+    assert.equal(gameSockets.size, 1, '干道断了**绝不能**拆游戏端口那条连接');
+    assert.equal(gameSocket.destroyed, false, '游戏侧 socket 必须还活着（它保存着这一局的会话状态）');
+    assert.equal(host.stats.streamsParked, 1, '那条流应被寄存，等新干道来接');
+    assert.equal(host.stats.peers, 0, '旧干道已经从连接表里摘掉了');
+
+    // ── 新干道进来，用**同一个流号、世代 2** 重新 OPEN ──
+    const second = CONN + 1;
+    mock.state.emitState({ connection: second, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: second, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    mock.state.pushToHost(second, Buffer.concat([mux.encodeHello(), mux.encodeOpen(2, 2)]));
+
+    assert.ok(await h.waitFor(() => (host.stats.streamsMigrated || 0) === 1, { timeoutMs: 3000 }),
+      '世代 +1 的 OPEN 应让房主把那条流**认回来**，而不是当成新流');
+    assert.equal(gameSockets.size, 1, '认回来 = 复用原来那条游戏连接；新开一条就等于这半局白跑了');
+    assert.equal([...gameSockets][0], gameSocket, '必须还是同一个 socket 对象');
+    assert.equal(host.stats.streams, 1, '流重新登记在新干道上');
+    assert.equal(host.stats.totalStreams, 1,
+      '累计开流数必须还是 1：认回不是新开 —— 这个数被拿去做"一局里到底开了多少条本机连接"的诊断，虚高会让统计失真');
+
+    // 认回来之后两个方向继续跑。
+    mock.state.pushToHost(second, mux.encodeData(2, 2, Buffer.from('after-migrate')));
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, second, { skipHello: true }).some((f) => f.payload.toString() === 'after-migrate'),
+      { timeoutMs: 3000 },
+    ), '认回之后上行应继续工作');
+    const after = framesFrom(mock, second, { skipHello: true })
+      .find((f) => f.payload.toString() === 'after-migrate');
+    assert.equal(after.type, mux.TYPE.Data);
+    assert.equal(after.streamId, 2, '回包必须走流 2');
+    assert.equal(after.generation, 2, '新干道上的帧必须带新世代，否则会被对端当成迟到帧丢掉');
+
+    // 用户不该看到任何"流被关了"的事件 —— 这条流从来没断过。
+    const leftKinds = events.filter((e) => e.type === 'stream-left').map((e) => e.payload?.kind);
+    assert.ok(!leftKinds.includes('TunnelClosed'),
+      `干道断链不该产生 TunnelClosed 的流事件（实际 ${JSON.stringify(leftKinds)}）`);
+  } finally {
+    await host.stop();
+    await new Promise((resolve) => game.close(resolve));
   }
 });
 
@@ -279,43 +538,180 @@ test('加入者：Steam 发送缓冲满时，送到对端的字节流不能出�
   }
 });
 
-test('加入者多路复用（通用内网穿透的核心）：每条本机连接独立一条 Steam 连接，数据不串线', async () => {
+test('★ 加入者多路复用（规格 §三 / §三十七）：Steam 连接数与本机 TCP 连接数无关，多条本机连接共用一条干道且不串线', async () => {
+  // 现场故障就是这个用例要钉住的东西：0.13.3 是"一条本机 TCP = 一条 Steam P2P"，浏览器一个
+  // 首页要开 6~25 条 TCP，于是要现握手 6~25 次；校园网下单次握手 30 秒甚至超时（Steam
+  // reason 5003），用户看到的就是"页面/地图永远转不出来"。
+  // 0.14.0 规格 §三：一个远端玩家 = 1 条长期干道（Primary），0~1 条 Backup —— 不是预先开
+  // 3~4 条固定 trunk。规格 §三十七：本机连接是干道上的"流"，加入者只用**偶数**流号。
+  // 所以这里的核心断言是：**3 条本机 TCP ⇒ 仍然只有 1 条 Steam 连接**。
   const mock = createMockSdk();
   const localPort = await h.freePort();
-  const joiner = joinJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk });
+  const events = [];
+  const joiner = createSteamJoiner({
+    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
   const clients = [];
   try {
     await joiner.ready;
-    // 模拟浏览器 / RDP 这类会开多条并发连接的客户端
+    // 模拟浏览器 / RDP 这类会开多条并发连接的客户端。注意：这里**不**逐条等它建 Steam 连接。
     for (let i = 0; i < 3; i += 1) clients.push(await h.connect(localPort));
-    assert.ok(await h.waitFor(() => mock.state.connectedTo.length === 3, { timeoutMs: 3000 }),
-      `3 条本机连接应各建一条 Steam 连接，实际 ${mock.state.connectedTo.length}`);
-    const handles = mock.state.connectedTo.map((c) => c.handle);
-    assert.equal(new Set(handles).size, 3, '三条件接必须是不同的 Steam 连接');
-    assert.equal(joiner.stats.connections, 3);
 
-    for (const handle of handles) mock.state.emitState({ connection: handle, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    const trunk = await answerHello(mock, joiner);
+
+    // ① 核心指标：Steam 连接数与本机连接数无关。
+    await h.wait(150); // 给"万一要再建干道"留出暴露的时间，别让断言赢在时序上
+    assert.equal(mock.state.connectedTo.length, 1,
+      `3 条本机 TCP 只允许建 1 条 Steam 干道，实际 ${mock.state.connectedTo.length}`);
+    assert.equal(joiner.stats.connections, 1, '连接表里只该有一条（干道），本机连接是它上面的流');
+    assert.equal(joiner.stats.streams, 3, '三条本机连接应各自成为干道上的一条流');
+
+    // ② 流号必须是偶数（规格 §三十七：房主奇数、加入者偶数 —— 碰撞就从这里杜绝）。
+    const opened = framesFrom(mock, trunk, { skipHello: true })
+      .filter((f) => f.type === mux.TYPE.Open)
+      .map((f) => f.streamId);
+    assert.equal(opened.length, 3, `三条本机连接应各发一个 OPEN 帧，实际 ${opened.length}`);
+    for (const id of opened) {
+      assert.equal(id % 2, 0, `加入者分配的流号必须是偶数（实际 ${id}）：奇数归房主，混用就会两条流抢同一个号`);
+      assert.ok(id >= mux.STREAM_ID_CLIENT_START, `流号要从 STREAM_ID_CLIENT_START(${mux.STREAM_ID_CLIENT_START}) 起，不能占用会话/房主区间（实际 ${id}）`);
+    }
+    assert.equal(new Set(opened).size, 3, '三条流必须是三个不同的流号');
+
+    // ③ 上行不串线：每条本机连接的数据只带自己的流号，而且编号顺序即连接顺序。
     clients.forEach((client, index) => client.write(`client-${index}`));
-    assert.ok(await h.waitFor(() => mock.state.sent.length >= 3, { timeoutMs: 3000 }), '三条数据都应发出');
+    assert.ok(await h.waitFor(() => {
+      const datas = framesFrom(mock, trunk, { skipHello: true }).filter((f) => f.type === mux.TYPE.Data);
+      return clients.every((_, i) => datas.some((f) => f.payload.toString() === `client-${i}`));
+    }, { timeoutMs: 3000 }), '三条数据都应以 DATA 帧发出去');
 
+    const datas = framesFrom(mock, trunk, { skipHello: true }).filter((f) => f.type === mux.TYPE.Data);
+    assert.equal(datas.length, 3, `三条本机连接一共只该发三个 DATA 帧（不许重复发），实际 ${datas.length}`);
     for (let i = 0; i < 3; i += 1) {
-      const matched = mock.state.sent.filter((s) => s.data.toString() === `client-${i}`);
-      assert.equal(matched.length, 1, `client-${i} 应只发一次`);
-      assert.equal(matched[0].connection, handles[i], `client-${i} 必须走它自己的 Steam 连接`);
+      const own = datas.filter((f) => f.payload.toString() === `client-${i}`);
+      assert.equal(own.length, 1, `client-${i} 应只发一次`);
+      assert.equal(own[0].streamId, opened[i], `client-${i} 必须走它自己那条流（第 ${i} 条本机连接 = 流 ${opened[i]}）`);
     }
 
+    // ④ 下行不串线：房主按流号回，每条本机连接只该收到自己的那一份。
     const got = clients.map((client) => h.collect(client, 7));
-    handles.forEach((handle, index) => mock.state.pushToClient(handle, `back-${index}`));
+    opened.forEach((streamId, index) => mock.state.pushToClient(
+      trunk, mux.encodeData(streamId, generationOf(mock, trunk, streamId), Buffer.from(`back-${index}`)),
+    ));
     const replies = await Promise.all(got);
     replies.forEach((buffer, index) => assert.equal(buffer.toString(), `back-${index}`, `第 ${index} 个客户端应收到自己的回包`));
 
+    // ⑤ 一条本机连接断开 ≠ 干道断开：只关它自己那条流，其它流继续跑。
     clients[0].destroy();
-    assert.ok(await h.waitFor(() => mock.state.closed.some((c) => c.connection === handles[0]), { timeoutMs: 2000 }), '断开的本机客户端应关闭对应 Steam 连接');
-    assert.equal(joiner.stats.connections, 2);
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, trunk, { skipHello: true }).some((f) => f.type === mux.TYPE.Close && f.streamId === opened[0]),
+      { timeoutMs: 2000 },
+    ), '断开的本机连接应只在自己的流上发 Close 帧');
+    assert.ok(!mock.state.closed.some((c) => c.connection === trunk),
+      '一条本机连接断开**绝不能**关掉干道：干道一断，所有本机连接一起死，用户就得重新等一次握手');
+    assert.equal(joiner.stats.connections, 1, '干道仍在，连接的条数不该变');
+    assert.equal(joiner.stats.streams, 2, '只该少掉那一条流');
+
     clients[1].write('still-alive');
-    assert.ok(await h.waitFor(() => mock.state.sent.some((s) => s.data.toString() === 'still-alive' && s.connection === handles[1]), { timeoutMs: 2000 }), '其它连接应继续工作');
+    assert.ok(await h.waitFor(() => framesFrom(mock, trunk, { skipHello: true }).some((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'still-alive'), { timeoutMs: 2000 }),
+      '其它本机连接应继续跑在同一条干道上');
   } finally {
     for (const client of clients) client.destroy();
+    await joiner.stop();
+  }
+});
+
+test('★ 加入者多路复用：房主应答之前，本机数据只能扣着，绝不能提前发出去（规格 §八：老房主会把字节原样转给游戏服务）', async () => {
+  // 这是"必须先发魔数、又必须在定帧前扣住业务字节"这两条要求之间的那道缝：
+  // 加入者一发魔数，浏览器可能同时就把 HTTP 请求灌进来了。此时对端身份还没定 ——
+  // 万一对面是 0.13.3，它会把我们写的每一个字节原样转给游戏端口，
+  // 于是 `SHLMUX\x02<二进制帧头>GET / HTTP/1.1` 一起糊到 Web 服务脸上，请求直接失效。
+  // 所以定帧之前只能扣住（holdFrames），听到房主应答后按原顺序补发（OPEN 必须在最前）。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const joiner = createSteamJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk, poolTarget: 0 });
+  const client = await h.connect(localPort);
+  try {
+    // 本机客户端先说话：这一句必须被扣住，不能跟着魔数一起出去。
+    client.write('GET / HTTP/1.1\r\n\r\n');
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 1, { timeoutMs: 3000 }));
+    const trunk = mock.state.connectedTo[0].handle;
+    assert.ok(await h.waitFor(() => {
+      const chunks = mock.state.sent.filter((s) => s.connection === trunk);
+      return chunks.length > 0 && chunks[0].data.includes(mux.HELLO_BYTES);
+    }, { timeoutMs: 3000 }), '干道建好后第一件事是发魔数');
+
+    // 房主还没应答：干道上的总字节数必须正好是那 7 个字节 —— 多一个字节就是数据泄漏。
+    await h.wait(200);
+    const wired = Buffer.concat(mock.state.sent.filter((s) => s.connection === trunk).map((s) => s.data));
+    assert.equal(wired.toString('latin1'), mux.HELLO_BYTES.toString('latin1'),
+      `定帧之前只能发那 7 字节魔数，实际发了 ${wired.length} 字节：${JSON.stringify(wired.toString('latin1'))}`);
+
+    // 房主应答 → 扣住的帧按原顺序补发。
+    mock.state.emitState({ connection: trunk, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    mock.state.pushToClient(trunk, mux.encodeHello());
+    assert.ok(await h.waitFor(() => (joiner.stats.muxPeers || 0) >= 1, { timeoutMs: 3000 }), '房主应答后应进入多路复用');
+
+    const frames = framesFrom(mock, trunk, { skipHello: true });
+    assert.equal(frames.length, 2, `补发的顺序应是 OPEN 然后 DATA，实际 ${frames.map((f) => mux.typeName(f.type)).join(',')}`);
+    assert.equal(frames[0].type, mux.TYPE.Open, 'OPEN 必须排在最前（房主先要知道这个流号是谁的）');
+    assert.equal(frames[1].type, mux.TYPE.Data, 'DATA 跟在 OPEN 后面');
+    assert.equal(frames[1].streamId, frames[0].streamId, '两条帧必须属于同一条流');
+    assert.equal(frames[1].payload.toString(), 'GET / HTTP/1.1\r\n\r\n', '扣住的字节要原样补发，一个都不能丢');
+  } finally {
+    client.destroy();
+    await joiner.stop();
+  }
+});
+
+test('加入者：对面认出魔数却把字节转给了游戏服务 ⇒ 整局退回单连接模式，本机连接一个字节都不许被污染', async () => {
+  // 这就是"新加入者 + 旧房主（≤0.13.3）"的真实组合。老房主不认识魔数，把它连同后面的
+  // 业务字节一起转给了游戏端口，于是游戏服务的响应（HTTP 报文）直接回到我们手上。
+  // 判据是**协议事实**而不是超时：收到的第一个字节不是魔数，就说明对面不是 0.14.0。
+  //
+  // 为什么退得这么狠：多路复用是靠带内握手谈出来的，谈不成就只能整局退回"一条本机连接
+  // = 一条 Steam 连接"。停在这条干道上的流一条都发不出去（OPEN 帧从没出过门），
+  // 所以只能作废、让客户端重连 —— 重连时 legacyHost 已经是 true，走老路径，数据不会错位。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const events = [];
+  const joiner = createSteamJoiner({
+    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk, poolTarget: 0,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  let legacyClient = null;
+  let streamClient = null;
+  try {
+    await joiner.ready;
+    streamClient = await h.connect(localPort); // 这条会变成干道上的一条流
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 1, { timeoutMs: 3000 }), '本机连接应让加入者去建干道');
+    const trunk = mock.state.connectedTo[0].handle;
+    assert.ok(await h.waitFor(() => mock.state.sent.some((s) => s.connection === trunk && s.data.includes(mux.HELLO_BYTES)), { timeoutMs: 3000 }));
+
+    // 老房主把字节转给了游戏服务，游戏服务回了一句 HTTP —— 第一个字节不是魔数。
+    // 先挂上监听：作废是立刻发生的，等事后再 waitClosed 会错过 'close' 事件。
+    const closedWait = h.waitClosed(streamClient);
+    mock.state.pushToClient(trunk, Buffer.from('HTTP/1.1 200 OK\r\n\r\n'));
+
+    // 停在干道上的那条流必须被如实作废（浏览器会自己重连），而不是拿到半份脏数据。
+    assert.ok(await h.waitFor(() => events.some((e) => e.type === 'stream-left' && String(e.payload.reason).includes('老版本')), { timeoutMs: 3000 }),
+      '退回老路径时要报出 stream-left 并说清原因');
+    assert.notEqual(await closedWait, 'timeout', '已作废的流必须如实关掉本机连接，不能挂着不动');
+
+    // 关键是"退回老路径"真的生效了：下一条本机连接直接建自己的 Steam 连接，而且
+    // 裸字节原样透传（老房主只认这个）。
+    legacyClient = await h.connect(localPort);
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }), '退回老路径后应改为一条本机连接一条 Steam 连接');
+    const legacy = mock.state.connectedTo[1].handle;
+    mock.state.emitState({ connection: legacy, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    legacyClient.write('GET / HTTP/1.0\r\n\r\n');
+    assert.ok(await h.waitFor(() => mock.state.sent.some((s) => s.connection === legacy && s.data.toString() === 'GET / HTTP/1.0\r\n\r\n'), { timeoutMs: 3000 }),
+      '老路径必须原样透传，一个字节都不许加（老房主不认识帧）');
+    assert.ok(!mock.state.sent.some((s) => s.connection === legacy && s.data.includes(mux.HELLO_BYTES)),
+      '退回老路径之后不许再发魔数：那 7 个字节会被原样转给游戏服务，把请求头污染掉');
+  } finally {
+    streamClient?.destroy();
+    legacyClient?.destroy();
     await joiner.stop();
   }
 });
@@ -516,82 +912,68 @@ test('加入者：慢失败不许重试 —— 0.12.8 那 42 秒干等就是这�
   }
 });
 
-test('加入者：预热连接池趁没人用的时候先把连接养好，浏览器一进来就直接拿现成的（现场"每次都无法加载出地图"的回归）', async () => {
+test('★ 加入者：隧道一起来就把干道先握上，而且**只握一条**（规格 §三 / §二十三：不许为将来的请求预热）', async () => {
+  // 这条用例的前身是"预热连接池趁没人用的时候先把连接养好"。0.14.0 把那个池子删了
+  // （见 steam-adapter.cjs 顶部墓碑注释），但**"提前把连接准备好"这个意图本身是对的** ——
+  // 只是现在只准备一条：一条干道能顶 64 条流，多开一条就只是多一次握手，而握手是这条
+  // 线路上最贵的东西（校园网下单条 6~30 秒）。
   const mock = createMockSdk();
   const localPort = await h.freePort();
-  const joiner = createSteamJoiner({
-    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
-    poolTarget: 2, poolGapMs: 0,
-  });
-  let client = null;
+  const joiner = createSteamJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk });
   try {
     await joiner.ready;
-    // 池子应该在**没有任何本机客户端**的情况下自己把两条 Steam 连接建起来：
-    // Steam 的握手是排队限速的（现场实测 ~1 条 / 3 秒），这段等待以前全落在用户点开页面的那一刻。
-    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }), '池子应主动预热两条 Steam 连接');
-    // 让它们进入 Connected（房主那边这时才真正去连游戏端口）。
-    for (const entry of mock.state.connectedTo.slice()) mock.state.emitState({ connection: entry.handle, newState: STATE.Connected, info: {} });
-    assert.ok(await h.waitFor(() => (joiner.stats.poolReady || 0) >= 2, { timeoutMs: 3000 }), '两条预热连接都应该就绪');
-
-    // 关键一步：浏览器现在才连进来，它必须直接命中池子，而不是从零开始握手。
-    client = await h.connect(localPort);
-    assert.ok(await h.waitFor(() => joiner.stats.poolHits === 1, { timeoutMs: 2000 }), '第一条本机连接应命中池子');
-    assert.equal(mock.state.connectedTo.length, 2, '命中池子不该再发起新的握手 —— 用户就不该等');
-
-    // 命中的那条必须是真的通的：请求发得出去，回包也收得回来。
-    client.write(Buffer.from('hello-pool'));
-    assert.ok(await h.waitFor(() => mock.state.sent.some((s) => s.data.toString() === 'hello-pool'), { timeoutMs: 2000 }), '本机请求应经池子里的连接送出去');
-    const used = mock.state.sent.find((s) => s.data.toString() === 'hello-pool').connection;
-    assert.ok(mock.state.connectedTo.some((c) => c.handle === used), '送出去的必须走池子里预热好的那条连接');
-
-    const back = h.collect(client, 'reply-from-pool'.length);
-    mock.state.pushToClient(used, Buffer.from('reply-from-pool'));
-    assert.equal((await back).toString(), 'reply-from-pool', '回包应原样到达本机客户端');
+    // 关键：**一条本机客户端都还没有**的时候，干道就应该在握了。
+    assert.ok(
+      await h.waitFor(() => mock.state.connectedTo.length >= 1, { timeoutMs: 3000 }),
+      '干道应在没有任何本机客户端时就先握上 —— 用户点开页面时它就是现成的',
+    );
+    await h.wait(150);
+    assert.equal(mock.state.connectedTo.length, 1, '只许握一条：第二条干道要等第一条真的满了才拉（规格 §三）');
   } finally {
-    if (client) client.destroy();
     await joiner.stop();
   }
 });
 
-test('加入者：池子里的连接不会被领两次，也不会超过目标条数', async () => {
+test('★ 加入者：20 条本机连接进来，Steam 连接数仍然是 1（规格 §三十七 / §九 的硬守卫）', async () => {
+  // 这是整个 0.14.0 重构要证明的那一条：**Steam 连接数与本机 TCP 数无关**。
+  // 0.13.3 的现场是"一次页面加载 6~25 个 TCP → 6~25 次 30 秒握手，池子命中率 46%"，
+  // 于是页面永远转不出来。20 这个数字取的是规格 §三十二 Test3 的 25 并发压一点余量。
   const mock = createMockSdk();
   const localPort = await h.freePort();
-  const joiner = createSteamJoiner({
-    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
-    poolTarget: 2, poolGapMs: 0,
-  });
+  const joiner = createSteamJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk });
   const clients = [];
   try {
     await joiner.ready;
-    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }));
-    for (const entry of mock.state.connectedTo.slice()) mock.state.emitState({ connection: entry.handle, newState: STATE.Connected, info: {} });
-    assert.ok(await h.waitFor(() => (joiner.stats.poolReady || 0) >= 2, { timeoutMs: 3000 }));
+    const handle = await answerHello(mock, joiner);
+    for (let i = 0; i < 20; i += 1) clients.push(await h.connect(localPort));
+    assert.ok(await h.waitFor(() => joiner.stats.totalStreams >= 20, { timeoutMs: 3000 }), '20 条本机连接应各自挂成一条流');
+    await h.wait(100);
 
-    // 两条本机连接各领一条池子里的连接，谁都不该被领两次。
-    clients.push(await h.connect(localPort));
-    clients.push(await h.connect(localPort));
-    assert.ok(await h.waitFor(() => joiner.stats.poolHits === 2, { timeoutMs: 2000 }), '两条连接都应命中池子');
-
-    // 被领走之后池子会补货，但**不应该超过目标条数**（预热是后台行为，不能无限开连接）。
-    await h.wait(120);
-    const live = mock.state.connectedTo.length;
-    assert.ok(live <= 4, `预热总量应受目标条数约束，实际 ${live}`);
-    assert.equal(joiner.stats.poolFailures || 0, 0);
+    assert.equal(mock.state.connectedTo.length, 1, '20 条本机连接绝不许变成 20 条 Steam 连接');
+    assert.equal(joiner.stats.activeConnections, 1, '活跃 Steam 连接数必须是 1');
+    assert.equal(joiner.stats.totalStreams, 20, '20 条流都该在');
+    for (const client of clients) assert.ok(client && !client.destroyed, '本机连接不该被莫名掐掉');
+    // 流号必须是"偶数、两两不同" —— 撞号的话两边会把数据写到错误的流上。
+    const opened = framesFrom(mock, handle, { skipHello: true }).filter((f) => f.type === mux.TYPE.Open).map((f) => f.streamId);
+    assert.equal(opened.length, 20, '20 条本机连接应各发一条 OPEN');
+    assert.equal(new Set(opened).size, 20, '流号必须两两不同');
+    for (const id of opened) {
+      assert.equal(id % 2, 0, `加入者只许用偶数流号（规格 §十一），实际 ${id}`);
+      assert.ok(id >= mux.STREAM_ID_CLIENT_START, `流号应从客户端起始号开始，实际 ${id}`);
+    }
+    assert.equal(handle, mock.state.connectedTo[0].handle, '还是那条开局的干道，没有换过');
   } finally {
     for (const client of clients) client.destroy();
     await joiner.stop();
   }
 });
 
-test('加入者：同一条预热连接被报两次 Connected 也不能把"就绪"数成两条', async () => {
+test('★ 加入者：同一条干道被报两次 Connected，也只算"就绪"一条（stats.trunksReady 口径）', async () => {
   // 真实 Steam 上中继换路会重报 Connected。计数不设防的话"就绪"会比"累计开"还大，
-  // 现场日志看起来就像池子开了双份，判断"池子够不够"也会跟着失准。
+  // 现场日志看起来就像开了两条干道，判断"够不够"也会跟着失准。
   const mock = createMockSdk();
   const localPort = await h.freePort();
-  const joiner = createSteamJoiner({
-    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
-    poolTarget: 1, poolGapMs: 0,
-  });
+  const joiner = createSteamJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk });
   try {
     await joiner.ready;
     assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 1, { timeoutMs: 3000 }));
@@ -599,9 +981,112 @@ test('加入者：同一条预热连接被报两次 Connected 也不能把"就�
     mock.state.emitState({ connection: handle, newState: STATE.Connected, info: {} });
     mock.state.emitState({ connection: handle, newState: STATE.Connected, info: {} });
     await h.wait(50);
-    assert.equal(joiner.stats.poolCreated, 1, '只该开过一条预热连接');
-    assert.equal(joiner.stats.poolReady, 1, '就绪必须按条数算，不能按事件次数算');
+    assert.equal(joiner.stats.trunkCreated, 1, '只该开过一条干道');
+    assert.equal(joiner.stats.trunksReady, 1, '就绪必须按条数算，不能按事件次数算');
   } finally {
+    await joiner.stop();
+  }
+});
+
+test('★ 加入者：干道断了不等于这半局作废 —— 本机连接一条不断，流被寄存并在新干道上原地复活（规格 §十六 / §十七）', async () => {
+  // 现场形状：校园网/严格 NAT 下 Steam P2P 会中途断（5003 / I/O Operation Failed），
+  // 0.13.3 的做法是"一条本机 TCP = 一条 Steam 连接"，断了就把浏览器那条 TCP 一起掐掉，
+  // 于是页面白屏、地图重新下。0.14.0 规格 §十六 要求把 transport 和 session 分开：
+  //   · 干道断 ⇒ 本机连接**一条都不许断**，字节寄存起来（上限 STREAM_PARK_MAX_BYTES）
+  //   · 立刻拉一条新干道；它一谈妥就把寄存的流用**同一个流号、世代 +1** 重新 OPEN
+  //   · 房主据此把原来那个游戏端口连接认回来（规格 §十七：旧世代的迟到帧直接丢）
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const events = [];
+  const joiner = createSteamJoiner({
+    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  const clients = [];
+  try {
+    await joiner.ready;
+    clients.push(await h.connect(localPort));
+    clients.push(await h.connect(localPort));
+    const trunkA = await answerHello(mock, joiner);
+
+    const idsA = framesFrom(mock, trunkA, { skipHello: true })
+      .filter((f) => f.type === mux.TYPE.Open).map((f) => f.streamId);
+    assert.equal(idsA.length, 2, '两条本机连接应各发一个 OPEN 帧');
+    for (const id of idsA) assert.equal(generationOf(mock, trunkA, id), 1, '第一条干道上的流从世代 1 开始');
+
+    // ── 干道 A 断了（真机上就是 Steam reason 5003 / I/O Operation Failed）──
+    mock.state.emitState({
+      connection: trunkA,
+      newState: STATE.ClosedByPeer,
+      info: { identityRemote: HOST_STEAM_ID, endDebugMessage: 'I/O Operation Failed' },
+    });
+
+    // ① 本机连接一条都不能断 —— 这是整个 Phase 6 的存在理由。
+    await h.wait(120);
+    assert.ok(clients.every((c) => !c.destroyed && c.writable),
+      '干道断了绝不能掐本机连接：用户的页面正跑在上面');
+    assert.equal(joiner.stats.streams, 0, '这 2 条流已经不属于任何干道（都寄存起来了）');
+    assert.equal(joiner.stats.streamsParked, 2, '两条流应被寄存，而不是被 destroy');
+    assert.equal(joiner.stats.streamsMigrateExpired || 0, 0, '宽限期内不该有流被判定为"没救回来"');
+
+    // ② 断链期间浏览器继续发的字节要**攒住**，不能丢（那是请求正文）也不能记成丢弃。
+    const droppedBefore = joiner.stats.dropped || 0;
+    clients[0].write('during-outage');
+    await h.wait(100);
+    assert.equal(joiner.stats.dropped || 0, droppedBefore,
+      '寄存期间的字节必须攒住：丢掉一个字节就是请求损坏，浏览器只会看到半截响应');
+
+    // ③ 断链本身要触发拉新干道（不是等下一次本机连接进来才想起来建）。
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }),
+      '干道断了应立刻拉一条新的：否则重连进来的客户端又要等一次握手');
+    const trunkB = mock.state.connectedTo[1].handle;
+    assert.notEqual(trunkB, trunkA, '必须是一条新的 Steam 连接');
+    assert.ok(await h.waitFor(
+      () => mock.state.sent.some((s) => s.connection === trunkB && s.data.includes(mux.HELLO_BYTES)),
+      { timeoutMs: 2000 },
+    ), '新干道也要走一遍开场魔数（加入者先开口）');
+    mock.state.emitState({ connection: trunkB, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    mock.state.pushToClient(trunkB, mux.encodeHello());
+
+    // ④ 复活：**同一个流号**、世代 +1 重发 OPEN。
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, trunkB, { skipHello: true }).filter((f) => f.type === mux.TYPE.Open).length === 2,
+      { timeoutMs: 3000 },
+    ), '新干道谈妥后应把两条寄存的流都重新 OPEN 一次');
+    const reopens = framesFrom(mock, trunkB, { skipHello: true }).filter((f) => f.type === mux.TYPE.Open);
+    assert.deepEqual(reopens.map((f) => f.streamId).sort((a, b) => a - b), [...idsA].sort((a, b) => a - b),
+      '必须复用原来的流号：换个号房主就认不回原来那个游戏端口连接，等于全断一次');
+    for (const frame of reopens) {
+      assert.equal(frame.generation, 2, `流 ${frame.streamId} 在新 transport 上世代必须是 +1（规格 §十七）`);
+    }
+    assert.equal(joiner.stats.streams, 2, '两条流都回到干道上了');
+    assert.ok((joiner.stats.streamsMigrated || 0) >= 2, 'stats.streamsMigrated 要如实记账（诊断要看这个数）');
+
+    // ⑤ 断链期间攒下的字节必须在 OPEN **之后**补发，而且带新世代。
+    const framesB = framesFrom(mock, trunkB, { skipHello: true });
+    const firstOpenAt = framesB.findIndex((f) => f.type === mux.TYPE.Open);
+    const parkedAt = framesB.findIndex((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'during-outage');
+    assert.ok(parkedAt >= 0, '断链期间攒下的字节必须补发出去，不能悄悄吞掉');
+    assert.ok(parkedAt > firstOpenAt,
+      '补发的字节必须排在 OPEN 之后：OPEN 在前房主才认得出这是哪条流，否则那段字节会撞上一个不存在的流号');
+    assert.equal(framesB[parkedAt].generation, 2, '补发的字节要带新世代，否则会被房主当成旧连接的迟到帧丢掉');
+
+    // ⑥ 复活之后两个方向都要能继续跑（迁移不是"勉强连上"，是恢复原状）。
+    clients[1].write('after-recovery');
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, trunkB, { skipHello: true }).some((f) => f.type === mux.TYPE.Data && f.payload.toString() === 'after-recovery'),
+      { timeoutMs: 2000 },
+    ), '复活后的上行应继续工作');
+    const got = h.collect(clients[1], 18);
+    mock.state.pushToClient(trunkB, mux.encodeData(idsA[1], 2, Buffer.from('back-after-recovery')));
+    assert.equal((await got).toString(), 'back-after-recovery', '复活后的下行应继续工作');
+
+    // ⑦ 用户不该看到任何"连接断了"的流级事件 —— 流从来没断过。
+    const leftKinds = events.filter((e) => e.type === 'stream-left').map((e) => e.payload?.kind);
+    assert.ok(!leftKinds.includes('TunnelClosed'),
+      `干道断链不该产生任何 TunnelClosed 的流事件（实际 ${JSON.stringify(leftKinds)}）：那正是"用户掉线了"的信号`);
+  } finally {
+    for (const client of clients) client.destroy();
     await joiner.stop();
   }
 });

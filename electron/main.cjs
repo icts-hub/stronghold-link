@@ -40,7 +40,7 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.13.3';
+const APP_VERSION = '0.14.0';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
@@ -444,13 +444,51 @@ function logTunnelEvent(event) {
   if (type === 'client-added') {
     // 命中池子 = 这条本机连接一秒钟都没等（浏览器/游戏不会看到转圈）。
     // 这条日志是"预热池到底有没有用"最直接的证据：满屏"临时握手"就说明池子被抽干了。
-    const how = payload.warm ? `拿的是池子里现成的（养了${secs(payload.waitedMs)}s）` : '临时握手（池子当时是空的）';
+    // 0.14.0 多路复用之后池子没有了：本机连接只是干道上多开一条流，不等握手。
+    const how = payload.trunk
+      ? '走多路复用干道（只是多开一条流，不用再握手）'
+      : payload.warm
+        ? `拿的是池子里现成的（养了${secs(payload.waitedMs)}s）`
+        : '临时握手（池子当时是空的）';
     logLine(`${tag}本机连接进来 ${payload.peer || '?'} —— ${how}`);
     return;
   }
 
   if (type === 'peer-connected') {
-    logLine(`${tag}连接已接通 ${payload.peer || ''} 本机端口=${payload.port || '?'}`);
+    // mux：这条 Steam 连接谈妥了多路复用，后面所有本机连接都会挂到它上面。
+    logLine(`${tag}连接已接通 ${payload.peer || ''} 本机端口=${payload.port || '?'}${payload.mux ? ' 模式=多路复用' : ''}`);
+    return;
+  }
+
+  if (type === 'peer-joined') {
+    // 房主侧：有 Steam 对端连进来了。这是"对面在敲门"的第一现场。
+    logLine(`${tag}有对端连进来 ${payload.peer || '?'}`);
+    return;
+  }
+
+  if (type === 'stream-added') {
+    // 多路复用之后"一条 Steam 连接"≠"一条本机连接"：一条干道下面挂着很多条流。
+    // 这条日志是"干道到底扛了多少路业务"的唯一证据。
+    logLine(`${tag}干道上开了一条流 流号=${payload.stream} 对端=${payload.peer || '?'}`);
+    return;
+  }
+
+  if (type === 'stream-left') {
+    const kind = CONNECTION_END_KINDS[payload.kind] || payload.kind || '未知方式';
+    logLine(
+      `${tag}流结束（${kind}）流号=${payload.stream || '?'} 理由=${payload.reason || '无'} `
+      + `存活=${secs(payload.ageMs)}s 上行=${kib(payload.bytesToPeer)}KiB 下行=${kib(payload.bytesFromPeer)}KiB`,
+    );
+    return;
+  }
+
+  if (type === 'net-status') {
+    // Phase 7（规格 §三十）：周期性把 Steam / Relay / P2P / MUX 的读数写进日志。
+    // 界面看到的是"此刻"，日志里要留下的是一条时间线 —— 事后复盘只能靠它。
+    const lines = Array.isArray(payload.lines) ? payload.lines : [];
+    if (!lines.length) return;
+    for (const line of lines) logLine(`${tag}${line}`);
+    if (payload.summary) logLine(`${tag}${payload.summary}`);
     return;
   }
 
