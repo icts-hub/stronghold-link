@@ -735,3 +735,36 @@ test('抢端口避让：房主把服务端口与开放端口填成同一个时�
   assert.equal(rules[0].localPort, p, '本机服务端口不能被改');
   assert.ok(s.warnings.some((w) => /同时是本机服务端口/.test(w)), '必须告警说明已自动避让');
 });
+
+test('★ 适配器 notice 必须以「[Steam] 」开头 —— 主进程 electron/main.cjs 就靠这个前缀把它落进 startup.log', () => {
+  // 0.14.0 / 0.14.1 两次现场排查都卡在同一个问题上：房主到底 accept 了没有？
+  // 适配器的 notice（`Steam 连接事件：对端…（判定为入站，接受 / 出站，跳过）`）以前
+  // 只进界面、从不落盘，用户发回来的 startup.log 里一条都没有。
+  // 现在主进程按「[Steam] 」前缀把这唯一一路放行到 startup.log —— 这个前缀是两边
+  // 唯一的约定，改掉它现场日志会重新变瞎，所以在这里钉死。
+  const events = [];
+  const manager = makeManager(events);
+  const text = 'Steam 连接事件：对端 76561198000000002 · listenSocket=0（判定为出站，跳过）';
+  manager._handleRelayEvent('notice', { text }, null);
+
+  const logs = events.filter((e) => e.type === 'log' && e.entry).map((e) => e.entry);
+  assert.equal(logs.length, 1, 'notice 必须变成恰好一条 log 事件');
+  assert.equal(logs[0].level, 'info');
+  assert.equal(logs[0].text, '[Steam] ' + text);
+  assert.ok(logs[0].text.startsWith('[Steam] '), '主进程只认这个前缀');
+
+  // 反方向也要守住：别的会话日志绝不能带这个前缀，否则「隧道存量」那种每秒刷新的行
+  // 会被一起写进 startup.log，把日志上限（LOG_LIMIT）挤爆、把真正的证据冲掉。
+  const channel = {
+    rule: { protocol: 'STEAM' }, listen: { port: 3000 }, name: 'main', peer: { host: '127.0.0.1', port: 3000 },
+  };
+  manager._handleRelayEvent('connection', { peer: '127.0.0.1:5555' }, channel);
+  manager._handleRelayEvent('peer-stats', { peers: [], pool: null }, channel);
+
+  const steamPrefixed = manager.logs.filter((l) => l.text.startsWith('[Steam] '));
+  assert.equal(steamPrefixed.length, 1, '整段里只有 notice 那一条能以 [Steam] 开头，实际：'
+    + JSON.stringify(manager.logs.map((l) => l.text)));
+  // 顺带说明为什么用「[Steam] 」而不是「[Steam」：`_label()` 产生的是 `[STEAM:3000]`
+  // 这种形态，大小写与 `] ` 两处都不同，所以不会被误伤。
+  assert.ok(manager.logs.some((l) => l.text.startsWith('[STEAM:3000] ')), '普通会话日志仍走通道标签');
+});

@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // Stronghold Link — Electron 主进程。
 //
 // 两件事：
@@ -603,6 +603,17 @@ const session = new SessionManager({
       // 会话可能是自动起来的（大厅一键加入），不一定走 session:start。
       // 隧道事件一开始流，就说明通道已经就绪，这时候去读全局参数报告最靠谱。
       logNetConfigSoon();
+    }
+    // 适配器的 notice 以前只进界面、从不落盘，现场诊断因此看不到
+    // 「Steam 连接事件：对端…（判定为入站，接受 / 出站，跳过）」这类最关键的证据 ——
+    // 0.14.0 / 0.14.1 两次现场排查都卡在"房主到底 accept 了没有"上面。
+    // `network/session.cjs:574` 是唯一给 notice 加 `[Steam] ` 前缀的地方；这里只放行
+    // 这一个前缀，其它会话日志（「隧道存量」那种每秒刷新的）留在界面里，
+    // 免得把 startup.log 灌爆、把有用的证据挤出上限之外。
+    // 前缀的约定由 test/session.test.cjs 的用例守着，别改。
+    if (event && event.type === 'log' && event.entry && typeof event.entry.text === 'string'
+      && event.entry.text.startsWith('[Steam] ')) {
+      logLine('[session]', event.entry.text);
     }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('session:event', event);
   },

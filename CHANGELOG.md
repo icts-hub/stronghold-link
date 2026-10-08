@@ -1,4 +1,4 @@
-# 更新日志
+﻿# 更新日志
 
 ## v0.14.2
 
@@ -32,6 +32,8 @@
 | 6 | `network/steam-adapter.cjs` | 加入者侧保持扁平表，但把"为什么这里安全"写进注释 |
 | 7 | `test/steam-adapter.test.cjs` | 新用例：房主 + 两个加入者流号都是 2 —— 谁也不能抢走、销毁对方寄存中的流 |
 | 8 | `test/ui-logic.test.cjs` | 新用例：走真实的「选进程开局」路径，断言横幅真的画出来、「复制地址」真的把 `127.0.0.1:25565` 写进剪贴板 |
+| 9 | `electron/main.cjs` | 适配器的 notice（`Steam 连接事件：对端 …（判定为入站，接受 / 出站，跳过）` 那一类）**现在也写进 `startup.log`** |
+| 10 | `test/session.test.cjs` | 新用例：钉死「`[Steam] ` 前缀」这个约定（主进程就靠它挑出该落盘的那一路） |
 
 ### 升级顺序：**房主和朋友都要升到 0.14.2**
 
@@ -39,11 +41,11 @@
 
 ### 测试
 
-`npm test` ⇒ **727 tests / 726 pass / 0 fail / 1 skipped**（上一版 0.14.1 是 725 / 724 / 0 / 1，+2 —— 正好是下面两条新用例）。
+`npm test` ⇒ **728 tests / 727 pass / 0 fail / 1 skipped**（上一版 0.14.1 是 725 / 724 / 0 / 1，+3 —— 正好是三条新用例）。
 
-定向：`node --test --test-isolation=none test\steam-adapter.test.cjs` ⇒ 66 pass；`test\ui-logic.test.cjs` ⇒ 12 pass。
+定向：`node --test --test-isolation=none test\steam-adapter.test.cjs` ⇒ 66 pass；`test\ui-logic.test.cjs` ⇒ 12 pass；`test\session.test.cjs` ⇒ 24 pass。
 
-两条新用例都做过**变异验证**（把修复藏起来，用例必须干净失败）：把 `orphanKey` 还原成只按流号 ⇒ 报「B 寄流时绝不能销毁 A 寄存中的那条流」；把 `bold()` 改名 ⇒ 报「不该再出现 bold 未定义：配置出错：bold is not defined」。
+三条新用例都做过**变异验证**（把修复藏起来，用例必须干净失败）：把 `orphanKey` 还原成只按流号 ⇒ 报「B 寄流时绝不能销毁 A 寄存中的那条流」；把 `bold()` 改名 ⇒ 报「不该再出现 bold 未定义：配置出错：bold is not defined」；把 `[Steam] ` 前缀去掉 ⇒ notice 那条用例立刻红。
 
 ### 这一版**没有**解决
 
