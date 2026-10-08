@@ -301,6 +301,26 @@ test('★ 房主多路复用：等魔数才应答、等 OPEN 才连游戏端口�
     assert.ok(await h.waitFor(() => game.connections() === 1, { timeoutMs: 3000 }),
       '关掉一条流只该让游戏端口少一条连接，另一条继续跑');
     assert.equal(host.stats.peers, 1, '关流绝不能动 Steam 连接');
+
+    // ★ 记账：`流结束 ... 上行=XKiB 下行=YKiB` 是现场唯一的字节级证据，
+    //   而房主这一侧原来**从来没有给 stream.bytesFromPeer 记过账** —— 日志里
+    //   532 条流全是 `下行=0KiB`，"朋友一个字节都没送上来"这个假象被当成了故障现场。
+    //   同一类坑这在 0.14.0 里已经出现三次：预热池四个计数被两道白名单丢掉、
+    //   netState 没被 Provider 转发、这里是流级下行计数根本没写。
+    //   断言取的是 `stream-left` 事件（日志那一行就是它渲染的），不是内部字段。
+    const left = await (async () => {
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline) {
+        const found = events.find((e) => e.type === 'stream-left' && e.payload.stream === 4);
+        if (found) return found.payload;
+        await h.wait(20);
+      }
+      return null;
+    })();
+    assert.ok(left, '关掉的那条流必须报一次 stream-left（现场日志的"流结束"就是它）');
+    assert.equal(left.bytesFromPeer, Buffer.byteLength('only-four'),
+      '下行字节必须记到流上：这条流只收到过 only-four，一个不多一个不少');
+    assert.ok(left.bytesToPeer > 0, '上行字节也要记：echo 服务的回声确实回了对端');
   } finally {
     await host.stop();
     await game.close();

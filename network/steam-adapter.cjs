@@ -769,7 +769,12 @@ function createSteamHost(options = {}) {
   const pushFrames = (peer, frames) => {
     if (peer.dropped || !frames.length) return;
     let shouldFlush = false;
-    for (const frame of frames) if (queueOut(peer, frame, tuning.outFlushBytes)) shouldFlush = true;
+    for (const frame of frames) {
+      // 干道级上行计数。多路复用这条路原来一个字节都不记，"隧道存量"那行
+      // 才会出现"流上明明上行 41KiB、干道上却是 上行0KiB"这种自相矛盾的读数。
+      peer.bytesToPeer += frame.length;
+      if (queueOut(peer, frame, tuning.outFlushBytes)) shouldFlush = true;
+    }
     if (shouldFlush) {
       const written = flushPeerOut(steam, peer, sendChunk, tuning);
       if (written < 0) {
@@ -1059,7 +1064,14 @@ function createSteamHost(options = {}) {
       return;
     }
 
-    if (type === mux.TYPE.Data) { writeStream(stream, frame.payload); return; }
+    if (type === mux.TYPE.Data) {
+      // 下行计数必须在这里加：`流结束 ... 下行=0KiB` 曾经永远是 0，害得人以为
+      // "朋友一个字节都没送上来"，其实只是房主这条路从来没有记过账
+      // （加入者侧的对应位置见另一份 handleStreamFrame 实现）。
+      stream.bytesFromPeer += frame.payload.length;
+      writeStream(stream, frame.payload);
+      return;
+    }
     if (type === mux.TYPE.Window) { stream.remoteCredit = mux.decodeWindowCredit(frame.payload); return; }
     if (type === mux.TYPE.Close) { if (!stream.socket.destroyed) stream.socket.end(); return; }
     if (type === mux.TYPE.Reset) {
