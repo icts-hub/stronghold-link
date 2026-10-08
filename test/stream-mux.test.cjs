@@ -131,6 +131,47 @@ test('开场魔数只认完整前缀，业务数据不会被误判', () => {
   assert.equal(M.isHello(Buffer.concat([M.encodeHello(), Buffer.from('xxx')])), true);
 });
 
+test('★ 解帧器跳过半路出现的握手魔数 —— 它会被粘在数据帧后面（BadFraming 的成因）', () => {
+  // 为什么会有"半路的魔数"：干道的发送队列 steam-adapter.cjs 的 flushPeerOut 在
+  // peer.out 有多项时是 Buffer.concat 成**一条**消息发出去的。房主补答的魔数完全
+  // 可能排在已经排好的数据帧之后，于是线路上出现 "…数据帧… SHLMUX\\x02"。
+  // 老解帧器把 'SHLM' 当长度读成 0x53484C4D = 1397247053，超上限当场 EMUXFRAME，
+  // 整条干道以 BadFraming 收场 —— 刚救回来的隧道又被自己毙掉。
+  const d = M.createFrameDecoder();
+  const data = M.encodeData(2, 1, Buffer.from('payload'));
+  const glued = Buffer.concat([data, M.encodeHello()]);
+
+  assert.doesNotThrow(() => d.push(glued), '粘在后面的魔数绝不能再把解帧器打炸');
+  d.reset();
+  assert.deepEqual(d.push(glued).map((f) => f.type), [M.TYPE.Data], '数据帧照常解出来，魔数被静默跳过');
+  assert.equal(d.pending, 0, '魔数不该在解帧器里留残留');
+
+  // 魔数在最前面：老代码靠调用方手工切 7 字节，现在解帧器自己也能认
+  d.reset();
+  assert.deepEqual(d.push(Buffer.concat([M.encodeHello(), data])).map((f) => f.type), [M.TYPE.Data]);
+
+  // 连续多条魔数（补发 + 重答叠在一起）要能全部跳过
+  d.reset();
+  assert.equal(d.push(Buffer.concat([M.encodeHello(), M.encodeHello(), M.encodeHello()])).length, 0);
+  assert.equal(d.pending, 0, '三连魔数应当被整段跳掉');
+
+  // 魔数被发送层切成两段喂进来：前缀没凑齐时要等着，不能报错
+  d.reset();
+  const hello = M.encodeHello();
+  assert.equal(d.push(hello.subarray(0, 3)).length, 0);
+  assert.equal(d.pending, 3, '半个魔数应当留在缓冲里等后续字节');
+  assert.equal(d.push(hello.subarray(3)).length, 0);
+  assert.equal(d.pending, 0);
+
+  // 单个 'S'：以 0x53 开头的合法帧不存在（长度会读成 0x53xxxxxx，必然超上限），
+  // 所以"等更多字节"永远是安全的。
+  d.reset();
+  assert.equal(d.push(Buffer.from('S')).length, 0);
+  assert.equal(d.pending, 1);
+  assert.equal(d.push(hello.subarray(1)).length, 0);
+  assert.equal(d.pending, 0);
+});
+
 test('魔数带版本号：认得出对面是别的版本，好安全退回单连接模式', () => {
   assert.equal(M.MUX_VERSION, 2);
   assert.equal(M.HELLO_BYTES.length, 7);

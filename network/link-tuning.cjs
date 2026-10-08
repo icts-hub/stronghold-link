@@ -29,12 +29,22 @@ const DEFAULTS = Object.freeze({
   maxMessageBatch: 128,
   noNagle: true,
   noDelay: false,
+  // 未定帧干道的救火窗口（加入者侧）。干道建出来后要把魔数送到房主、等房主回同一个
+  // 魔数才算谈妥；真实链路上首包是会丢的（连接刚建出来、Steam 还没进 Connected，
+  // sendMessage 却已经报成功），不补救就会永久吊死在一条哑干道上 —— 见
+  // steam-adapter.cjs 里 retryUndecidedTrunks 的注释。
+  // 放弃窗口必须显著大于一次成功握手的上限（实测 6.8 / 9.4 / 17.4 秒），否则会把
+  // "慢但在动"的干道误杀成"死的"。
+  trunkHelloRetryMs: 4000,
+  trunkHelloGiveupMs: 30000,
 });
 
 const BOUNDS = Object.freeze({
   outFlushBytes: [1024, 1024 * 1024],
   callbackIntervalMs: [1, 200],
   maxMessageBatch: [1, 4096],
+  trunkHelloRetryMs: [50, 60000],
+  trunkHelloGiveupMs: [500, 600000],
 });
 
 const ENV_KEYS = Object.freeze({
@@ -44,6 +54,8 @@ const ENV_KEYS = Object.freeze({
   maxMessageBatch: 'SHL_STEAM_MAX_BATCH',
   noNagle: 'SHL_STEAM_NO_NAGLE',
   noDelay: 'SHL_STEAM_NO_DELAY',
+  trunkHelloRetryMs: 'SHL_STEAM_TRUNK_HELLO_RETRY_MS',
+  trunkHelloGiveupMs: 'SHL_STEAM_TRUNK_HELLO_GIVEUP_MS',
 });
 
 /** 解析布尔开关：1/true/on/yes 为真，0/false/off/no 为假，其余返回 null 表示没写。 */

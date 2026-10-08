@@ -226,6 +226,17 @@ function typeName(type) {
 }
 
 /**
+ * 这个缓冲区开头是不是（可能是**没凑齐**的）握手魔数。
+ *
+ * 只看前缀：'SH' 也要认，因为以 'S'（0x53）开头的合法帧根本不存在 —— 那会被当成
+ * 长度 0x53xxxxxx，必然超上限。所以"等更多字节"永远是安全的。
+ */
+function matchesHelloPrefix(buf) {
+  const n = Math.min(buf.length, HELLO_MAGIC_BYTES.length);
+  return n > 0 && buf.subarray(0, n).equals(HELLO_MAGIC_BYTES.subarray(0, n));
+}
+
+/**
  * 增量解帧器：喂进去任意边界的字节块，吐出完整的帧。
  *
  * 一条干道上一个解帧器。`push` 可能返回 0 帧（字节还不够）、1 帧或多帧。
@@ -241,6 +252,20 @@ function createFrameDecoder({ maxFrame = MAX_FRAME_BYTES } = {}) {
       const frames = [];
       for (;;) {
         if (buf.length < 4) break;
+        // 握手魔数是**裸字节**，不是帧。它本来只该出现在一条干道的第一个消息里，
+        // 但发队列会把排在后面的东西拼进同一条消息（见 steam-adapter.cjs 的
+        // flushPeerOut：peer.out 有多项时 Buffer.concat），所以"迟到的重复魔数"
+        // 完全可能被粘在某条数据帧后面。老的解帧器会把它当帧头读 —— 长度读出来是
+        // 0x53484C4D = 1397247053，直接 EMUXFRAME，整条干道以 BadFraming 收场。
+        //
+        // 无歧义识别：任何合法帧的长度都在 [9, cap] 里，而 'SHLM' 当长度读出来是
+        // 1397247053，必然超上限。所以"边界处是魔术字前缀"与"合法帧"不可能撞车。
+        // 前缀不全就等更多字节（以 'S' 开头的合法帧同样不存在）。
+        if (matchesHelloPrefix(buf)) {
+          if (buf.length < HELLO_BYTES.length) break;
+          buf = buf.subarray(HELLO_BYTES.length);
+          continue;
+        }
         const len = buf.readUInt32BE(0);
         // len >= 9 是"至少要有 type + streamId + generation"；超上限说明这条干道的
         // 字节流已经错乱，与其分配一大块内存，不如让调用方断开重来。

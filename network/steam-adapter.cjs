@@ -388,14 +388,47 @@ const PEER_QUEUE_MAX_BYTES = 1024 * 1024;
  * 干道断了以后，一条流最多等多久重新挂上（规格 §十六 的 stream recovery）。
  *
  * 为什么值得等：干道断掉的原因里，"真的没网了"反而是少数，多数是 Steam 中继换路、
- * CM 抖一下、对端进程重启。而重连一条干道的代价是本机几十毫秒、校园网下一两秒 ——
- * 远小于让浏览器把整张地图重新拉一遍。所以传输层打嗝不该等价于"所有请求一起失败"。
+ * CM 抖一下、对端进程重启。远小于让浏览器把整张地图重新拉一遍。所以传输层打嗝
+ * 不该等价于"所有请求一起失败"。
+ *
+ * ★ 为什么是 60 秒而不是 8 秒：原来这里写的是 8000，配套注释的假设是"重连一条干道
+ * 只要几十毫秒到一两秒"。**这个假设是错的**：同一条链路上一次成功握手本身就要
+ * 6.8 / 9.4 / 17.4 秒（见 network/steam-netconfig.cjs 里 timeoutInitial 的实测记录，
+ * 正因为如此它才从 Steam 出厂的 10 秒调到 30 秒）。8 秒连一次正常握手的上限都盖不住。
+ * 现场日志里就有一条：`流结束（TunnelClosed）流号=14 … 干道断了以后 8000ms 内没能
+ * 重新挂上 存活=1749s 上行=3229KiB` —— 一条活了 29 分钟、已经推了 3.2 MB 的连接，
+ * 就因为干道打了个嗝而在 8 秒后被收掉；浏览器那边看到的就是"一直转圈"。
+ * 现在这个期限必须盖住最坏情况："当前这条干道被放弃（PEER_HELLO_GIVEUP_MS）
+ * + 重开一条并谈妥（再一次握手）"，所以取 60 秒。
  *
  * 为什么必须有上限：没有上限的话，一条死掉的流会永久占着一个已经连到游戏服务的
  * 本机连接，游戏侧看着"有人在连却什么都不发"，最后两边一起挂着。宁可明确收掉、
  * 让客户端重来一次 —— 那也是它本来就会做的事。
  */
-const STREAM_MIGRATE_GRACE_MS = 8000;
+const STREAM_MIGRATE_GRACE_MS = 60000;
+
+/**
+ * 未定帧干道的两个时间窗（加入者侧）。
+ *
+ * 干道建出来之后，加入者立刻把魔数排进队列，等房主回同一个魔数才算"谈妥"。
+ * 真实链路上这一步有可能**把首包丢掉**：连接刚由 connectP2P 建出来、Steam 还没把它
+ * 推进 Connected，sendMessage 却已经报了成功，于是那一帧再也没有第二次。
+ * 以前这里没有任何补救，而 hasLiveTrunk() 又把"还没定帧的干道"也算成活的干道，于是
+ * refillTrunks() 永远不会再补一条 —— 整局就吊死在那条哑干道上：
+ *   · 它不再有任何回调会来管它，可 Steam 连接本身是活着的，两边都以为在等对方；
+ *   · pickTrunk() 要求 framed === true，所以新来的本机连接一条都挂不上去，
+ *     全被塞进 pendingSockets 一直等；
+ *   · 浏览器那边就是"TCP 连上了，然后一直转圈，什么都不回来"。
+ * 现场日志正是这个形状：14:47:31 房主记下 `有对端连进来` 之后，该干道的隧道存量
+ * 每一行都是 `上行0KiB 下行0KiB`，一直持续到日志末尾（292 秒）—— 一个字节都没动过。
+ *
+ * PEER_HELLO_RETRY_MS  未定帧干道在这个间隔后重发一次魔数（首包丢了就靠它救回来）。
+ * PEER_HELLO_GIVEUP_MS 到这个年纪还没谈妥就放弃这条、换一条重来。必须显著大于真实
+ *                      链路一次成功握手的上限（实测 17.4 秒），否则会把"慢但在动"
+ *                      的干道误杀成"死的"，反而制造出它想避免的问题。
+ */
+const PEER_HELLO_RETRY_MS = 4000;
+const PEER_HELLO_GIVEUP_MS = 30000;
 
 /**
  * 寄存流（orphan）的清扫周期。
@@ -1331,7 +1364,26 @@ function createSteamHost(options = {}) {
         peer.socket.write(data);
         continue;
       }
-      if (peer.framed === true) { feedDecoder(peer, data0); continue; }
+      if (peer.framed === true) {
+        // 加入者因为"首包可能会丢"会重发魔数（见 retryUndecidedTrunks）。这条干道早就
+        // 谈妥了，这种迟到的重发必须**吞掉** —— 喂进解码器会被当成帧头解出垃圾，
+        // 整条干道以 BadFraming 收场，等于把刚救回来的隧道又毙一次。
+        //
+        // 吞掉的同时**再答一次**。理由是这条链路上"加入者的魔数到了、房主的应答丢了"
+        // 完全可能发生：房主这边早就 framed === true，它不会再主动说第二句话，而加入者
+        // 会一直等到 PEER_HELLO_GIVEUP_MS 才放弃换新（默认 30 秒白等）。重答一次只要 7
+        // 个字节，却能把这种情况从"30 秒后重开一条干道"缩成"下一个重发周期就好"。
+        // 不会来回打乒乓：加入者一旦定帧就不再发魔数了。
+        if (mux.isOurHello(data0)) {
+          stats.helloRepeat = (stats.helloRepeat || 0) + 1;
+          pushFrames(peer, [mux.encodeHello()]);
+          const rest = data0.subarray(mux.HELLO_BYTES.length);
+          if (rest.length) feedDecoder(peer, rest);
+          continue;
+        }
+        feedDecoder(peer, data0);
+        continue;
+      }
       const data = data0;
       // 老对端：一个字节都不改，原样透传。
       if (!peer.connected) {
@@ -1945,6 +1997,9 @@ function createSteamJoiner(options = {}) {
       replay: [],
       replayBytes: 0,
       reconnectTimer: null,
+      // 未定帧干道的救火记账（见 PEER_HELLO_RETRY_MS / retryUndecidedTrunks）
+      helloSentAt: 0,
+      helloAttempts: 0,
       // 定帧之前扣住的帧（见 holdFrames）。定帧之后一直是空的。
       heldFrames: [],
       heldBytes: 0,
@@ -1959,7 +2014,12 @@ function createSteamJoiner(options = {}) {
       // 也没有"等不到应答就退回老路径"的定时器：新版房主是被动应答的，用超时判定只会
       // 把新+新组合误判成老房主，把多路复用整个废掉。真等不到应答时，本机连接会一直
       // 停在排队或扣帧状态（客户端自己会超时重连），而不是被我们错误地改成透传。
+      //
+      // ★ 但"不退回老路径"不等于"什么都不做"：首包丢了必须重发，重发还不行就得换一条。
+      // 这两件事由 retryUndecidedTrunks() 在泵里做（见 PEER_HELLO_RETRY_MS 的注释）。
       pushFrames(peer, [mux.encodeHello()]);
+      peer.helloSentAt = Date.now();
+      peer.helloAttempts = 1;
     }
     return peer;
   };
@@ -2066,6 +2126,49 @@ function createSteamJoiner(options = {}) {
       // 干道是**等会儿**才谈妥的，所以这里只负责"把干道建出来"，真正的挂流交给
       // 之后那次 refillTrunks（Connected、或者下一条本机连接进来时）。
       stats.trunkCreated = (stats.trunkCreated || 0) + 1;
+    }
+  };
+
+  /**
+   * 未定帧干道的救火（加入者侧，挂在泵上跑，不另起计时器）。
+   *
+   * 为什么必须有这件事：`hasLiveTrunk()` 把"还没定帧的干道"也算成活的，这是**故意的** ——
+   * 否则每来一条本机连接都会再开一条干道。但它同时意味着：一旦某条未定帧的干道永远等不到
+   * 房主应答（首包丢了，见 PEER_HELLO_RETRY_MS 的注释），`refillTrunks()` 就再也不会补新的，
+   * 整局永久吊死在那条哑干道上。现场那次 292 秒零字节就是这么来的。
+   *
+   * 所以：等不到就重发魔数；重发到 PEER_HELLO_GIVEUP_MS 还等不到，就放弃这条、换一条重来。
+   * 寄存中的流（orphanStreams）会原地等到新干道谈妥，本机连接一条都不用断。
+   */
+  const retryUndecidedTrunks = (now = Date.now()) => {
+    if (stopped || legacyHost || !steam) return;
+    // 两个窗口可以按环境变量调（SHL_STEAM_TRUNK_HELLO_RETRY_MS / _GIVEUP_MS），
+    // 测试也靠它把等待压到几十毫秒，不然一条用例要跑 30 秒。
+    const retryMs = tuning.trunkHelloRetryMs || PEER_HELLO_RETRY_MS;
+    const giveupMs = tuning.trunkHelloGiveupMs || PEER_HELLO_GIVEUP_MS;
+    for (const peer of [...peers.values()]) {
+      if (peer.framed !== null || peer.dropped) continue;
+      if (now - peer.bornAt >= giveupMs) {
+        stats.trunkAbandoned = (stats.trunkAbandoned || 0) + 1;
+        emit('notice', {
+          text: `干道建起来了但 ${Math.round((now - peer.bornAt) / 1000)} 秒没等到房主应答`
+            + `（共发了 ${peer.helloAttempts || 1} 次魔数），换一条重来 —— 本机连接原地等着，不用刷新页面`,
+        });
+        // dropPeer 会关掉这条 Steam 连接，并把它上面的流寄存起来（这里正常是 0 条：
+        // pickTrunk 只认 framed === true，未定帧的干道根本挂不上流）。
+        // **必须先把它从 peers 里摘掉再 refillTrunks** —— hasLiveTrunk() 认的就是 peers。
+        dropPeer(peer, { parkStreams: true });
+        refillTrunks();
+        continue;
+      }
+      if (now - (peer.helloSentAt || peer.bornAt) < retryMs) continue;
+      // 队列里还有没发出去的字节就别再塞：魔数大概已经在队里等着发了。
+      // 只在"已经发出去、对端却没回"的情况下才补一条。
+      if (peer.out && peer.out.length) continue;
+      peer.helloSentAt = now;
+      peer.helloAttempts = (peer.helloAttempts || 1) + 1;
+      stats.trunkHelloResend = (stats.trunkHelloResend || 0) + 1;
+      pushFrames(peer, [mux.encodeHello()]);
     }
   };
 
@@ -2339,6 +2442,14 @@ function createSteamJoiner(options = {}) {
             markLegacyHost(peer);
           }
         } else if (peer.framed === true) {
+          // 房主可能因为我们补发魔数而多答一次（见 retryUndecidedTrunks）。这条干道早就
+          // 谈妥了，迟到的应答必须吞掉 —— 它不是合法帧，喂进解码器会被当成帧头解出垃圾。
+          if (mux.isOurHello(data)) {
+            stats.helloRepeat = (stats.helloRepeat || 0) + 1;
+            const rest = data.subarray(mux.HELLO_BYTES.length);
+            if (rest.length) feedDecoder(peer, rest);
+            continue;
+          }
           feedDecoder(peer, data);
           continue;
         }
@@ -2359,6 +2470,12 @@ function createSteamJoiner(options = {}) {
     if (orphanStreams.size && sweepNow - (sampleState.lastOrphanSweepAt || 0) >= ORPHAN_SWEEP_MS) {
       sampleState.lastOrphanSweepAt = sweepNow;
       sweepOrphanStreams(sweepNow);
+    }
+    // 未定帧干道的救火（重发魔数 / 放弃换新）。同样挂在泵上、同样用时间戳压到
+    // ORPHAN_SWEEP_MS 一次 —— 这是"首包丢了就永久吊死"的唯一补救，见 retryUndecidedTrunks。
+    if (sweepNow - (sampleState.lastTrunkRetryAt || 0) >= ORPHAN_SWEEP_MS) {
+      sampleState.lastTrunkRetryAt = sweepNow;
+      retryUndecidedTrunks(sweepNow);
     }
     return handled;
   };

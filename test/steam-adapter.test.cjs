@@ -295,6 +295,23 @@ test('★ 房主多路复用：等魔数才应答、等 OPEN 才连游戏端口�
     assert.equal(isolated.length, 1, '只该回声一次');
     assert.equal(isolated[0].streamId, 4, '流 4 的数据绝不能出现在流 2 上（串线就是两个游戏请求互相污染）');
 
+    // ★ 迟到的重复魔数（现场 2026-10-08 的"永久吊死"就是栽在这一步的反面）。
+    //   加入者因为"干道首包可能会丢"会补发魔数（见 steam-adapter.cjs 的 retryUndecidedTrunks）。
+    //   这条干道早就谈妥了，重发必须被**吞掉**，绝不能喂进解码器 —— 那会被当成帧头解出垃圾，
+    //   整条干道以 BadFraming 收场，等于把刚救回来的隧道又毙一次。
+    //   同时房主**再答一条魔数**：加入者要是没收到第一次应答，会一直等到放弃超时（默认 30 秒）
+    //   才换新干道；重答一次只要 7 个字节，就能把"应答丢了"从 30 秒白等缩成一个重发周期。
+    const helloReplies = () => mock.state.sent.filter((s) => s.connection === CONN && s.data.includes(mux.HELLO_BYTES)).length;
+    const helloRepliesBefore = helloReplies();
+    const framesBefore = framesFrom(mock, CONN, { skipHello: true }).length;
+    mock.state.pushToHost(CONN, mux.encodeHello());
+    assert.ok(await h.waitFor(() => helloReplies() > helloRepliesBefore, { timeoutMs: 2000 }),
+      '迟到的重复魔数必须被再答一次 —— 加入者没收到第一次应答时就靠它活下来');
+    assert.equal(host.stats.helloRepeat, 1, '重复魔数要计数（诊断要知道这条链路上丢过应答）');
+    assert.equal(host.stats.failed || 0, 0, '重复魔数绝不能被当成非法帧（BadFraming 会把整条干道毙掉）');
+    assert.equal(framesFrom(mock, CONN, { skipHello: true }).length, framesBefore,
+      '吞掉重复魔数不该产生任何新帧，魔数那 7 个字节也绝不能漏进游戏服务');
+
     // 对端关掉一条流：房主用 end() 收尾，不是 destroy() —— 那是规格 §十二 的要求
     // （最后一段数据还在管道里，destroy 会把它一起丢掉）。
     mock.state.pushToHost(CONN, mux.encodeClose(4, 1));
@@ -950,6 +967,82 @@ test('★ 加入者：隧道一起来就把干道先握上，而且**只握一�
     await h.wait(150);
     assert.equal(mock.state.connectedTo.length, 1, '只许握一条：第二条干道要等第一条真的满了才拉（规格 §三）');
   } finally {
+    await joiner.stop();
+  }
+});
+
+test('★ 加入者：干道建起来但房主一直不应答（首包丢了）—— 必须补发魔数、超期换一条，绝不能永久吊死', async () => {
+  // 现场（2026-10-08，0.14.0 首日）就是这么挂的：14:47:29 旧干道被 Steam 以 4001 掐掉，
+  // 14:47:31 加入者重新拉了一条，然后**那条干道 292 秒一个字节都没走过** —— 房主侧日志
+  // 里"隧道存量"每一行都是 `上行0KiB 下行0KiB`。
+  //
+  // 为什么会永久吊死：干道建出来时魔数是直接排进队列的（spawnTrunk 里那一句），而首包在
+  // 真实链路上是会丢的 —— 连接刚由 connectP2P 建好、Steam 还没把它推进 Connected，
+  // sendMessage 就已经报了成功，那一帧再也没有第二次。于是：
+  //   · peer 永远停在 framed === null；
+  //   · hasLiveTrunk() 把"还没谈妥的干道"也算成活的 ⇒ refillTrunks() 再也不会补新的；
+  //   · pickTrunk() 要求 framed === true ⇒ 之后每条本机连接都挂不上，全塞进 pendingSockets；
+  //   · 旧干道上寄存的流等满 STREAM_MIGRATE_GRACE_MS 被清扫 ⇒ 浏览器那边"一直转圈"。
+  // 三个断言分别钉住三个环节：补发魔数、超期换新、换出来的新干道仍然能把这局救回来。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const joiner = createSteamJoiner({
+    localPort,
+    hostSteamId: HOST_STEAM_ID,
+    sdk: mock.sdk,
+    // 把两个窗口压到几十毫秒，不然一条用例得跑半分钟。
+    // giveup 留得比 retry 宽裕得多，好让 102 号在被放弃之前有足够时间完成握手。
+    tuning: { trunkHelloRetryMs: 50, trunkHelloGiveupMs: 800 },
+  });
+  let client = null;
+  try {
+    await joiner.ready;
+    assert.ok(
+      await h.waitFor(() => mock.state.connectedTo.length >= 1, { timeoutMs: 3000 }),
+      '加入者应主动建一条 Steam 干道（首包是魔数）',
+    );
+    const first = mock.state.connectedTo[0].handle;
+
+    // 本机客户端在"还没有任何一条谈妥的干道"时进来：它应当被排队，而不是被拒掉。
+    client = await h.connect(localPort);
+
+    // ── ① 房主一句话都不回 ⇒ 必须补发魔数（一次都不重发就只能靠运气）
+    assert.ok(
+      await h.waitFor(
+        () => mock.state.sent.filter((s) => s.connection === first && s.data.includes(mux.HELLO_BYTES)).length >= 2,
+        { timeoutMs: 3000 },
+      ),
+      '等不到房主应答时必须补发魔数 —— 首包丢了就靠它救回来',
+    );
+    assert.ok(joiner.stats.trunkHelloResend >= 1, '补发要记账（stats.trunkHelloResend）');
+
+    // ── ② 补发还是等不到 ⇒ 放弃这条、换一条重来，绝不许永远守着一条哑干道
+    assert.ok(
+      await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }),
+      '一直等不到应答时必须换一条新干道（hasLiveTrunk 不许把未定帧的干道一直算成活的）',
+    );
+    assert.ok(joiner.stats.trunkAbandoned >= 1, '放弃要记账（stats.trunkAbandoned）');
+    assert.ok(mock.state.closed.some((c) => c.connection === first), '被放弃的那条 Steam 连接必须真的关掉');
+
+    // ── ③ 换出来的新干道仍然能把这局救回来：房主这次应答，排队的本机连接要挂上去
+    const second = mock.state.connectedTo[1].handle;
+    mock.state.emitState({ connection: second, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    mock.state.pushToClient(second, mux.encodeHello());
+    assert.ok(
+      await h.waitFor(() => (joiner.stats.muxPeers || 0) >= 1, { timeoutMs: 3000 }),
+      '换出来的新干道应当能正常谈妥（不能因为刚才那次放弃就变成再也不会握手）',
+    );
+    const opened = await h.waitFor(
+      () => framesFrom(mock, second, { skipHello: true }).filter((f) => f.type === mux.TYPE.Open).length >= 1,
+      { timeoutMs: 3000 },
+    );
+    assert.ok(opened, '排队中的本机连接应当在新干道谈妥后自动挂上去（用户不用刷新页面）');
+    assert.ok(client && !client.destroyed, '这一路折腾下来本机连接一条都不该被掐掉');
+
+    // ── ④ 补发的魔数在已经谈妥的干道上必须被吞掉，不能喂进解码器当成帧头
+    assert.equal(joiner.stats.failed || 0, 0, '迟到的魔数应答绝不能被当成非法帧（BadFraming）');
+  } finally {
+    if (client) client.destroy();
     await joiner.stop();
   }
 });
