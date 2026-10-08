@@ -486,6 +486,16 @@
 <button class="btn primary sm" id="lobbyPendingAccept">Join lobby</button>
 </div>
 
+<!-- ★ 醒目横幅：Steam 邀请只架隧道，游戏里还要自己填一次地址（现场 m12431 的直接教训） -->
+<div class="note warn" id="gameEntryBanner" hidden style="margin-bottom:var(--sp-6)">
+<strong id="gameEntryTitle">★ Steam 邀请只架隧道 —— 游戏里还要自己填一次地址</strong>
+<div id="gameEntryBody" style="margin-top:6px"></div>
+<div class="row gap-2" style="margin-top:8px;align-items:center">
+<button class="btn primary sm" id="gameEntryCopy" type="button">复制地址</button>
+<button class="cmd" id="gameEntryClose" type="button">知道了</button>
+</div>
+</div>
+
 <div class="grid">
 <div class="c-7">
 <div class="step"><span class="step__idx">01</span><span class="step__title">Lobby</span><span class="step__meta" id="lobbyState">NOT CONNECTED</span></div>
@@ -1242,7 +1252,7 @@ function renderRoomSteps(s){
           var u5=r5.room?(r5.entryUrl+'/?room='+encodeURIComponent(r5.room)):r5.entryUrl;
           lobbyLog('隧道已建立：'+u5,'ok');
           renderRoomSteps({entryUrl:r5.entryUrl,room:r5.room||null});
-          if(r5.entryPort)logConnectionAddresses(Number(r5.entryPort),'joiner');
+          if(r5.entryPort)logConnectionAddresses(Number(r5.entryPort),'joiner',(lobbySnapshot&&lobbySnapshot.hostInfo&&lobbySnapshot.hostInfo.game)||'');
           var apiO=window.strongholdLink&&window.strongholdLink.network;
           if(apiO&&apiO.openUrl)apiO.openUrl(u5).then(function(){toast('已用浏览器打开 '+u5);});
           else toast('已就绪：'+u5);
@@ -1355,7 +1365,7 @@ function initLobbyPort(){
       if(r&&r.ok){
         lobbyLog('已选定端口 '+port+(r.lobbyOk?(' · 大厅已就绪 '+(r.lobbyId||'')):(' · 大厅创建失败：'+(r.lobbyReason||''))),r.lobbyOk?'ok':'error');
         if(out)out.textContent='已就绪：本机服务端口 '+port+' · 好友点「接受邀请」即可加入';
-        logConnectionAddresses(Number(port),'host');
+        logConnectionAddresses(Number(port),'host',game);
         toast(r.lobbyOk?('已配好 · 端口 '+port+' · 可以去邀请好友了'):('隧道已起，但大厅创建失败：'+(r.lobbyReason||'')));
         renderRoomSteps({
           port:Number(port),
@@ -2267,7 +2277,54 @@ function initLobbyLogCopy(){
     toast('已复制：'+v);
   });
 }
-function logConnectionAddresses(port, role){
+/* ---- 05b 通信地址与游戏入口横幅 ----------------------------------------
+   ★ 现场修复（2026-10-08 第一次 Minecraft 联机，用户原话"对面找不到我的服务器"）：
+   `logConnectionAddresses` 从写下来那天起就在调 bold()，而 bold 全仓库从未定义过。
+   于是"选进程开局"（lobby:prepare 已经把隧道建好了）成功之后走到这里就抛
+   ReferenceError，被 initLobbyPort 的 catch 抓成「配置出错：bold is not defined」——
+   地址行与「复制」按钮一次都没显示出来，后面的 renderRoomSteps / refreshLobby
+   也被一起跳过。界面在报错，隧道其实是好的，而"游戏里要手填 127.0.0.1:<端口>"
+   这句最关键的话从来没有出现在界面上。test/ui-logic.test.cjs 里补了这条路径的断言。 */
+function bold(s){ return '<b>' + esc(s) + '</b>'; }
+
+/* 现场的第二课：Steam 好友邀请 ≠ 游戏里能看见对方。两条原因都在代码里写着：
+   ① Minecraft 的局域网世界靠 UDP 广播自己（224.0.2.60:4445），而这条隧道只搬 TCP
+      （network/steam-adapter.cjs 顶部注释：「不做 UDP…只用于 TCP 流量」）；
+   ② Steam 的「加入游戏」只拉起游戏进程，不把地址传进去 —— Minecraft Java 没有 Steam 联机集成。
+   所以必须把一句能照着做的话放到最显眼处：在游戏里手填 127.0.0.1:<入口端口>。 */
+var GAME_ENTRY_MC_RE=/minecraft|我的世界|基岩|bedrock|java\s*版|mc\s*服务/i;
+function hideGameEntryBanner(){ var box=$('gameEntryBanner'); if(box)box.hidden=true; }
+function showGameEntryBanner(port, role, game){
+  var box=$('gameEntryBanner'); if(!box||!port)return;
+  var addr='127.0.0.1:'+port;
+  var name=String(game||'').trim();
+  var isMc=GAME_ENTRY_MC_RE.test(name);
+  var lines=[];
+  if(role==='joiner'){
+    lines.push('先在 <b>Stronghold Link</b> 里让房间显示 JOINED，<b>再</b>打开游戏 —— 这一步只是把隧道架起来，游戏本身还看不到对面。');
+    lines.push('游戏里要连的地址是 '+bold(addr)+'（入口端口与房主服务端口同号）。<b>不要</b>填房主的局域网 / 公网 IP。');
+  }else{
+    lines.push('把这句话发给好友：<b>先加入我的房间，再在游戏里填 '+addr+'</b>（两边同号）。');
+  }
+  if(isMc){
+    lines.push('<b>Minecraft 不会出现在好友的「多人游戏」列表里</b> —— 局域网世界靠 UDP 广播（224.0.2.60:4445）自己冒出来，这条隧道只搬 TCP。');
+    lines.push('好友要这样进：<b>Minecraft → 多人游戏 → 直接连接 → 服务器地址填 '+addr+'</b>。Steam 里的「加入游戏」对 Minecraft 无效（它没有 Steam 联机集成）。');
+    if(/基岩|bedrock/i.test(name))lines.push('<b>基岩版走 UDP，这条隧道不支持</b> —— 只有 Java 版能这样联机。');
+  }else{
+    lines.push('Steam 的「接受邀请」只把隧道架起来；<b>游戏里要自己填 '+addr+'</b>。');
+  }
+  var title=$('gameEntryTitle'); if(title)title.textContent='★ Steam 邀请只架隧道 —— 游戏里还要自己填一次地址';
+  var body=$('gameEntryBody'); if(body)body.innerHTML=lines.join('<br>');
+  var copy=$('gameEntryCopy');
+  if(copy)copy.onclick=function(){
+    try{ if(navigator.clipboard)navigator.clipboard.writeText(addr); }catch(_){}
+    toast('已复制：'+addr);
+  };
+  var closer=$('gameEntryClose');
+  if(closer)closer.onclick=function(){ hideGameEntryBanner(); };
+  box.hidden=false;
+}
+function logConnectionAddresses(port, role, game){
   if(!port)return;
   var ip=(($('topNode')&&$('topNode').textContent)||'').trim();
   var hasIp=/^\d+\.\d+\.\d+\.\d+$/.test(ip);
@@ -2281,6 +2338,7 @@ function logConnectionAddresses(port, role){
     lobbyLogRaw('<span class="tech">★ 你自己在 Minecraft 里填</span><br>' + bold(addr) + btn(addr));
     if(hasIp)lobbyLogRaw('<span class="tech">同一 Wi-Fi 才用（不用隧道时）</span><br>' + ip + ':' + port + btn(ip+':'+port));
   }
+  showGameEntryBanner(port, role, game);
 }
 function lobbyLogRaw(html){
   lobbyLogLines.push({t:new Date().toLocaleTimeString('zh-CN',{hour12:false}),raw:String(html)});

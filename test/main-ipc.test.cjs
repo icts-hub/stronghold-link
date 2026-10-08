@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 // 主进程 IPC 链路测试：用 electron 桩加载真实的 electron/main.cjs，
 // 直接调用它注册的 IPC 处理器，验证 配置持久化 / 会话控制 / 错误文案 / 事件推送。
 // 运行：node --test --test-isolation=none test/main-ipc.test.cjs
@@ -107,7 +107,7 @@ test('window:* 无边框窗口按钮：拿不到真实窗口时如实降级，�
 
 test('app:info 返回真实版本与配置路径（基于桩 userData）', async () => {
   const info = await invoke('app:info');
-  assert.equal(info.version, '0.14.1');
+  assert.equal(info.version, '0.14.2');
   assert.equal(info.name, 'Stronghold Link');
   assert.equal(info.configPath, path.join(OUT_ROOT, 'game-profiles.json'));
   assert.equal(info.settingsPath, path.join(OUT_ROOT, 'settings.json'));

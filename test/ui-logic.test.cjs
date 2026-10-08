@@ -125,10 +125,11 @@ function setup({ profiles = [], info = {}, steamReport = null, onSteamDiagnose =
     removeEventListener() {},
     dispatch(type) { windowListeners.filter((l) => l.type === type).forEach((l) => l.fn({})); },
   };
+  const clipboard = { last: null, writeText: async (text) => { clipboard.last = String(text); } };
   const sandbox = {
     document,
     window: windowStub,
-    navigator: { clipboard: { writeText: async () => {} } },
+    navigator: { clipboard },
     confirm: () => true,
     console,
     crypto: globalThis.crypto,
@@ -146,7 +147,7 @@ function setup({ profiles = [], info = {}, steamReport = null, onSteamDiagnose =
   vm.runInContext(uiCode, sandbox, { filename: 'index-inline.js' });
 
   return {
-    get, calls, eventHandlers, hintInputs,
+    get, calls, eventHandlers, hintInputs, bridge, clipboard,
     setSnapshot: (next) => { snapshot = { ...snapshot, ...next }; },
     cleanup: () => { for (const t of timers) { clearInterval(t); clearTimeout(t); } },
   };
@@ -495,4 +496,52 @@ test('安全状态展示：加密会话显示算法，明文会话明确标注�
   await settle();
   assert.match(ui.get('sessionSecurity').textContent, /明文/);
   assert.match(ui.get('sessionSecurity').textContent, /未设置口令/);
+});
+
+test('★ 选进程开局：地址横幅必须真的画出来（bold 曾未定义 → 界面报「配置出错：bold is not defined」）', async (t) => {
+  const ui = setup();
+  t.after(ui.cleanup);
+  // 大厅桥接：测试环境本来没有 lobby，这里补上"选进程开局"要走的那一个方法
+  ui.bridge.lobby = {
+    prepare: async (input) => {
+      ui.calls.push({ type: 'lobbyPrepare', input });
+      return { ok: true, lobbyOk: true, lobbyId: '109775244400123456', hostSteamId: '76561198000000001', port: input.port, reason: '' };
+    },
+    status: async () => ({ ready: true, attached: true, lobbyId: null, isOwner: false, members: [], port: null, hostInfo: null }),
+    onEvent: () => () => {},
+  };
+  await settle();
+
+  // 真实节点就是「检测到的游戏」卡片上那个按钮（两个 data 属性由 renderLobbyPorts 写入）
+  const cardButton = {
+    getAttribute: (key) => ({ 'data-lobby-port': '25565', 'data-lobby-game': 'Minecraft Java 版' }[key] ?? null),
+  };
+  ui.get('lobbyPortBody').dispatch('click', {
+    target: { closest: (sel) => (sel === '[data-lobby-port]' ? cardButton : null) },
+  });
+  await settle();
+
+  const prepared = ui.calls.find((c) => c.type === 'lobbyPrepare');
+  assert.ok(prepared, '点「开局」按钮应当调到 lobby.prepare');
+  assert.equal(prepared.input.port, 25565);
+
+  const out = ui.get('lobbyPortOut').textContent;
+  assert.ok(!/bold is not defined/.test(out), `不该再出现 bold 未定义：${out}`);
+  assert.match(out, /已就绪：本机服务端口 25565/, '准备成功后要如实显示已就绪（原来会被异常改成"配置出错"）');
+
+  assert.equal(ui.get('gameEntryBanner').hidden, false, '醒目横幅必须显示出来');
+  assert.match(ui.get('gameEntryTitle').textContent, /游戏里还要自己填一次地址/);
+  const body = ui.get('gameEntryBody').innerHTML;
+  assert.match(body, /127\.0\.0\.1:25565/, '横幅要给出可以照抄的地址');
+  assert.match(body, /多人游戏 → 直接连接/, 'Minecraft 要给出游戏里的具体入口');
+  assert.match(body, /不会出现在好友的「多人游戏」列表里/, '要说清为什么 Steam 里找不到服务器');
+  assert.match(ui.get('lobbyLog').innerHTML, /★ 告诉好友|★ 你自己/, '大厅日志里也要有地址行（原来因为异常一行都没有）');
+
+  // 「复制地址」按钮：必须真把横幅里那条地址写进剪贴板
+  ui.get('gameEntryCopy').onclick();
+  assert.equal(ui.clipboard.last, '127.0.0.1:25565', '「复制地址」复制的应该是横幅里那条 127.0.0.1:25565');
+
+  // 「知道了」把横幅收起来
+  ui.get('gameEntryClose').onclick();
+  assert.equal(ui.get('gameEntryBanner').hidden, true);
 });

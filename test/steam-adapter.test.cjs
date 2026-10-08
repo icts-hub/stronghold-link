@@ -430,6 +430,122 @@ test('★ 房主：对端的干道断了 —— 游戏端口那条连接不拆�
   }
 });
 
+test('★ 房主 + 两个加入者：两个人的流号都是从 2 开始重号的 —— 谁也不能抢走、销毁对方寄存中的流（现场"第三人抢占隧道"）', async () => {
+  // 为什么这条必须存在：规格 §十一 只保证"房主用奇数、加入者用偶数"，它**保证不了加入者
+  // 之间不重号**。每个加入者的 nextStreamId 都是各自从 STREAM_ID_CLIENT_START = 2 开始数，
+  // 所以三个人同房时 A 和 B 的流号是完全一样的 2、4、6…。
+  // 房主那边原来用一张只按流号索引的裸表（orphanStreams）寄存断链的流，于是有两条路会让
+  // 第三个人"抢"走前一个人的隧道：
+  //   · B 的 OPEN(2) 把 A 寄存中的流**连它到游戏端口那条连接一起接管过去** ——
+  //     B 的请求打到 A 的会话上、A 的响应送给 B，看起来像游戏串号；
+  //   · 或者 B 寄流时把 A 寄存着的那条**直接 destroy 掉** —— A 的本机连接凭空断掉。
+  // 两条路都只在"干道断过一次"之后才走到，专挑三个人同房时发作，现场极难定位。
+  const net = require('node:net');
+  const gameSockets = new Set();
+  let connSeq = 0;
+  const game = net.createServer((socket) => {
+    const id = ++connSeq;
+    gameSockets.add(socket);
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+    // 每条游戏连接给自己盖一个号，回包带上它：一眼就能看出"这是谁那条连接答的"。
+    socket.on('data', (chunk) => socket.write(Buffer.concat([Buffer.from('#' + id + '|'), chunk])));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const events = [];
+  const host = createSteamHost({
+    gamePort, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  const JOINER_A = '76561198000000002';
+  const JOINER_B = '76561198000000003';
+  const CONN_A = CONN;
+  const CONN_B = CONN + 1;
+  // 取某条干道上回过的那段业务数据（回包形如 `#1|a1`）。
+  const dataOn = (connection, text) => framesFrom(mock, connection, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data && f.payload.toString().endsWith('|' + text))
+    .map((f) => f.payload.toString());
+  try {
+    await host.ready;
+
+    // ── A 先进来：流 2 连到游戏端口，拿到 1 号游戏连接 ──
+    mock.state.emitState({ connection: CONN_A, newState: STATE.Connected, info: { identityRemote: JOINER_A } });
+    mock.state.pushToHost(CONN_A, Buffer.concat([
+      mux.encodeHello(), mux.encodeOpen(2, 1), mux.encodeData(2, 1, Buffer.from('a1')),
+    ]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), 'A 的流 2 应开一条游戏连接');
+    assert.ok(await h.waitFor(() => dataOn(CONN_A, 'a1').length === 1, { timeoutMs: 3000 }), 'A 自己先要能正常收发');
+    assert.equal(dataOn(CONN_A, 'a1')[0], '#1|a1', 'A 的数据要走 1 号游戏连接');
+
+    // ── B 随后进来，也用流号 2：**必须给 B 单开一条**，不能把 A 的接管走 ──
+    mock.state.emitState({ connection: CONN_B, newState: STATE.Connected, info: { identityRemote: JOINER_B } });
+    mock.state.pushToHost(CONN_B, Buffer.concat([
+      mux.encodeHello(), mux.encodeOpen(2, 1), mux.encodeData(2, 1, Buffer.from('b1')),
+    ]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 2, { timeoutMs: 3000 }),
+      '两个加入者的流号撞号，B 的 OPEN(2) 必须**新开**一条游戏连接，而不是接管 A 的');
+    assert.equal(host.stats.streamsMigrated || 0, 0, '两个加入者之间不该发生任何"流的迁移"');
+    assert.equal(host.stats.streamsParked || 0, 0, '没人断链，就不该有寄存');
+    assert.ok(await h.waitFor(() => dataOn(CONN_B, 'b1').length === 1, { timeoutMs: 3000 }), 'B 也要能正常收发');
+    assert.equal(dataOn(CONN_B, 'b1')[0], '#2|b1', 'B 的数据必须走 B 自己那条连接（拿到 A 的回答就是串号）');
+    assert.deepEqual(dataOn(CONN_B, 'a1'), [], 'A 的流量绝不能出现在 B 的干道上');
+
+    // ── A 的干道断了：A 的流 2 寄存，它到游戏端口那条连接不许拆 ──
+    const socketA = [...gameSockets][0];
+    const socketB = [...gameSockets][1];
+    mock.state.emitState({ connection: CONN_A, newState: STATE.ClosedByPeer, info: { identityRemote: JOINER_A, endDebugMessage: 'I/O Operation Failed' } });
+    await h.wait(120);
+    assert.equal(host.stats.streamsParked, 1, 'A 的流应被寄存');
+    assert.equal(socketA.destroyed, false, 'A 寄存中的游戏连接必须还活着');
+
+    // ── B 的干道也断了（它也用流号 2）—— **绝不能顺手把 A 寄存的那条 destroy 掉** ──
+    mock.state.emitState({ connection: CONN_B, newState: STATE.ClosedByPeer, info: { identityRemote: JOINER_B, endDebugMessage: 'I/O Operation Failed' } });
+    await h.wait(120);
+    assert.equal(host.stats.streamsParked, 2, 'B 的流也该被寄存');
+    assert.equal(socketA.destroyed, false, 'B 寄流时绝不能销毁 A 寄存中的那条流 —— 这是"第三人抢占"最阴的一路');
+    assert.equal(socketB.destroyed, false, 'B 自己那条当然也不能被拆');
+
+    // ── B 用同一个流号、世代 +1 回来：认回的必须是 **B 自己那条** ──
+    const CONN_B2 = CONN + 2;
+    mock.state.emitState({ connection: CONN_B2, newState: STATE.Connected, info: { identityRemote: JOINER_B } });
+    mock.state.pushToHost(CONN_B2, Buffer.concat([
+      mux.encodeHello(), mux.encodeOpen(2, 2), mux.encodeData(2, 2, Buffer.from('b2')),
+    ]));
+    assert.ok(await h.waitFor(() => (host.stats.streamsMigrated || 0) === 1, { timeoutMs: 3000 }), 'B 应认回一条寄存流');
+    assert.equal(gameSockets.size, 2, 'B 认回 = 复用游戏连接，不是新开一条');
+    assert.ok(await h.waitFor(() => dataOn(CONN_B2, 'b2').length === 1, { timeoutMs: 3000 }), 'B 认回后要能接着收发');
+    assert.equal(dataOn(CONN_B2, 'b2')[0], '#2|b2', 'B 认回的必须是 2 号连接（认成 1 号就是抢了 A 的会话）');
+
+    // ── A 也回来：它必须拿回 **1 号**，两个人各回各家 ──
+    const CONN_A2 = CONN + 3;
+    mock.state.emitState({ connection: CONN_A2, newState: STATE.Connected, info: { identityRemote: JOINER_A } });
+    mock.state.pushToHost(CONN_A2, Buffer.concat([
+      mux.encodeHello(), mux.encodeOpen(2, 2), mux.encodeData(2, 2, Buffer.from('a2')),
+    ]));
+    assert.ok(await h.waitFor(() => (host.stats.streamsMigrated || 0) === 2, { timeoutMs: 3000 }), 'A 也应认回一条寄存流');
+    assert.equal(gameSockets.size, 2, '两个人都认回之后，游戏端口上仍然只有两条连接');
+    assert.ok(await h.waitFor(() => dataOn(CONN_A2, 'a2').length === 1, { timeoutMs: 3000 }), 'A 认回后也要能接着收发');
+    assert.equal(dataOn(CONN_A2, 'a2')[0], '#1|a2', 'A 必须拿回 1 号连接 —— 拿回 2 号就是两个人的会话对调了');
+    assert.equal(host.stats.streams, 1,
+      'stats.streams 是"每条干道上活着的流数"（不是全局数）：两个人各认回一条，所以是 1');
+    assert.equal(events.filter((e) => e.type === 'stream-added').length, 4,
+      '两条流各被登记了两次（各自认回那次），一共 4 次 stream-added');
+
+    // 全程谁都不该被"隧道关闭"扫地出门。
+    const leftKinds = events.filter((e) => e.type === 'stream-left').map((e) => e.payload?.kind);
+    assert.equal(leftKinds.length, 0, `两位加入者的流都不该被收掉（实际 ${JSON.stringify(leftKinds)}）`);
+  } finally {
+    await host.stop();
+    // `server.close()` 只等"已经建立的连接全都结束"，任何一条漏网都会把测试挂死而不是报错。
+    // 断言半路失败时寄存中的流可能还活着，所以这里显式收掉测试自己造的那些连接。
+    for (const socket of gameSockets) { try { socket.destroy(); } catch { /* ignore */ } }
+    await new Promise((resolve) => game.close(resolve));
+  }
+});
+
 test('房主：超过最大对端数时拒绝，并在断开时清理', async () => {
   const game = await h.startEchoServer();
   const mock = createMockSdk();

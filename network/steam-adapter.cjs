@@ -844,12 +844,30 @@ function createSteamHost(options = {}) {
    * 干道只要几十毫秒到一两秒（见 STREAM_MIGRATE_GRACE_MS）。所以改成：先寄存，
    * 等新干道把 `OPEN(同一个流号, 更高的世代)` 送上来就原地复活，超时才真收掉。
    *
-   * 键就是**流号**：加入者的流号本来就是全局唯一的偶数（规格 §十一），房主侧同一个
-   * 流号同时只可能有一条活着的流。
+   * ★★ 键是**对端身份 + 流号**，不是光一个流号 —— 这一条曾经错过，代价很大。
+   *
+   * 加入者的偶数流号是**每个加入者各自从 2 开始**的（`nextStreamId = STREAM_ID_CLIENT_START`），
+   * 规格 §十一 只保证"房主用奇数、加入者用偶数、两侧不相撞"，它**保证不了加入者之间不重号**。
+   * 三个人同房时，两个加入者的 2、4、6… 是完全重号的。房主这边如果只按流号索引这张表，
+   * 就会出现"第三人抢占隧道"：
+   *   · 后一个加入者的 OPEN(2) 把前一个加入者寄存中的流**连同它到游戏端口的 socket 一起接管过去**
+   *     （`adoptOrphan` 把 `stream.owner` 改成新对端）——B 的请求打到 A 的连接上，A 的响应送给 B；
+   *   · 或者反过来，后一个加入者 park 时把前一个加入者寄存着的那条**直接 destroy 掉**。
+   * 这两条路都只在"干道断过一次"之后才会走到，所以平时完全看不出来，专挑三个人同房时发作。
    *
    * 声明位置在 openStream 之前：openStream 与新干道上的 OPEN 帧都会读它。
+   * 加入者侧（另一份实现）只用得上流号：它对端自始至终只有房主一个，不存在重号。
    */
-  const orphanStreams = new Map();   // streamId -> stream
+  const orphanStreams = new Map();   // 对端身份#流号 -> stream
+
+  /**
+   * 寄存流的键。
+   *
+   * 身份优先用 SteamID —— 它跨重连稳定，同一个加入者的新干道才能把旧流认回来；
+   * 拿不到 SteamID 时退化成这条 Steam 连接的对象串（重连后认不回来，但**绝不会认错人**：
+   * 认不回来只是多开一条到游戏端口的连接，认错人就是把两个人的数据串在一起）。
+   */
+  const orphanKey = (peer, streamId) => String((peer && peer.steamId) || (peer && peer.connection) || '?') + '#' + streamId;
 
   /**
    * 开一条流 = 在游戏端口上开一个本机连接。
@@ -867,13 +885,14 @@ function createSteamHost(options = {}) {
       if ((generation >>> 0) > (existing.generation >>> 0)) existing.generation = generation >>> 0;
       return existing;
     }
-    // 先看寄存区：**同一个流号**在新干道上重新出现，就是规格 §十六 的 reattach。
+    // 先看寄存区：**同一个对端 + 同一个流号**在新干道上重新出现，就是规格 §十六 的 reattach。
     // 这时绝不能新建一条到游戏端口的连接 —— 那会让游戏看到"同一件事被开了两个连接"，
     // 而且原来那条连接上已经发了一半的响应就永远送不出去了。
-    const parked = orphanStreams.get(streamId);
+    // 注意"同一个对端"这一半：只比流号的话，另一个加入者的流 2 会认领走这个人的流 2。
+    const parked = orphanStreams.get(orphanKey(peer, streamId));
     if (parked) {
       if (parked.socket.destroyed) {
-        orphanStreams.delete(streamId);
+        orphanStreams.delete(orphanKey(peer, streamId));
       } else if ((generation >>> 0) >= (parked.generation >>> 0)) {
         return adoptOrphan(peer, parked, generation);
       }
@@ -945,7 +964,9 @@ function createSteamHost(options = {}) {
       const owner = stream.owner;
       const ageMs = Date.now() - stream.bornAt;
       // 已经寄存起来的流：socket 是自己收掉的，账在清扫器那边结。
-      if (!owner) { orphanStreams.delete(streamId); return; }
+      // 删键必须用它**寄存时的那个键**，不能拿"创建它的对端"现算 —— 寄存中的流
+      // 不一定归属于创建者（虽然改双键之后已经不可能被别人接管，但这个键始终是权威来源）。
+      if (!owner) { orphanStreams.delete(stream.orphanKey || orphanKey(peer, streamId)); return; }
       owner.streams.delete(streamId);
       stats.streams = owner.streams.size;
       // 游戏侧正常收尾时也要把 CLOSE 送出去 —— 但**不能**在干道已经废掉时硬发。
@@ -965,7 +986,8 @@ function createSteamHost(options = {}) {
 
   /** 把一条寄存中的流重新挂到新干道上，并补发它在断开期间收到的字节。 */
   const adoptOrphan = (peer, stream, generation) => {
-    orphanStreams.delete(stream.id);
+    orphanStreams.delete(stream.orphanKey || orphanKey(peer, stream.id));
+    stream.orphanKey = '';
     stream.owner = peer;
     stream.generation = generation >>> 0;
     stream.parkedAt = 0;
@@ -1001,10 +1023,14 @@ function createSteamHost(options = {}) {
       if (stream.socket.destroyed) continue;
       stream.owner = null;
       stream.parkedAt = now;
-      const prev = orphanStreams.get(stream.id);
-      // 同一个流号又寄进来一份：旧的那份不可能还活着，直接收掉，别让两份抢一个流号。
+      // ★ 键里必须带对端身份：两个加入者的流号是各自从 2 开始重号的，
+      // 只按流号取/放会让第三个人把前一个人的流（连它的 socket）抢走或销毁。
+      const key = orphanKey(peer, stream.id);
+      const prev = orphanStreams.get(key);
+      // 同一个对端、同一个流号又寄进来一份：旧的那份不可能还活着，直接收掉。
       if (prev && prev !== stream) { try { prev.socket.destroy(); } catch { /* ignore */ } }
-      orphanStreams.set(stream.id, stream);
+      stream.orphanKey = key;
+      orphanStreams.set(key, stream);
       parked += 1;
     }
     stats.streams = peer.streams.size;
@@ -1017,16 +1043,16 @@ function createSteamHost(options = {}) {
   const sweepOrphans = (now = Date.now()) => {
     if (!orphanStreams.size) return 0;
     let gone = 0;
-    for (const [id, stream] of [...orphanStreams]) {
-      if (stream.socket.destroyed) { orphanStreams.delete(id); continue; }
+    for (const [key, stream] of [...orphanStreams]) {
+      if (stream.socket.destroyed) { orphanStreams.delete(key); continue; }
       if (now - stream.parkedAt < STREAM_MIGRATE_GRACE_MS) continue;
-      orphanStreams.delete(id);
+      orphanStreams.delete(key);
       gone += 1;
       stats.streamsMigrateExpired = (stats.streamsMigrateExpired || 0) + 1;
       try { stream.socket.destroy(); } catch { /* ignore */ }
       emit('stream-left', {
         peer: '（无干道）',
-        stream: id,
+        stream: stream.id,
         kind: 'TunnelClosed',
         reason: `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`,
         ageMs: now - stream.bornAt,
@@ -1553,7 +1579,9 @@ function createSteamJoiner(options = {}) {
    * 几十毫秒到一两秒（见 STREAM_MIGRATE_GRACE_MS）。所以先寄存，等新干道谈妥之后
    * 用**同一个流号、更高的世代**重新 OPEN 一次，两边原地复活。
    *
-   * 键就是流号：加入者的流号是全局唯一的偶数（规格 §十一），同一时刻只可能有一条活的。
+   * 键就是流号：加入者**这一侧**同一时刻只可能有一条活的流用这个号 —— 它对端自始至终
+   * 只有房主一个，不存在"两个对端重号"这回事（重号只可能发生在房主那边，见房主侧
+   * orphanStreams 的注释），所以这里用扁平表是安全的。
    */
   const orphanStreams = new Map();   // streamId -> stream
 
@@ -1651,7 +1679,7 @@ function createSteamJoiner(options = {}) {
     if (!peer || peer.dropped) return;
     peer.dropped = true;
     // 干道死了，但上面那些本机连接（浏览器/游戏）很可能还活着 —— 规格 §十六：传输层
-    // 断开不等于会话结束。先把流寄存在 orphanStreams 里等新干道来接（8 秒宽限），
+    // 断开不等于会话结束。先把流寄存在 orphanStreams 里等新干道来接（STREAM_MIGRATE_GRACE_MS 宽限），
     // 而不是反手把它们 destroy 掉。唯一的例外是协议错乱（parkStreams=false）：那种
     // 情况把字节原样搬到新干道上只会接着错，必须真收掉。
     if (peer.framed !== false && peer.streams && peer.streams.size) {
