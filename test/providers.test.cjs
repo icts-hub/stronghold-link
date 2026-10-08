@@ -254,3 +254,57 @@ test('Steam Provider 必须把预热连接池的四个计数带出去（不然�
   assert.equal(stats.protocol, 'STEAM');
   assert.equal(stats.role, 'joiner');
 });
+
+test('Provider 必须把内核的 netState() 转发出去（不然界面永远读不到网络状态）', async () => {
+  // 与上一条同一类坑，而且这次是真踩到的：`steam-adapter.cjs` 的 return 对象确实带了
+  // `netState()`，但 `session.cjs:505` 只认 `provider.netState` —— 中间隔着一层
+  // kernel-provider，不转发就一路 null 到底。症状是界面与日志永远显示"网络状态读不出来"，
+  // 而底下其实一直在算。真机上是用 tools/steam-mux-load-probe.cjs 量出来的：
+  // 修之前 routeReport.netState === null，修之后读到 P2P_CONNECTED / 1 条连接 / 25 条流。
+  const { createKernelProvider } = require('../network/providers/kernel-provider.cjs');
+
+  const kernel = {
+    ready: Promise.resolve({}),
+    stats: {},
+    stop: async () => {},
+    netState: () => ({ state: 'P2P_CONNECTED', activeSteamConnections: 1, activeStreams: 7 }),
+  };
+  const provider = createKernelProvider({
+    id: 'steam-p2p-joiner',
+    name: 'Steam P2P（加入者）',
+    capabilities: { transports: ['TCP'] },
+    createKernel: () => kernel,
+  });
+  await provider.start({});
+  const ns = provider.netState();
+  assert.ok(ns, '内核有 netState() 时 Provider 必须转发，不能返回 null');
+  assert.equal(ns.state, 'P2P_CONNECTED');
+  assert.equal(ns.activeStreams, 7);
+
+  // 内核没有 netState()（老适配器 / 内核 Provider）时如实报 null，不伪造
+  const bare = createKernelProvider({
+    id: 'local-1',
+    name: '本机通道',
+    capabilities: { transports: ['TCP'] },
+    createKernel: () => ({ ready: Promise.resolve({}), stats: {}, stop: async () => {} }),
+  });
+  await bare.start({});
+  assert.equal(bare.netState(), null, '读不到就说读不到，不能编一个状态出来');
+
+  // 内核抛错时要变成可读原因，不许把异常甩到调用方（界面是定时来取的）
+  const angry = createKernelProvider({
+    id: 'steam-p2p-host',
+    name: 'Steam P2P（房主）',
+    capabilities: { transports: ['TCP'] },
+    createKernel: () => ({
+      ready: Promise.resolve({}),
+      stats: {},
+      stop: async () => {},
+      netState: () => { throw new Error('内核炸了'); },
+    }),
+  });
+  await angry.start({});
+  const bad = angry.netState();
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /内核炸了/);
+});

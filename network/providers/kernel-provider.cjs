@@ -136,6 +136,29 @@ function createKernelProvider({
     return { ok: false, provider: id, reason: 'PROVIDER_HAS_NO_ROUTE', route: 'UNKNOWN', routeLabel: 'UNKNOWN', rawSocket: raw, peers: [] };
   };
 
+  /**
+   * 网络健康快照（0.14.0）。**必须由 Provider 转发内核那一个** ——
+   * `session.cjs:505` 只认 `provider.netState`，没这一项就一路 null 到底。
+   *
+   * 这一步以前漏掉了，症状和"预热池的四个计数在适配器里涨得好好的、到外面被整整齐齐
+   * 丢掉"是同一个：内核（steam-adapter 的 return 对象）确实带了 `netState()`，
+   * 但 session 拿到的是 Provider，于是界面与日志永远显示"网络状态读不出来"，
+   * 而底下其实一直在算。
+   *
+   * 内核没有就如实报 null（老适配器 / 内核 Provider），不伪造。
+   */
+  const baseNetState = provider.netState;
+  provider.netState = () => {
+    if (kernel && typeof kernel.netState === 'function') {
+      try {
+        return kernel.netState();
+      } catch (err) {
+        return { ok: false, reason: `网络状态读取失败：${err.message}` };
+      }
+    }
+    return typeof baseNetState === 'function' ? baseNetState.call(provider) : null;
+  };
+
   provider.ready = Promise.resolve({});
 
   return provider;
