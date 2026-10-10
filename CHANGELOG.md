@@ -1,5 +1,63 @@
 # 更新日志
 
+## v0.14.3
+
+修：**"地图一动人就飘" —— 出站队列按到达顺序发，一张 900KB 的地图区块能把一个 64 字节的移动包挡住 1.5 秒**
+
+### 现场是什么样
+
+两边都在动的时候，只要地图在加载（或者任何一条大响应的流在跑），另一边的移动就开始飘、延迟成秒级；链路越快越不明显。
+
+### 真因
+
+**发送口只有一条 FIFO，而且不分流。** `network/steam-adapter.cjs` 把地图区块、玩家移动、OPEN/CLOSE、会话帧**全部**塞进同一个 `peer.out` 数组先到先发（`queueOut()` 还每调一次就把整个数组求和一遍），`flushPeerOut()` 再把整队 `Buffer.concat` 成一条 payload 交给 Steam。于是一条 64 字节的移动包只要排在 900KB 的地图区块后面，就得等这 900KB 全部进发送缓冲。
+
+### 现在怎么修
+
+| # | 位置 | 改动 |
+|---|------|------|
+| 1 | `network/egress-queue.cjs`（新增） | 出站队列改成**每流一条 FIFO + 流间轮转**：干道队列（魔数、会话帧）整段最前，然后每条流每个回合最多 `quantum`（默认 4096）字节；**流内严格 FIFO**（同一条流的帧永远同一条队列，OPEN→DATA→CLOSE 不可能乱序）；只在**确认进了 Steam 缓冲之后**出队，且只出**被确认的前缀** |
+| 2 | `network/steam-adapter.cjs` | `queueOut()` 接上新队列（删掉每次调用的 O(n) 求和）；`flushPeerOut()` 改成 `planOut → concat → sendChunk → commit 前缀`；`peerOutBytes()` 与所有"队列空了吗"的判断改用现算的 `egress.total()`；重连补发走 `egress.prepend()` |
+| 3 | `network/steam-adapter.cjs` | `frameOutKey()` 直接从帧头第 5 字节读流号（二十多个 `pushFrames` 调用点一个都没改），魔数/会话帧/异常长度进干道队列 |
+| 4 | `network/link-tuning.cjs` | 新增 `SHL_STEAM_FAIR_QUEUE`（默认开；**设 0 就是 0.14.2 的老调度**，现场回滚用）与 `SHL_STEAM_FAIR_QUANTUM`（默认 4096，范围 512~65536） |
+| 5 | `network/net-latency-diag.cjs` | 诊断帧新增 `egressQueues`：每条流排了多少字节、最老那批等了多久 |
+| 6 | `tools/steam-latency-probe.cjs`（新增） | 同一台机器自起房主 + 加入者（真实 Steam P2P + SDR）的真机探针；`--bulk-connections/--bulk-payload/--bulk-interval` 用来灌出"地图加载"那种负载 |
+| 7 | `tools/steam-egress-sim.cjs`（新增） | **限速模型**：把"朋友家上行"按速率建模（512KB/s ~ 5MB/s），排队/取队用真实的 `egress-queue.cjs`、字节按真实的 13 字节帧头算 |
+| 8 | `test/egress-queue.test.cjs`（新增） | 18 条：流内 FIFO / 轮转公平 / 量子粒度 / 前缀跨队列出队 / 计数现算 / 拥塞链路回归（见下） |
+| 9 | `test/steam-adapter.test.cjs` | 新增 2 条端到端公平性用例（大响应不许独占队列；只确认了前缀时按计划逐队列出队）+ 1 条"正常停会话不许报 BadFraming" |
+| 10 | `test/link-tuning.test.cjs` | 新增公平调度开关用例与 `fairQuantum` 边界 |
+
+### 真机量不出来，是模型量出来的（这条必须写清楚）
+
+- 本机环回（同一台机器自己连自己、走 Steam SDR）干道吞吐 **421MB/s**，`bytesBuffered / queueMs / pendingReliable` 全是 0，我们自己的出站队列在**每一个 1Hz 采样点都是 0 字节** ⇒ 公平调度在真机上**没有可调度对象**。公平开/关各 3 轮的真机 A/B 也**无法区分**（p50 都是 10~15ms，差异全落在噪声带内）。
+- 想给真机限速复现朋友家上行，**这个绑定做不到**：`steamworks-ffi-node` 只有只读的 `m_nSendRateBytesPerSecond` 与枚举 `SendRateMin/SendRateMax`，**没有 `SetConfigValue`**（按 Stream 分 lane 的那几个 API 同样不存在）。
+- 于是写了限速模型，**它第一次跑就抓出一个真缺陷**：`planOut()` 每次 flush 都从第一条流重新开始轮转，而一次 flush 被 Steam 接受的字节数经常**小于一个 quantum**（512KB/s ÷ 4ms = 2048B < 4096B）⇒ 第一条流永远排在计划最前面，后面的流（移动包所在流）**无限期饿死**，等待是 **p95 1556ms / max 1736ms**。修法：轮转起点**跨 flush 记住**（`peer.outCursorKey`），下一次从下一条流开始 ⇒ 同一场景 p50/p95/max 全部 **0ms**。回归用例是 `test/egress-queue.test.cjs` 里那条"一次 flush 吃不满一个 quantum 时，后面的流不许被饿死"。
+
+### 模型数字（900KB 大响应 + 64B 移动包每 20ms，回调节拍 4ms）
+
+| 限速 | 老（0.14.2）小包 p95 / max | 公平调度小包 p95 / max |
+|------|------|------|
+| 512KB/s | **1556ms / 1736ms** | 0ms / 0ms |
+| 1024KB/s | 676ms / 856ms | 0ms / 0ms |
+| 2048KB/s | 236ms / 416ms | 0ms / 0ms |
+| 5120KB/s | 0ms / 152ms | 0ms / 0ms |
+
+### 风险与未验证
+
+- **真机侧的收益未验证**：只能在限速模型里量出来；跨机（真实两条上行）对照还没做，需要朋友那台机器的日志与一次联机对照。
+- 模型的保真度有限：Steam/SDR 拥塞控制、丢包重传、事件循环开销都**没有**建模。
+- 事件循环在 Windows 上有约 **15.6ms** 的地板（实测 `setInterval(4)` 实际 14.3ms、`setInterval(16)` 实际 25.0ms）：空闲时 `mean` 就有 10~16ms，低于地板的读数不能用来区分"空闲"与"轻微延迟"。诊断输出会明说这一点。
+- 顺带修掉四个"量错"（不修读数就是假的）：`resolutionMs` 恒为 null（Node 24 上 `IntervalHistogram.resolution` 是 `undefined`）、空队列被写成 `最老=UNAVAILABLE`、加入者 `serve` 永远是 0（埋点埋在了 `mux:false` 才走的老路径上）、正常停会话被写成 `BadFraming / 数据流格式不对`。
+- 完整报告见 `docs/0.14.3-网络延迟专项.md`。
+
+### 测试
+
+全量 `npm test`：**766 tests / 765 通过 / 0 失败 / 1 跳过**。新增用例：`test/egress-queue.test.cjs` 18 条、`test/steam-adapter.test.cjs` 3 条、`test/link-tuning.test.cjs` 1 条、`test/net-latency-diag.test.cjs` 10 条。
+
+### 升级顺序
+
+**房主和朋友都要升到 0.14.3**：公平调度在发送侧（房主与加入者都改了），只有两边都是新版才谈得上"两个方向都不飘"。
+
 ## v0.14.2
 
 修：**三个人同房时两条流会串线；还有一句最关键的地址提示从来没显示出来**（0.14.0 / 0.14.1 现场）

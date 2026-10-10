@@ -12,6 +12,8 @@ test('不给任何输入时用的是默认值，且没有改写记录', () => {
   const out = T.resolveLinkTuning();
   assert.equal(out.maxChunk, 4 * 1024);
   assert.equal(out.outFlushBytes, 16 * 1024);
+  assert.equal(out.fairQuantum, 4 * 1024, '公平调度的流间粒度默认与分片同量级');
+  assert.equal(out.fairQueue, true, '公平调度默认开');
   assert.equal(out.callbackIntervalMs, 4);
   assert.equal(out.maxMessageBatch, 128);
   assert.equal(out.noNagle, true);
@@ -46,6 +48,21 @@ test('越界的整数夹到边界，不静默接受任意值', () => {
   assert.equal(T.resolveLinkTuning({ callbackIntervalMs: 100000 }).callbackIntervalMs, 200);
   assert.equal(T.resolveLinkTuning({ outFlushBytes: 1 }).outFlushBytes, 1024);
   assert.equal(T.resolveLinkTuning({ maxMessageBatch: 0 }).maxMessageBatch, 1);
+  assert.equal(T.resolveLinkTuning({ fairQuantum: 1 }).fairQuantum, 512);
+  assert.equal(T.resolveLinkTuning({ fairQuantum: 9999999 }).fairQuantum, 65536);
+  assert.equal(T.resolveLinkTuning({}, { SHL_STEAM_FAIR_QUANTUM: '2048' }).fairQuantum, 2048);
+});
+
+test('公平调度开关：默认开，SHL_STEAM_FAIR_QUEUE=0 退回 0.14.2 的老调度（真机 A/B 就靠这一个布尔值）', () => {
+  assert.equal(T.resolveLinkTuning().fairQueue, true);
+  const off = T.resolveLinkTuning({}, { SHL_STEAM_FAIR_QUEUE: '0' });
+  assert.equal(off.fairQueue, false);
+  assert.deepEqual(off.changed, ['fairQueue']);
+  assert.equal(T.resolveLinkTuning({}, { SHL_STEAM_FAIR_QUEUE: 'off' }).fairQueue, false);
+  assert.equal(T.resolveLinkTuning({ fairQueue: false }).fairQueue, false, '显式 overrides 也能关');
+  const junk = T.resolveLinkTuning({}, { SHL_STEAM_FAIR_QUEUE: '随便写' });
+  assert.equal(junk.fairQueue, true, '非法值退回默认');
+  assert.equal(junk.notes.length, 1, '并且留一条 notes，不静默');
 });
 
 test('无法识别的取值退回默认并留下 notes，不静默改行为', () => {

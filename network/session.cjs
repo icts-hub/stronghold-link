@@ -392,11 +392,14 @@ function steamSecurityProfile() {
 }
 
 class SessionManager {
-  constructor({ onEvent = null, appDir = null, steamSdk = null, steamModule = null } = {}) {
+  constructor({ onEvent = null, appDir = null, steamSdk = null, steamModule = null, logDir = null } = {}) {
     this.onEvent = typeof onEvent === 'function' ? onEvent : null;
     // 多通道选路开关（默认关闭，见 docs/多通道选路设计.md）；这里只保存策略，不改通道行为
     this.routePolicy = normalizeRoutePolicy(null);
     this.appDir = appDir || require('node:path').resolve(__dirname, '..');
+    // 每秒延迟诊断的落盘目录（electron 传 app.getPath('userData')）；
+    // 没给就不落盘、只在内存留最后一帧 —— 测试与探针因此不会往仓库丢文件。
+    this.logDir = logDir || null;
     // 仅供测试注入假 SDK；生产路径由 steam-adapter 自己初始化真实 SDK
     this.steamSdk = steamSdk;
     this.steamModule = steamModule;
@@ -895,6 +898,7 @@ class SessionManager {
           gamePort,
           maxPeers: base.maxConnections,
           netConfig,
+          logDir: this.logDir,
         },
       });
       channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));
@@ -947,6 +951,7 @@ class SessionManager {
         localPort,
         hostSteamId,
         netConfig,
+        logDir: this.logDir,
       },
     });
     channel.provider.onEvent((ev) => this._handleRelayEvent(ev.type, ev.payload || ev, channel));

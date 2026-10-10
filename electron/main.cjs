@@ -40,7 +40,7 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.14.2';
+const APP_VERSION = '0.14.3';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
@@ -327,8 +327,11 @@ function applySettingToSession(saved) {
 
 const PEER_STATS_LOG_MS = 2000;
 const TUNNEL_ERROR_LOG_MS = 5000;
+// 每秒延迟诊断只按这个周期挑一行写 startup.log（样本全量在 net-latency-*.jsonl）。
+const NET_LATENCY_LOG_MS = 30000;
 let lastPeerStatsLogAt = 0;
 let lastTunnelErrorLogAt = 0;
+let lastNetLatencyLogAt = 0;
 let lastTunnelErrorKey = '';
 
 function compact(value, limit = 200) {
@@ -492,6 +495,19 @@ function logTunnelEvent(event) {
     return;
   }
 
+  if (type === 'net-latency') {
+    // 每秒延迟诊断（延迟专项 Phase 1）。样本本身 1Hz 落进 net-latency-*.jsonl，
+    // **不能**按 1Hz 写 startup.log（LOG_LIMIT 只有 256KB，几分钟就把现场证据挤没），
+    // 所以这里只按 NET_LATENCY_LOG_MS 挑一条代表行进日志；其余的在 JSONL 里。
+    const line = typeof payload.line === 'string' ? payload.line : '';
+    if (!line) return;
+    const now = Date.now();
+    if (now - lastNetLatencyLogAt < NET_LATENCY_LOG_MS) return;
+    lastNetLatencyLogAt = now;
+    logLine(`${tag}${line}`);
+    return;
+  }
+
   if (type === 'error') {
     const err = payload.error || {};
     const key = `${payload.stage || ''}|${err.code || ''}`;
@@ -597,6 +613,9 @@ function logNetConfigSoon(tries = 0) {
 
 const session = new SessionManager({
   appDir: APP_DIR,
+  // 每秒延迟诊断（net-latency-*.jsonl）落在这里。**绝不能写进 startup.log**：
+  // 那个文件上限 256KB（LOG_LIMIT），1Hz 的样本几分钟就把现场证据挤没了。
+  logDir: app.getPath('userData'),
   onEvent: (event) => {
     if (event && event.type === 'tunnel') {
       logTunnelEvent(event);

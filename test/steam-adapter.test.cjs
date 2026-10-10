@@ -1320,6 +1320,47 @@ test('★ 加入者：干道断了不等于这半局作废 —— 本机连接�
   }
 });
 
+test('★ 加入者正常停止会话时，流要以 SessionStopped 收场 —— 不许报 BadFraming', async () => {
+  // 真机第一次跑延迟探针时，收尾日志里出现 `kind: "BadFraming" / reason: "数据流格式不对"`，
+  // 看着像"隧道坏了"，其实只是会话正常停止走了带默认 kind 的那条收摊分支。
+  // 现场是用户会自己去翻 startup.log 的，这种误导性文案必须修掉并锁住。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const events = [];
+  // 必须用 createSteamJoiner（mux 默认开）：`joinJoiner` 会强制 mux:false 走老路径，
+  // 那条路上根本没有干道、也就没有"流"可以收摊，这条用例会什么也测不到。
+  const joiner = createSteamJoiner({
+    localPort,
+    hostSteamId: HOST_STEAM_ID,
+    sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  let client;
+  try {
+    await joiner.ready;
+    // 先把干道谈妥（恒例见 answerHello：加入者先发魔数、房主应答），再把本机客户端接进来。
+    // 顺序反过来的话加入者的首包就不是魔数了（本机连接会先把 OPEN/DATA 排进队列）。
+    await answerHello(mock, joiner);
+    client = await h.connect(localPort);
+    assert.ok(await h.waitFor(() => events.some((e) => e.type === 'client-added'), { timeoutMs: 3000 }),
+      '干道定帧之后，排队等着的本机连接应当被挂成一条流');
+    assert.ok(joiner.stats.streams >= 1, '停止之前必须真的有一条流，否则这条用例什么也证明不了');
+
+    await joiner.stop();
+    client = null; // stop() 已经把它收掉了
+
+    const kinds = events.filter((e) => e.type === 'stream-left').map((e) => e.payload && e.payload.kind);
+    assert.ok(kinds.length >= 1, '停止时应当报出流结束，好让日志知道这条本机连接为什么断了');
+    assert.ok(kinds.includes('SessionStopped'), `正常停止要以 SessionStopped 收场（实际 ${JSON.stringify(kinds)}）`);
+    assert.ok(!kinds.includes('BadFraming'), `正常停止绝不许报 BadFraming —— 那是协议错乱用的词（实际 ${JSON.stringify(kinds)}）`);
+    const reason = events.find((e) => e.type === 'stream-left').payload.reason;
+    assert.match(reason, /正常停止/, `理由要让用户看得懂（实际 ${JSON.stringify(reason)}）`);
+  } finally {
+    if (client) client.destroy();
+    await joiner.stop();
+  }
+});
+
 test('加入者：对端"发完最后一个响应就关连接"时，那段响应也必须送到本机客户端（现场"地图加载不出来"的来源）', async () => {
   // 房主的游戏服务是"回完响应立刻关本地连接"的写法（HTTP/1.0 / Connection: close），
   // 房主随即收掉 Steam 连接，于是"连接关闭"的通知和最后一段数据几乎同时到加入者这边。
@@ -1417,6 +1458,7 @@ const {
   PEER_OUT_HIGH_WATER, PEER_OUT_MAX_WATER,
 } = require('../network/steam-adapter.cjs');
 const F = require('../network/steam-framing.cjs');
+const egress = require('../network/egress-queue.cjs');
 
 function fakeSockets({ withSendMessage = true } = {}) {
   const calls = [];
@@ -1599,6 +1641,68 @@ test('dropFromOut：按字节跨块丢弃，最后一块可以只丢一部分', 
   assert.deepEqual(peer.out.map((b) => b.toString()), ['efg', 'hi']);
   dropFromOut(peer, 999);
   assert.equal(peerOutBytes(peer), 0, '丢的比剩的多也不许越界');
+});
+
+// ---------------------------------------------------------------------------
+// 0.14.3 延迟专项 Phase 2：出站队列按流分开 + 流间轮转（公平调度）。
+//
+// 现场症状是"地图一动，人就飘"：加载区块那条流的一个几 MB 响应排在出站队列里，
+// 玩家移动的小包只能排在它后面 —— 于是操作响应被自己的大响应对头堵住。
+// 下面两条用例把这个差别钉在**行为**上：不是"实现了轮转"，而是"小包真的先出门"。
+// ---------------------------------------------------------------------------
+
+test('★ 公平调度：一条流的大响应不许独占出站队列，另一条流的小包必须紧跟着出门', () => {
+  const bigBytes = 900 * 1024;
+  const small = mux.encodeData(3, 4, Buffer.from('MOVE!'));
+
+  // keyOf 是唯一变量：活路径从帧头取流号（steam-adapter.cjs 的 frameOutKey），
+  // 对照组则把所有帧都塞进同一条干道队列 —— 那正是 0.14.2 的行为。
+  const run = (keyOf) => {
+    const peer = { connection: 9, out: [] };
+    let bigTotal = 0;
+    const bigFrames = mux.encodeDataChunks(2, 3, Buffer.alloc(bigBytes, 0x41));
+    for (const frame of bigFrames) { bigTotal += frame.length; queueOut(peer, frame, 16 * 1024, keyOf(frame)); }
+    queueOut(peer, small, 16 * 1024, keyOf(small));
+
+    const payloads = [];
+    const capture = (steam, conn, payload) => {
+      payloads.push(Buffer.from(payload));
+      return { success: true, bytes: payload.length, chunks: 1 };
+    };
+    const written = flushPeerOut({}, peer, capture, { maxChunk: 4096, fairQuantum: 4096 });
+    const wire = Buffer.concat(payloads);
+    return { at: wire.indexOf(small), written, wire, peer, expect: bigTotal + small.length };
+  };
+
+  const fair = run((frame) => { const id = frame.readUInt32BE(5); return id === 0 ? null : id; });
+  const flat = run(() => null);
+
+  assert.equal(fair.written, fair.expect, '两条流的数据都要发出去，一个字节都不能少');
+  assert.equal(fair.wire.length, flat.wire.length, '调度只改顺序，不改总量');
+  assert.equal(fair.at, 4096, '流 2 先走一个 quantum（4096 字节），流 3 的小包紧接着就出门');
+  assert.equal(flat.at, fair.expect - small.length, '对照组：小包排在整段 900KB 后面（这就是"地图一动人就飘"）');
+  assert.ok(flat.at > 100 * fair.at, `公平调度必须把等待从 ${flat.at} 字节降到 ${fair.at} 字节`);
+  assert.equal(peerOutBytes(fair.peer), 0, '整块确认之后队列必须干净');
+});
+
+test('★ 公平调度：只确认了前缀时按计划逐队列出队，不许动别的流的字节', () => {
+  const peer = { connection: 9, out: [] };
+  const big = Buffer.alloc(2000, 0x41);
+  const small = mux.encodeData(3, 1, Buffer.from('MOVE!'));
+  queueOut(peer, big, 16 * 1024, 2);
+  queueOut(peer, small, 16 * 1024, 3);
+
+  let seen = null;
+  // Steam 只收下了流 2 的那 2000 字节，然后报失败（发送缓冲满）。
+  const capture = (steam, conn, payload) => { seen = Buffer.from(payload); return { success: false, bytes: 2000 }; };
+  assert.equal(flushPeerOut({}, peer, capture, { maxChunk: 4096, fairQuantum: 4096 }), -1);
+  assert.equal(seen.length, 2000 + small.length, '一次 flush 仍然把两条流合起来发（合并发送没变）');
+  assert.equal(peerOutBytes(peer), small.length, '确认多少扣多少，剩下的必须一个字节都不少');
+  assert.deepEqual(
+    egress.queueRows(peer, Date.now()).map((r) => r.key),
+    ['3'],
+    '剩下的必须正好是另一条流的帧 —— 出队不许错队列',
+  );
 });
 
 test('applyBackpressure：积压到高水位暂停读本地 socket，到硬上限主动断开', () => {

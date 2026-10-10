@@ -29,6 +29,15 @@ const { createNetworkHealthMonitor } = require('./network-health.cjs');
 const { createMuxScheduler } = require('./mux-scheduler.cjs');
 const { STATE: CONN_STATE } = require('./steam-connection.cjs');
 const { SESSION_STATE } = require('./mux-session.cjs');
+// 延迟专项（0.14.3）：每秒一条的活链路样本。**只读**，不参与任何收发决策；
+// 没有 logDir 时它只在内存里留最后一帧，不会往磁盘写东西（测试与探针因此不受影响）。
+const { createNetLatencyDiag } = require('./net-latency-diag.cjs');
+// 延迟专项 Phase 2：出站队列按流分开 + 轮转公平调度（见 egress-queue.cjs 的文件头）。
+// 只换"怎么排队/怎么取队"，出队时机（确认进 Steam 缓冲之后）与背压判据一个字都没改。
+const egress = require('./egress-queue.cjs');
+const { performance: nodePerformance } = require('node:perf_hooks');
+/** 单调毫秒。诊断计时用它而不是 Date.now()：后者会被系统时钟校正拉动，量出负数。 */
+const hrNow = () => nodePerformance.now();
 
 // 链路参数改由 network/link-tuning.cjs 统一解析，允许环境变量覆盖，方便在用户机器上直接实测。
 // 这里的常量只作为"没传 tuning 时"的兜底，取值与 link-tuning 的默认值一致。
@@ -267,16 +276,52 @@ function startCallbackLoop({ steam, pump, onFatal, label = '', onNotice = null, 
  * 为什么需要：Minecraft 这类游戏会发**大量小包**，逐包调用 sendMessage 时，
  * 每条 Steam 消息的协议开销占绝对主导 —— 实测这类流量只有 ~30KB/s，
  * 而 HTTP 这类大块传输能到 ~1MB/s（协议开销被摊薄）。
- * 做法：把本 tick 内读到的小包先攒在 peer.out，攒够 OUT_FLUSH_BYTES 立即发，
+ * 做法：把本 tick 内读到的小包先攒在队列里，攒够 outFlushBytes 立即发，
  * 否则由 pump 在每个 tick 末尾合并成一条较大的消息发出。延迟代价 ≤ 一个 tick
  * （名义 4ms，Windows 上真实约 14ms；有流量时主轮询后会补几次 setImmediate，实际更短）。
+ *
+ * 0.14.3（延迟专项 Phase 2）：队列**按流分开**（`key` = 流号；null = 干道级帧）。
+ * 一条流一个 FIFO（流内字节顺序绝对不变），流与流之间由 flushPeerOut 轮转取队 ——
+ * 于是"地图区块那几 MB 的响应"不会再挡在"玩家移动那 20 字节"前面。详见 egress-queue.cjs。
+ *
+ * @param {number|string|null} key 流号；null/'' = 干道队列（HELLO/PING/PONG/旧版透传）
  */
-function queueOut(peer, chunk, flushBytes = OUT_FLUSH_BYTES) {
-  if (!peer.out) peer.out = [];
-  peer.out.push(Buffer.from(chunk));
-  let total = 0;
-  for (const b of peer.out) total += b.length;
-  return total >= flushBytes;
+function queueOut(peer, chunk, flushBytes = OUT_FLUSH_BYTES, key = null) {
+  // 入队时刻的打点（peer.outAt）在 egress.enqueue 里做：只在"这条队列本来是空的"这一刻记，
+  // 算出来的才是"这批积压等了多久"，而不是"最后一帧进来多久了"（后者在小包洪水里永远是 0）。
+  return egress.enqueue(peer, chunk, key) >= flushBytes;
+}
+
+/**
+ * 一帧该进哪条出站队列：**按帧头里的流号**（egress-queue.cjs 的 per-stream FIFO）。
+ *
+ * 为什么不靠调用点传：pushFrames 有二十多个调用点，漏传一个，那条流的帧就会落到干道队列里
+ * —— 顺序仍然是安全的（干道队列整段在前），但公平调度对它失效，而且这种漏传没有任何报错。
+ * 帧头是定稿格式（stream-mux.cjs：`| len:4 | type:1 | streamId:4 | generation:4 | payload |`），
+ * 解析一次成本是两次 readUInt，永远不会漏。
+ *
+ * 返回 null 的三种情况都进干道队列（整段排在所有流之前）：
+ *   · 开场魔数 —— 裸包，不是帧，字节 4/5 不是 type/streamId；
+ *   · 流号 0 的会话帧（PING/PONG）；
+ *   · 长度不足 9 字节的异常输入。
+ */
+function frameOutKey(frame) {
+  if (!Buffer.isBuffer(frame) || frame.length < 9) return null;
+  if (mux.isHello(frame)) return null;
+  const streamId = frame.readUInt32BE(5);
+  return streamId === 0 ? null : streamId;
+}
+
+/**
+ * 送进 queueOut 的最终 key：把"要不要按流分开"这个开关合进来。
+ *
+ * `SHL_STEAM_FAIR_QUEUE=0` 时一律返回 null ⇒ 所有帧进同一条干道队列、先到先发，
+ * 也就是 0.14.2 的老行为。真机 A/B 对照（Phase 3）就靠翻这一个布尔值，
+ * 代码不用改、也不用回退版本。
+ */
+function fairKey(frame, tuning) {
+  if (tuning && tuning.fairQueue === false) return null;
+  return frameOutKey(frame);
 }
 /** 积压到这个量就先停止从本地 socket 读，等泵把 Steam 缓冲排空。 */
 const PEER_OUT_HIGH_WATER = 1 * 1024 * 1024;
@@ -448,20 +493,20 @@ const ORPHAN_SWEEP_MS = 500;
 const STREAM_PARK_MAX_BYTES = 512 * 1024;
 
 /**
- * 从队列头部丢掉已经确认进了 Steam 发送缓冲的 n 个字节。
+ * 从**干道队列**头部丢掉已经确认进了 Steam 发送缓冲的 n 个字节。
  *
  * 为什么不能整块重发：sendChunk 会按 maxChunk 把一块切成多条 Steam 消息，
  * 中途某一片失败时**前面的片已经进了可靠队列**。整块重发会把它们发第二遍，
  * 对端收到的字节流就多了一段 —— 那比丢数据更糟，TCP 层再也对不齐。
  * 所以只丢确认发出的前缀，剩下的留在队列里等下一次重试。
+ *
+ * 0.14.3：多路复用路径改用"计划 + 按计划出队"（egress.planOut / egress.commit），
+ * 因为一次 flush 的确认前缀可能**横跨干道与多条流**（轮转调度切出来的），
+ * 光丢干道队列就与 Steam 报的确认字节数对不上了。
+ * 这个函数只剩旧版透传路径与单元测试在用，保留原名以免打断既有调用。
  */
 function dropFromOut(peer, n) {
-  let left = n;
-  while (left > 0 && peer.out && peer.out.length) {
-    const head = peer.out[0];
-    if (head.length <= left) { left -= head.length; peer.out.shift(); }
-    else { peer.out[0] = head.subarray(left); left = 0; }
-  }
+  return egress.dropTrunk(peer, n);
 }
 
 /**
@@ -516,8 +561,15 @@ function resumeOrAbort(peer, written) {
 }
 
 function flushPeerOut(steam, peer, sendChunk, tuning = null) {
-  if (!peer || !peer.out || !peer.out.length || peer.connection == null) return 0;
-  const payload = peer.out.length === 1 ? peer.out[0] : Buffer.concat(peer.out);
+  if (!peer || peer.connection == null) return 0;
+  // 取队：干道队列整段在前，然后各条流轮转、每回合每条流最多 fairQuantum 字节。
+  // 一条流内部仍然是严格 FIFO（它就是一条 TCP），所以协议顺序不可能被轮转打乱；
+  // 变的是"谁先出门"—— 几 MB 的地图区块响应不再挡住玩家移动那 20 字节。
+  const planInfo = egress.planOut(peer, tuning ? tuning.fairQuantum : undefined);
+  if (!planInfo.bytes) return 0;
+  const payload = planInfo.plan.length === 1
+    ? planInfo.plan[0].buf
+    : Buffer.concat(planInfo.plan.map((seg) => seg.buf));
   const result = sendChunk(steam, peer.connection, payload, {
     channel: 'reliable',
     maxChunk: tuning ? tuning.maxChunk : undefined,
@@ -543,7 +595,7 @@ function flushPeerOut(steam, peer, sendChunk, tuning = null) {
         peer.replayBytes -= expired.length;
       }
     }
-    dropFromOut(peer, confirmed);
+    egress.commit(peer, planInfo, confirmed);
     // **只确认了前缀也算"在动"。**
     // 背压期间 Steam 缓冲是满的，几乎每次 flush 都只能确认头一片（见上），
     // 所以 lastSendAt（整块发完才更新）在慢速传输里几乎是冻结的。
@@ -555,7 +607,7 @@ function flushPeerOut(steam, peer, sendChunk, tuning = null) {
     applyBackpressure(peer);
     return -1;
   }
-  peer.out = [];
+  egress.clear(peer);
   peer.lastSendAt = Date.now();
   return payload.length;
 }
@@ -578,13 +630,12 @@ function flushPeerOutSoon(steam, peer, sendChunk, tuning = null) {
   peer.flushPending = true;
   setImmediate(() => {
     peer.flushPending = false;
-    if (!peer.out || !peer.out.length || peer.connection == null) return;
+    if (peer.connection == null || !peerOutBytes(peer)) return;
     flushPeerOut(steam, peer, sendChunk, tuning);
   });
 }
 function peerOutBytes(peer) {
-  if (!peer || !peer.out) return 0;
-  let t = 0; for (const b of peer.out) t += b.length; return t;
+  return egress.total(peer);
 }
 
 /**
@@ -599,11 +650,11 @@ function peerOutBytes(peer) {
  * 绝不把连接无限挂着。
  */
 function drainThenClose({ peer, steam, sendChunk, tuning, stats, onDone, tries = PEER_DRAIN_TRIES, intervalMs = PEER_DRAIN_INTERVAL_MS }) {
-  if (!peer || !peer.out || !peer.out.length || peer.connection == null) { onDone(); return; }
+  if (!peer || peer.connection == null || !peerOutBytes(peer)) { onDone(); return; }
   let left = tries;
   const step = () => {
     const written = flushPeerOut(steam, peer, sendChunk, tuning);
-    if (written >= 0 && !peer.out.length) { onDone(); return; }
+    if (written >= 0 && !peerOutBytes(peer)) { onDone(); return; }
     if (--left <= 0) {
       if (stats) stats.dropped += peerOutBytes(peer);
       onDone();
@@ -764,6 +815,7 @@ function createSteamHost(options = {}) {
     netConfigEnv = process.env,
     onEvent = null,
     debug = false,
+    logDir = null,
   } = options;
 
   if (!Number.isInteger(Number(gamePort)) || Number(gamePort) < 1 || Number(gamePort) > 65535) {
@@ -781,6 +833,10 @@ function createSteamHost(options = {}) {
   let stopLoop = null;
   let offStateChange = null;
   let stopped = false;
+  // 每秒延迟诊断（延迟专项 Phase 1）。只读：它读 peers/stats/连接实时状态，不参与收发决策。
+  let latencyDiag = null;
+  // 房主没有别的东西需要定时，所以这个调度器是专门为诊断起的（规格 §十八：仍然只有一个）。
+  let latencyScheduler = null;
   const sampleState = { lastPeerSampleAt: 0 };
 
   const emit = (type, payload) => {
@@ -806,7 +862,9 @@ function createSteamHost(options = {}) {
       // 干道级上行计数。多路复用这条路原来一个字节都不记，"隧道存量"那行
       // 才会出现"流上明明上行 41KiB、干道上却是 上行0KiB"这种自相矛盾的读数。
       peer.bytesToPeer += frame.length;
-      if (queueOut(peer, frame, tuning.outFlushBytes)) shouldFlush = true;
+      // 队列**按流分开**（多路复用公平调度的关键）：流号从帧头里读，OPEN/DATA/CLOSE/RESET
+      // 因为同属一条流所以进同一个 FIFO，流内顺序逐字节不变。
+      if (queueOut(peer, frame, tuning.outFlushBytes, fairKey(frame, tuning))) shouldFlush = true;
     }
     if (shouldFlush) {
       const written = flushPeerOut(steam, peer, sendChunk, tuning);
@@ -935,6 +993,7 @@ function createSteamHost(options = {}) {
       emit('stream-added', { peer: owner?.steamId || String(owner?.connection ?? '?'), stream: streamId });
     });
     stream.socket.on('data', (chunk) => {
+      const serveStartedAt = hrNow();
       stats.bytesToPeer += chunk.length;
       stats.packetsToPeer += 1;
       stream.bytesToPeer += chunk.length;
@@ -954,6 +1013,9 @@ function createSteamHost(options = {}) {
       // 数据帧与 CLOSE 帧走同一个有序队列 —— 游戏服务"回完响应立刻关连接"时，
       // 那段响应必然排在 CLOSE 前面，不会再出现"最后一段字节丢掉"。
       pushFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
+      // 本地服务给的那段字节：从 Node 的 data 回调进门、到编码完塞进 Steam 队列出门的耗时。
+      // 这是"房主 TCP/Node 服务处理时间"里我们能测的那一半（另一半在游戏进程里，测不到）。
+      if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
     });
     stream.socket.on('error', (err) => {
       stats.failed += 1;
@@ -1334,6 +1396,9 @@ function createSteamHost(options = {}) {
     for (const peer of peers.values()) {
       resumeOrAbort(peer, flushPeerOut(steam, peer, sendChunk, tuning));
     }
+    // 「每轮 Steam 消息轮询 + 分发耗时」的取数口（延迟专项）：只量这一段，
+    // 不含上面的 flush 与下面的 samplePeers —— 那两个的耗时各自有别的账。
+    const pollStartedAt = hrNow();
     const messages = steam.networkingSockets.receiveMessagesOnPollGroup(pollGroup, tuning.maxMessageBatch) || [];
     for (const message of messages) {
       const peer = peers.get(message.connection);
@@ -1424,6 +1489,7 @@ function createSteamHost(options = {}) {
       peer.socket.write(data);
     }
     // 返回值供 startCallbackLoop 判断"这一轮有没有活"，决定下一次轮询是立刻还是退让。
+    if (latencyDiag) latencyDiag.recordPoll({ ms: hrNow() - pollStartedAt, messages: messages.length });
     samplePeers({ peers, steam, emit, state: sampleState });
     // 寄存流的清扫挂在这条本来就有的泵上（规格 §十八：不许每个流各起一个计时器）。
     // 用一个时间戳把它压到 ORPHAN_SWEEP_MS 一次 —— 泵是 4ms 一轮，4ms 扫一遍孤儿纯浪费。
@@ -1489,10 +1555,39 @@ function createSteamHost(options = {}) {
     try { if (pollGroup != null && steam?.networkingSockets) steam.networkingSockets.destroyPollGroup(pollGroup); } catch { /* ignore */ }
     listenSocket = null;
     pollGroup = null;
+    if (latencyDiag) { latencyDiag.dispose(); latencyDiag = null; }
+    if (latencyScheduler) { try { latencyScheduler.stop(); } catch { /* ignore */ } latencyScheduler = null; }
     emit('stopped', {});
   };
 
   const reportRoute = createRouteReporter(steam, stats);
+
+  // 每秒延迟诊断（延迟专项 Phase 1）。房主侧以前**没有任何周期性网络日志**
+  // （netState/net-status 只挂在加入者上，见 createSteamJoiner 的注释），
+  // 所以"能玩但慢"这种事在房主机器上一直是黑箱。这里补上，且只读。
+  // 房主侧本来一条周期性网络任务都没有（健康采样/Relay 轮询只挂在加入者上），
+  // 所以这里给它一个 250ms 刻度的诊断调度器，把每秒诊断挂上去 —— 房主也守
+  // "整个网络层只有一个调度器"这条规矩，不给每个 peer/流/socket 各起计时器。
+  latencyScheduler = createMuxScheduler({ intervalMs: 250, onEvent: (type, payload) => emit(type, payload) });
+  latencyScheduler.start();
+  latencyDiag = createNetLatencyDiag({
+    role: 'host',
+    logDir,
+    scheduler: latencyScheduler,
+    sockets: () => (steam && steam.networkingSockets) || null,
+    connections: () => [...peers.values()]
+      .filter((p) => p.connected && p.connection != null)
+      .map((p) => ({ connection: p.connection, label: p.steamId || String(p.connection) })),
+    peers: () => peers,
+    peerLabel: (p) => (p && (p.steamId || String(p.connection))) || '?',
+    peerOutBytes: (p) => peerOutBytes(p),
+    // 分流出站队列：能看出公平调度有没有真的把"大响应"和"小包"分开
+    peerOutQueues: (p) => egress.queueRows(p),
+    streamsOf: (p) => (p && p.streams) || [],
+    counters: () => stats,
+    onEvent: (type, payload) => emit(type, payload),
+  });
+  latencyDiag.start();
 
   return {
     ready: ready.then((info) => info),
@@ -1500,6 +1595,8 @@ function createSteamHost(options = {}) {
     stats,
     isHost: true,
     route: () => reportRoute([...peers.values()].filter((p) => p.connected && p.connection != null).map((p) => p.connection)),
+    /** 每秒延迟诊断的最新一帧（只读）。 */
+    latency: () => (latencyDiag ? latencyDiag.snapshot() : { available: false, reason: '诊断未启动' }),
     options: { role: 'host', protocol: 'STEAM', gameHost, gamePort: Number(gamePort), maxPeers, appId },
   };
 }
@@ -1526,6 +1623,7 @@ function createSteamJoiner(options = {}) {
     mux: muxOption = null,
     onEvent = null,
     debug = false,
+    logDir = null,
   } = options;
 
   const listenPort = Number(localPort);
@@ -1556,6 +1654,8 @@ function createSteamJoiner(options = {}) {
   let stopLoop = null;
   let offStateChange = null;
   let stopped = false;
+  // 每秒延迟诊断（延迟专项 Phase 1）。只读，见 createNetLatencyDiag 的文件头。
+  let latencyDiag = null;
 
   /** 按 Steam 连接句柄找回对应的本机客户端。 */
   const findByConnection = (connection) => {
@@ -1675,7 +1775,7 @@ function createSteamJoiner(options = {}) {
    * 用本机 socket 当 key。（0.14.0 之前还有一种"预热池成员"——socket 为 null、拿占位对象当
    * key，被浏览器领走时再换成真 socket；那个池子已经删了，见文件顶部 PEER_POOL 墓碑注释。）
    */
-  const dropPeer = (peer, { closeConnection = true, parkStreams = true } = {}) => {
+  const dropPeer = (peer, { closeConnection = true, parkStreams = true, closeReason = '数据流格式不对', closeKind = 'BadFraming' } = {}) => {
     if (!peer || peer.dropped) return;
     peer.dropped = true;
     // 干道死了，但上面那些本机连接（浏览器/游戏）很可能还活着 —— 规格 §十六：传输层
@@ -1684,7 +1784,7 @@ function createSteamJoiner(options = {}) {
     // 情况把字节原样搬到新干道上只会接着错，必须真收掉。
     if (peer.framed !== false && peer.streams && peer.streams.size) {
       if (parkStreams) parkTrunkStreams(peer, 'Steam 连接断开');
-      else closeTrunkStreams(peer, '数据流格式不对', 'BadFraming');
+      else closeTrunkStreams(peer, closeReason, closeKind);
     }
     if (peer.reconnectTimer) { clearTimeout(peer.reconnectTimer); peer.reconnectTimer = null; }
     peers.delete(peer.key);
@@ -1735,7 +1835,9 @@ function createSteamJoiner(options = {}) {
       peer.replay = [];
       peer.replayBytes = 0;
     }
-    peer.out = [];
+    // 新连接上还没有任何数据发出去 —— 旧连接队列里剩下的字节（若还有）没有任何意义：
+    // 它们属于那条已经关掉的 P2P 连接，重发只会让对端收到重复字节。
+    egress.clear(peer);
     peer.paused = false;
     peer.pausedAt = 0;
     peer.stalled = false;
@@ -1804,7 +1906,7 @@ function createSteamJoiner(options = {}) {
   const pushFrames = (peer, frames) => {
     if (!peer || peer.dropped || !frames.length) return;
     let shouldFlush = false;
-    for (const frame of frames) if (queueOut(peer, frame, tuning.outFlushBytes)) shouldFlush = true;
+    for (const frame of frames) if (queueOut(peer, frame, tuning.outFlushBytes, fairKey(frame, tuning))) shouldFlush = true;
     if (shouldFlush) {
       const written = flushPeerOut(steam, peer, sendChunk, tuning);
       if (written < 0) {
@@ -2192,7 +2294,7 @@ function createSteamJoiner(options = {}) {
       if (now - (peer.helloSentAt || peer.bornAt) < retryMs) continue;
       // 队列里还有没发出去的字节就别再塞：魔数大概已经在队里等着发了。
       // 只在"已经发出去、对端却没回"的情况下才补一条。
-      if (peer.out && peer.out.length) continue;
+      if (peerOutBytes(peer)) continue;
       peer.helloSentAt = now;
       peer.helloAttempts = (peer.helloAttempts || 1) + 1;
       stats.trunkHelloResend = (stats.trunkHelloResend || 0) + 1;
@@ -2254,6 +2356,9 @@ function createSteamJoiner(options = {}) {
     if (holdsFrames(trunk)) holdFrames(trunk, [mux.encodeOpen(streamId, stream.generation)]);
     else pushFrames(trunk, [mux.encodeOpen(streamId, stream.generation)]);
     socket.on('data', (chunk) => {
+      // 加入者侧真正在跑的"服务处理"就在这里（干道上的 MUX 路径）。老路径 bindLocalSocket
+      // 那条只在没有干道时用，两条都要埋点，否则有干道时这一格永远是 UNAVAILABLE。
+      const serveStartedAt = hrNow();
       stats.bytesToPeer += chunk.length;
       stats.packetsToPeer += 1;
       stream.bytesToPeer += chunk.length;
@@ -2267,23 +2372,28 @@ function createSteamJoiner(options = {}) {
         if (stream.parkBytes + chunk.length > STREAM_PARK_MAX_BYTES) {
           stats.dropped += 1;
           try { socket.destroy(); } catch { /* 断一条流不影响别的流 */ }
+          if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
           return;
         }
         stream.parkQueue.push(Buffer.from(chunk));
         stream.parkBytes += chunk.length;
+        if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
         return;
       }
       if (holdsFrames(owner)) {
         // 干道还在等房主开口：正文也一起扣住，否则它会在 OPEN 之前漏出去。
         holdFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
+        if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
         return;
       }
       if (owner.framed !== true) {
         // 这条干道已经被判定成"老房主"：走老路径的连接不在这里，这条流已作废。
         stats.dropped += 1;
+        if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
         return;
       }
       pushFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
+      if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
     });
     // 错误处理要保持文件里既有风格：socket 的错误（ECONNRESET 之类）属正常断开，
     // 后续 close 会把流清掉，这里不需要额外记账。
@@ -2376,9 +2486,9 @@ function createSteamJoiner(options = {}) {
           noDelay: tuning.noDelay,
         });
         if (!result?.success) {
-          // 没发出去的（含这一条）放回 peer.out 交给泵重试。
+          // 没发出去的（含这一条）放回出站队列队头交给泵重试。
           // 老代码在这里直接丢弃：连接刚建立的头几个包就缺了，对端一样永远等不到。
-          peer.out.unshift(...pending.slice(i));
+          egress.prepend(peer, pending.slice(i));
           stats.sendStalls += 1;
           break;
         }
@@ -2420,6 +2530,9 @@ function createSteamJoiner(options = {}) {
       resumeOrAbort(peer, flushPeerOut(steam, peer, sendChunk, tuning));
     }
     let handled = 0;
+    // 「每轮 Steam 消息轮询 + 分发耗时」（延迟专项）：加入者侧是**逐干道**收，
+    // 所以这里量的是"所有干道收一遍 + 分发给本地流"的合计。
+    const pollStartedAt = hrNow();
     for (const peer of peers.values()) {
       if (peer.connection == null) continue;
       const messages = steam.networkingSockets.receiveMessages(peer.connection, tuning.maxMessageBatch) || [];
@@ -2489,6 +2602,7 @@ function createSteamJoiner(options = {}) {
         else stats.dropped += 1;
       }
     }
+    if (latencyDiag) latencyDiag.recordPoll({ ms: hrNow() - pollStartedAt, messages: handled });
     samplePeers({
       peers, steam, emit, state: sampleState,
     });
@@ -2520,6 +2634,7 @@ function createSteamJoiner(options = {}) {
     socket.setNoDelay(true);
 
     socket.on('data', (chunk) => {
+      const serveStartedAt = hrNow();
       stats.bytesToPeer += chunk.length;
       stats.packetsToPeer += 1;
       peer.bytesToPeer += chunk.length;
@@ -2546,6 +2661,8 @@ function createSteamJoiner(options = {}) {
         // 没到阈值也别等下一个泵 tick：挂到本回合末尾就发，少等最多一个 tick 的时间。
         flushPeerOutSoon(steam, peer, sendChunk, tuning);
       }
+      // 本机客户端那段字节：从 data 回调进门、到编码入队/发出的耗时（加入者侧的"服务处理"）。
+      if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
     });
     socket.on('error', () => { /* 客户端断开属正常 */ });
     socket.on('close', () => {
@@ -2729,7 +2846,9 @@ function createSteamJoiner(options = {}) {
     releasePendingSockets('会话已停止');
     // parkStreams: false —— 会话都停了，没有"下一条干道"会来接这些流，寄存只是让它们
     // 多活 8 秒再被清扫器收掉。这里直接收摊，本机客户端立刻拿到断开、自己去重连。
-    for (const peer of [...peers.values()]) dropPeer(peer, { parkStreams: false });
+    // kind/reason 要写清楚是"正常停止"：默认那对（BadFraming / 数据流格式不对）是给协议
+    // 错乱用的，正常关会话却打这行，会让人以为隧道坏了（真机第一次跑就踩到了）。
+    for (const peer of [...peers.values()]) dropPeer(peer, { parkStreams: false, closeReason: '会话正常停止', closeKind: 'SessionStopped' });
     // 更早之前断掉的那条干道寄存下来的流（还在等新干道）也要一起收掉。
     for (const stream of [...orphanStreams.values()]) {
       const sock = stream.localSocket || stream.socket;
@@ -2739,6 +2858,7 @@ function createSteamJoiner(options = {}) {
     peers.clear();
     stats.connections = 0;
     await new Promise((resolve) => server.close(() => resolve()));
+    if (latencyDiag) { latencyDiag.dispose(); latencyDiag = null; }
     emit('stopped', {});
   };
 
@@ -2865,6 +2985,26 @@ function createSteamJoiner(options = {}) {
   });
   healthScheduler.start();
 
+  // 每秒延迟诊断（延迟专项 Phase 1）：挂在上面那唯一一个调度器上，不另起计时器。
+  latencyDiag = createNetLatencyDiag({
+    role: 'joiner',
+    logDir,
+    scheduler: healthScheduler,
+    sockets: () => (steam && steam.networkingSockets) || null,
+    connections: () => [...peers.values()]
+      .filter((p) => p.connected && p.connection != null)
+      .map((p) => ({ connection: p.connection, label: p.steamId || String(p.connection) })),
+    peers: () => peers,
+    peerLabel: (p) => (p && (p.steamId || String(p.connection))) || '?',
+    peerOutBytes: (p) => peerOutBytes(p),
+    // 分流出站队列：能看出公平调度有没有真的把"大响应"和"小包"分开
+    peerOutQueues: (p) => egress.queueRows(p),
+    streamsOf: (p) => (p && p.streams) || [],
+    counters: () => stats,
+    onEvent: (type, payload) => emit(type, payload),
+  });
+  latencyDiag.start();
+
   const reportRoute = createRouteReporter(steam, stats);
 
   return {
@@ -2875,6 +3015,8 @@ function createSteamJoiner(options = {}) {
     // 规格 §三十一：界面拿这一份就够显示"Steam 在线 / Relay 可用 / P2P 已连 / 几条流 / RTT"，
     // 不需要自己再判一遍状态。读不到真实读数时字段是 null，界面显示"—"，不显示假状态。
     netState: () => healthMonitor.snapshot(),
+    /** 每秒延迟诊断的最新一帧（只读）。 */
+    latency: () => (latencyDiag ? latencyDiag.snapshot() : { available: false, reason: '诊断未启动' }),
     route: () => reportRoute([...peers.values()].filter((p) => p.connected && p.connection != null).map((p) => p.connection)),
     options: { role: 'joiner', protocol: 'STEAM', bindHost, localPort: listenPort, hostSteamId: String(hostSteamId), appId, maxConnections },
   };
