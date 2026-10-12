@@ -1494,7 +1494,7 @@ function createSteamHost(options = {}) {
       // 会被搬到新干道上接着错）。直接收摊，让客户端重来。
       destroyPeerStreams(peer, '数据流格式不对');
       if (peer.socket) { try { peer.socket.destroy(); } catch { /* ignore */ } }
-      if (firstGone(peer)) emit('peer-left', { ...peerCloseInfo(peer, null, states, Date.now()), peer: peer.steamId || String(peer.connection), kind: 'BadFraming', reason: err.message });
+      if (firstGone(peer)) emit('peer-left', { ...peerCloseInfo(peer, null, null, Date.now()), peer: peer.steamId || String(peer.connection), kind: 'BadFraming', reason: err.message });
       try { steam.networkingSockets.closeConnection(peer.connection, 0, '数据格式不对', false); } catch { /* ignore */ }
       return;
     }

@@ -28,6 +28,7 @@
 | 6 | `tools/steam-backpressure-model.cjs`（新增） | 确定性背压模型：生产端缓冲 → 出站队列 → Steam 缓冲（2 MiB，满则记账 `k_EResultLimitExceeded`）→ 按速率放行 → RTT；丢包整块重传、字节严格 FIFO、完整性守恒 |
 | 7 | `tools/steam-egress-sim.cjs` | 新增 `--backpressure`：跑 6 策略 × 9 场景矩阵，按「零丢失 → 排队 → 吞吐 → 翻转最少 → 延迟」自动择优 |
 | 8 | `test/steam-adapter.test.cjs`（+14）、`test/link-tuning.test.cjs`（+4）、`test/steam-backpressure-model.test.cjs`（新增 12） | 高低水位、滞回、连接间隔离、多流一起暂停、指标不可用回退、部分确认不抖动、慢连接不被误杀、模型零丢失与确定性 |
+| 9 | `network/steam-adapter.cjs` 的 `feedDecoder()` | 顺带修掉一个 0.14.3 起就存在的崩溃：协议错乱分支引用了作用域外的 `states`，抛 `ReferenceError` 并把 Steam 回调循环带进 `ESTEAMCALLBACK` 致命错误（现场表现：应用层往返读数整局变成 `null`）。改为传 `null` |
 
 ### 模型数字（heavy：区块 1 MB/s + 50 Hz 移动包，链路 256 KB/s、RTT 60 ms）
 
@@ -43,7 +44,8 @@
 
 ### 风险与未验证
 
-- **真机 A/B 未做**：没有在真实校园网 + 真实对端上跑空闲/区块突发/连续游戏三场景，上表全部是模型结果，不能当真机数据。
+- **真实校园网 + 真实对端的 A/B 未做**：没有跑空闲/区块突发/连续游戏三场景的基线-修复对照，上表全部是模型结果，不能当真机数据。
+- 同机环回（真实 Steam P2P + SDR，4 条并发流每 20 ms 灌 256 KiB，20 s）：新背压开/关两次运行的应用层往返 p50 28 vs 29 ms、p95 都是 85 ms、max 125 vs 130 ms，环回链路上 Steam 待发量始终为 0 ⇒ 只能证明「开启后不劣化」，不能证明真机收益。
 - 模型不含真实 Steam/SDR、拥塞控制、ACK 细节与本机事件循环开销。
 - `pendingReliable` 是连接级指标，一条流灌满 Steam 缓冲时同一干道上的其它流会被一起暂停（多流只在模型里验证）。
 - 需两边都升级才对称生效；对端留在 0.14.3 时其出站方向仍有同样的排队。
