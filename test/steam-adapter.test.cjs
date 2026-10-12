@@ -1455,7 +1455,7 @@ test('环境未就绪（把 appDir 指向没有 SDK 的目录）时拒绝启动�
 const {
   sendChunk, queueOut, flushPeerOut, flushPeerOutSoon,
   peerOutBytes, dropFromOut, applyBackpressure, resumeOrAbort,
-  PEER_OUT_HIGH_WATER, PEER_OUT_MAX_WATER,
+  PEER_OUT_HIGH_WATER, PEER_OUT_LOW_WATER, PEER_OUT_MAX_WATER,
 } = require('../network/steam-adapter.cjs');
 const F = require('../network/steam-framing.cjs');
 const egress = require('../network/egress-queue.cjs');
@@ -2035,4 +2035,266 @@ test('createRouteReporter：把全局网络参数报告一起送出去（界面�
 test('createRouteReporter：没有全局参数报告时是 null，不编造默认值', () => {
   const report = createRouteReporter({ networkingSockets: {} }, {})([], Date.now());
   assert.equal(report.netConfig, null);
+});
+
+// ---- 0.14.4：Steam 待发可靠数据（pendingReliable）背压 ----------------------
+const {
+  readSteamRealtimeStatus, steamBacklogBytes, sampleSteamBacklog,
+  pumpPeerBackpressure, collectSourceSockets, pauseSourceSockets, resumeSourceSockets,
+  STEAM_STATUS_MIN_INTERVAL_MS,
+} = require('../network/steam-adapter.cjs');
+const { resolveLinkTuning } = require('../network/link-tuning.cjs');
+
+/** 待发可靠数据的默认水位：高 256KiB / 低 64KiB。 */
+const TUNING = resolveLinkTuning({}, {});
+const BACKLOG_HIGH = TUNING.backlogHigh;
+const BACKLOG_LOW = TUNING.backlogLow;
+
+/** 记 pause/resume/destroy 调用的本机数据源 socket。 */
+function trackSocket() {
+  return {
+    destroyed: false,
+    paused: false,
+    pauseCalls: 0,
+    resumeCalls: 0,
+    destroyCalls: 0,
+    pause() { this.paused = true; this.pauseCalls += 1; },
+    resume() { this.paused = false; this.resumeCalls += 1; },
+    destroy() { this.destroyed = true; this.destroyCalls += 1; },
+  };
+}
+
+/** 一条 Steam 连接（干道）+ streamCount 条流，每条流一个本机数据源 socket。 */
+function muxPeer(streamCount = 1) {
+  const peer = {
+    connection: 42,
+    out: [],
+    paused: false,
+    pausedAt: 0,
+    steamBacklog: null,
+    streams: new Map(),
+  };
+  for (let i = 0; i < streamCount; i++) {
+    peer.streams.set(2 + i * 2, { id: 2 + i * 2, socket: trackSocket() });
+  }
+  return peer;
+}
+
+/** 只实现 getConnectionRealTimeStatus 的 Steam 桩，calls 记调用次数。 */
+function steamStub(pendingReliable, calls = { n: 0 }) {
+  return {
+    calls,
+    steam: {
+      networkingSockets: {
+        getConnectionRealTimeStatus: () => { calls.n += 1; return { pendingReliable }; },
+      },
+    },
+  };
+}
+
+/** 该连接上所有本机数据源 socket。 */
+function sources(peer) {
+  return collectSourceSockets(peer);
+}
+
+test('steamBacklogBytes：只认非负有限数，其余一律当"读不到"', () => {
+  assert.equal(steamBacklogBytes({ pendingReliable: 1234 }), 1234);
+  assert.equal(steamBacklogBytes({ pendingReliable: '2048' }), 2048);
+  assert.equal(steamBacklogBytes({ pendingReliable: 0 }), 0);
+  assert.equal(steamBacklogBytes({ pendingReliable: -1 }), null);
+  assert.equal(steamBacklogBytes({ pendingReliable: NaN }), null);
+  assert.equal(steamBacklogBytes({ pendingReliable: undefined }), null);
+  assert.equal(steamBacklogBytes(null), null);
+});
+
+test('readSteamRealtimeStatus：绑定缺失、连接为空、调用抛异常都返回 null', () => {
+  assert.equal(readSteamRealtimeStatus({}, 1), null);
+  assert.equal(readSteamRealtimeStatus({ networkingSockets: {} }, 1), null);
+  assert.equal(readSteamRealtimeStatus({ networkingSockets: { getConnectionRealTimeStatus: () => ({}) } }, null), null);
+  const throwing = { networkingSockets: { getConnectionRealTimeStatus: () => { throw new Error('连接已关'); } } };
+  assert.equal(readSteamRealtimeStatus(throwing, 1), null);
+});
+
+test('sampleSteamBacklog：按 STEAM_STATUS_MIN_INTERVAL_MS 节流，不每个泵 tick 都调 FFI', () => {
+  const { steam, calls } = steamStub(1024);
+  const peer = muxPeer(1);
+
+  assert.equal(sampleSteamBacklog(steam, peer, TUNING, 1000), 1024);
+  assert.equal(calls.n, 1);
+  assert.equal(sampleSteamBacklog(steam, peer, TUNING, 1000 + STEAM_STATUS_MIN_INTERVAL_MS - 1), 1024);
+  assert.equal(calls.n, 1, '同一个采样窗口内不再调用 getConnectionRealTimeStatus');
+  assert.equal(sampleSteamBacklog(steam, peer, TUNING, 1000 + STEAM_STATUS_MIN_INTERVAL_MS), 1024);
+  assert.equal(calls.n, 2, '过了窗口才允许再采一次');
+});
+
+test('pumpPeerBackpressure：积压到高水位时暂停该连接上所有本机数据源（MUX 每条流都停）', () => {
+  const { steam } = steamStub(BACKLOG_HIGH);
+  const peer = muxPeer(3);
+
+  pumpPeerBackpressure(steam, peer, TUNING, 1000);
+  assert.equal(peer.paused, true);
+  assert.equal(peer.backlogPaused, true);
+  assert.equal(peer.steamBacklog, BACKLOG_HIGH);
+  assert.ok(sources(peer).every((s) => s.paused), '三条流的数据源必须全部停住');
+  assert.deepEqual(sources(peer).map((s) => s.pauseCalls), [1, 1, 1]);
+
+  pumpPeerBackpressure(steam, peer, TUNING, 2000);
+  assert.deepEqual(sources(peer).map((s) => s.pauseCalls), [1, 1, 1], '已经暂停就不再重复 pause');
+});
+
+test('pumpPeerBackpressure：滞回区间内不恢复，降到低水位才恢复', () => {
+  const calls = { n: 0 };
+  let backlog = BACKLOG_HIGH;
+  const steam = { networkingSockets: { getConnectionRealTimeStatus: () => { calls.n += 1; return { pendingReliable: backlog }; } } };
+  const peer = muxPeer(2);
+
+  pumpPeerBackpressure(steam, peer, TUNING, 1000);
+  assert.equal(peer.paused, true);
+
+  backlog = Math.floor((BACKLOG_HIGH + BACKLOG_LOW) / 2);
+  pumpPeerBackpressure(steam, peer, TUNING, 2000);
+  resumeOrAbort(peer, 0, TUNING);
+  assert.equal(peer.paused, true, '高低水位之间必须保持暂停，否则阈值上会来回抖');
+  assert.ok(sources(peer).every((s) => s.resumeCalls === 0));
+
+  backlog = BACKLOG_LOW;
+  pumpPeerBackpressure(steam, peer, TUNING, 3000);
+  resumeOrAbort(peer, 0, TUNING);
+  assert.equal(peer.paused, false);
+  assert.equal(peer.backlogPaused, false);
+  assert.ok(sources(peer).every((s) => s.resumeCalls === 1), '降回低水位后每条流都要恢复读');
+});
+
+test('pumpPeerBackpressure：两条连接各判各的，不相干的连接不受影响', () => {
+  const busy = muxPeer(2);
+  const idle = muxPeer(1);
+  idle.connection = 77;
+  const statuses = new Map([[42, BACKLOG_HIGH * 2], [77, 0]]);
+  const steam = { networkingSockets: { getConnectionRealTimeStatus: (conn) => ({ pendingReliable: statuses.get(conn) }) } };
+
+  pumpPeerBackpressure(steam, busy, TUNING, 1000);
+  pumpPeerBackpressure(steam, idle, TUNING, 1000);
+  assert.equal(busy.paused, true);
+  assert.equal(idle.paused, false);
+  assert.ok(sources(idle).every((s) => s.pauseCalls === 0));
+});
+
+test('applyBackpressure：MUX 路径下 peer.socket 为 null 时，按我们自己的队列暂停每条流', () => {
+  const peer = muxPeer(2);
+  assert.equal(peer.socket, undefined);
+  peer.out.push(Buffer.alloc(PEER_OUT_HIGH_WATER));
+
+  applyBackpressure(peer, TUNING);
+  assert.equal(peer.paused, true);
+  assert.ok(sources(peer).every((s) => s.paused), 'peer.socket 为 null 也要停住真正的数据源');
+});
+
+test('sampleSteamBacklog：积压变小即记成有进展，排空中的连接不会被 30 秒看门狗误杀', () => {
+  const calls = { n: 0 };
+  let backlog = 2 * BACKLOG_HIGH;
+  const steam = { networkingSockets: { getConnectionRealTimeStatus: () => { calls.n += 1; return { pendingReliable: backlog }; } } };
+  const peer = muxPeer(1);
+  const old = Date.now() - 60000;
+  peer.paused = true;
+  peer.backlogPaused = true;
+  peer.pausedAt = old;
+  peer.lastSendAt = old;
+
+  pumpPeerBackpressure(steam, peer, TUNING, 1000);
+  assert.equal(peer.paused, true);
+  const before = Date.now();
+  backlog = BACKLOG_HIGH * 2 - 4096;
+  pumpPeerBackpressure(steam, peer, TUNING, 2000);
+  assert.ok(peer.lastProgressAt >= before, 'Steam 侧积压在降 = 还在动');
+
+  resumeOrAbort(peer, -1, TUNING);
+  assert.equal(peer.stalled, undefined, '还在排空的连接不能被掐断');
+  assert.ok(sources(peer).every((s) => s.destroyCalls === 0));
+});
+
+test('resumeOrAbort：Steam 积压没降下来时不恢复，避免每个 tick 抖一次', () => {
+  const peer = muxPeer(1);
+  peer.paused = true;
+  peer.pausedAt = Date.now();
+  peer.steamBacklog = BACKLOG_HIGH;
+
+  resumeOrAbort(peer, 1, TUNING);
+  assert.equal(peer.paused, true, 'written>0 也不能越过 Steam 那一侧的水位');
+
+  peer.steamBacklog = BACKLOG_LOW;
+  resumeOrAbort(peer, 1, TUNING);
+  assert.equal(peer.paused, false);
+});
+
+test('resumeOrAbort：Steam 积压一直不降且 30 秒没有进展就断开', () => {
+  const peer = muxPeer(2);
+  peer.paused = true;
+  peer.pausedAt = Date.now() - 60000;
+  peer.lastSendAt = 0;
+  peer.steamBacklog = BACKLOG_HIGH;
+
+  resumeOrAbort(peer, -1, TUNING);
+  assert.equal(peer.stalled, true);
+  assert.ok(sources(peer).every((s) => s.destroyCalls === 1));
+});
+
+test('tuning 开关：SHL_STEAM_BACKPRESSURE=0 时不读 Steam 状态、也不按积压暂停', () => {
+  const off = resolveLinkTuning({}, { SHL_STEAM_BACKPRESSURE: '0' });
+  assert.equal(off.steamBackpressure, false);
+  const { steam, calls } = steamStub(BACKLOG_HIGH * 4);
+  const peer = muxPeer(1);
+
+  pumpPeerBackpressure(steam, peer, off, 1000);
+  assert.equal(calls.n, 0, '关掉之后一次 FFI 都不该调');
+  assert.equal(peer.paused, false);
+  assert.equal(sampleSteamBacklog(steam, peer, off, 2000), null);
+
+  peer.out.push(Buffer.alloc(PEER_OUT_HIGH_WATER));
+  applyBackpressure(peer, off);
+  assert.equal(peer.paused, true, '关掉的只是新增那一路，旧水位照旧生效');
+});
+
+test('读不到 Steam 状态时退回 0.14.3：只按我们自己的队列判', () => {
+  const peer = muxPeer(2);
+  const steam = { networkingSockets: {} };
+  pumpPeerBackpressure(steam, peer, TUNING, 1000);
+  assert.equal(peer.paused, false);
+  assert.equal(peer.steamBacklog, null);
+
+  peer.out.push(Buffer.alloc(PEER_OUT_LOW_WATER + 1));
+  pumpPeerBackpressure(steam, peer, TUNING, 2000);
+  resumeOrAbort(peer, 0, TUNING);
+  assert.equal(peer.paused, false, '读不到积压就不许凭空暂停');
+});
+
+test('pauseSourceSockets：暂停之后新挂上来的流也会被一起停住', () => {
+  const peer = muxPeer(1);
+  pauseSourceSockets(peer);
+  assert.ok(sources(peer).every((s) => s.paused));
+
+  const late = trackSocket();
+  peer.streams.set(4, { id: 4, socket: late });
+  pauseSourceSockets(peer);
+  assert.equal(late.paused, true, '挂到暂停中的干道上，新流不能绕过水位继续读');
+
+  resumeSourceSockets(peer);
+  assert.ok(sources(peer).every((s) => s.resumeCalls === 1));
+});
+
+test('背压暂停与部分确认交替时，队列里剩下的字节顺序不变', () => {
+  const peer = muxPeer(1);
+  peer.out.push(Buffer.alloc(4096, 0xaa));
+  peer.out.push(Buffer.alloc(4096, 0xbb));
+  const { steam } = steamStub(BACKLOG_HIGH);
+
+  pumpPeerBackpressure(steam, peer, TUNING, 1000);
+  assert.equal(peer.paused, true);
+
+  const written = flushPeerOut(steam, peer, () => ({ success: false, chunks: 1, bytes: 4096 }), TUNING);
+  assert.equal(written, -1);
+  assert.equal(peerOutBytes(peer), 4096, '只确认了前缀，另一半必须留在队列里');
+  const rows = egress.queueRows(peer, Date.now());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].bytes, 4096);
+  assert.equal(peer.streams.get(2).socket.destroyCalls, 0, '部分确认不是连接故障，不许断流');
 });

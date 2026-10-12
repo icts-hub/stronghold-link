@@ -108,3 +108,63 @@ test('notes 与 changed 都不共享内部数组，多次调用互不影响', ()
   assert.equal(b.notes.length, 0);
   assert.notEqual(a.notes, b.notes);
 });
+
+// ---- 0.14.4：Steam 待发可靠数据（pendingReliable）背压参数 ------------------
+
+test('背压默认开，SHL_STEAM_BACKPRESSURE=0 退回 0.14.3，非法值退回默认并留 note', () => {
+  const on = T.resolveLinkTuning();
+  assert.equal(on.steamBackpressure, true);
+  assert.deepEqual(on.changed, [], '默认值不算改写');
+
+  const off = T.resolveLinkTuning({}, { SHL_STEAM_BACKPRESSURE: '0' });
+  assert.equal(off.steamBackpressure, false);
+  assert.deepEqual(off.changed, ['steamBackpressure']);
+  assert.equal(T.resolveLinkTuning({}, { SHL_STEAM_BACKPRESSURE: 'off' }).steamBackpressure, false);
+  assert.equal(T.resolveLinkTuning({ steamBackpressure: false }).steamBackpressure, false, '显式 overrides 也能关');
+
+  const junk = T.resolveLinkTuning({}, { SHL_STEAM_BACKPRESSURE: '随便写' });
+  assert.equal(junk.steamBackpressure, true);
+  assert.equal(junk.notes.length, 1);
+  assert.match(junk.notes[0], /steamBackpressure/);
+});
+
+test('背压水位默认 256KiB/64KiB，环境变量可覆盖，越界夹到边界', () => {
+  const out = T.resolveLinkTuning();
+  assert.equal(out.backlogHigh, 256 * 1024);
+  assert.equal(out.backlogLow, 64 * 1024);
+
+  const env = T.resolveLinkTuning({}, { SHL_STEAM_BACKLOG_HIGH: '524288', SHL_STEAM_BACKLOG_LOW: '131072' });
+  assert.equal(env.backlogHigh, 512 * 1024);
+  assert.equal(env.backlogLow, 128 * 1024);
+  assert.deepEqual(env.changed.sort(), ['backlogHigh', 'backlogLow']);
+
+  assert.equal(T.resolveLinkTuning({ backlogHigh: 1 }).backlogHigh, 16 * 1024);
+  assert.equal(T.resolveLinkTuning({ backlogHigh: 99999999 }).backlogHigh, 8 * 1024 * 1024);
+  assert.equal(T.resolveLinkTuning({ backlogLow: 1 }).backlogLow, 4 * 1024);
+  const hugeLow = T.resolveLinkTuning({ backlogLow: 99999999 });
+  assert.equal(hugeLow.backlogLow, T.DEFAULTS.backlogHigh, '先夹到上界，再被"低不得高于高"压回高水位');
+});
+
+test('低水位高于高水位时压到高水位并留 note，不出现"低>高"的抖动配置', () => {
+  const out = T.resolveLinkTuning({ backlogHigh: 64 * 1024, backlogLow: 256 * 1024 });
+  assert.equal(out.backlogLow, 64 * 1024);
+  assert.equal(out.backlogHigh, 64 * 1024);
+  assert.equal(out.notes.length, 1);
+  assert.match(out.notes[0], /backlogLow/);
+  assert.ok(out.changed.includes('backlogLow'));
+
+  const fromEnv = T.resolveLinkTuning({}, { SHL_STEAM_BACKLOG_HIGH: '32768', SHL_STEAM_BACKLOG_LOW: '131072' });
+  assert.equal(fromEnv.backlogLow, 32768);
+  assert.equal(fromEnv.backlogHigh, 32768);
+  assert.equal(fromEnv.notes.length, 1);
+});
+
+test('新增的三项：overrides 优先于环境变量', () => {
+  const out = T.resolveLinkTuning(
+    { steamBackpressure: false, backlogHigh: 32 * 1024, backlogLow: 16 * 1024 },
+    { SHL_STEAM_BACKPRESSURE: '1', SHL_STEAM_BACKLOG_HIGH: '524288', SHL_STEAM_BACKLOG_LOW: '262144' },
+  );
+  assert.equal(out.steamBackpressure, false);
+  assert.equal(out.backlogHigh, 32 * 1024);
+  assert.equal(out.backlogLow, 16 * 1024);
+});

@@ -46,6 +46,12 @@ const DEFAULTS = Object.freeze({
   // "慢但在动"的干道误杀成"死的"。
   trunkHelloRetryMs: 4000,
   trunkHelloGiveupMs: 30000,
+  // 0.14.4：按 Steam 待发可靠数据量（pendingReliable，单位字节）控制背压。
+  // steamBackpressure 为总开关；待发量 ≥ backlogHigh 时暂停该连接的数据源，
+  // ≤ backlogLow 时才恢复（滞回区间 = 两者之差）。
+  steamBackpressure: true,
+  backlogHigh: 256 * 1024,
+  backlogLow: 64 * 1024,
 });
 
 const BOUNDS = Object.freeze({
@@ -55,6 +61,8 @@ const BOUNDS = Object.freeze({
   maxMessageBatch: [1, 4096],
   trunkHelloRetryMs: [50, 60000],
   trunkHelloGiveupMs: [500, 600000],
+  backlogHigh: [16 * 1024, 8 * 1024 * 1024],
+  backlogLow: [4 * 1024, 8 * 1024 * 1024],
 });
 
 const ENV_KEYS = Object.freeze({
@@ -68,6 +76,9 @@ const ENV_KEYS = Object.freeze({
   noDelay: 'SHL_STEAM_NO_DELAY',
   trunkHelloRetryMs: 'SHL_STEAM_TRUNK_HELLO_RETRY_MS',
   trunkHelloGiveupMs: 'SHL_STEAM_TRUNK_HELLO_GIVEUP_MS',
+  steamBackpressure: 'SHL_STEAM_BACKPRESSURE',
+  backlogHigh: 'SHL_STEAM_BACKLOG_HIGH',
+  backlogLow: 'SHL_STEAM_BACKLOG_LOW',
 });
 
 /** 解析布尔开关：1/true/on/yes 为真，0/false/off/no 为假，其余返回 null 表示没写。 */
@@ -98,7 +109,7 @@ function parseIntInRange(value, [min, max]) {
  *
  * @param {object} [overrides]
  * @param {object} [env]
- * @returns {{maxChunk:number,outFlushBytes:number,fairQuantum:number,fairQueue:boolean,callbackIntervalMs:number,maxMessageBatch:number,noNagle:boolean,noDelay:boolean,notes:string[]}}
+ * @returns {{maxChunk:number,outFlushBytes:number,fairQuantum:number,fairQueue:boolean,callbackIntervalMs:number,maxMessageBatch:number,noNagle:boolean,noDelay:boolean,steamBackpressure:boolean,backlogHigh:number,backlogLow:number,notes:string[]}}
  */
 function resolveLinkTuning(overrides = {}, env = process.env) {
   const notes = [];
@@ -135,6 +146,14 @@ function resolveLinkTuning(overrides = {}, env = process.env) {
 
   // 分片大小走与发送侧同一套夹取规则，避免两处算出不同的值。
   out.maxChunk = normalizeChunkSize(out.maxChunk, DEFAULTS.maxChunk);
+  // 低水位不得高于高水位：越界时把低水位压到高水位，并记一条 notes。
+  if (out.backlogLow > out.backlogHigh) {
+    notes.push(
+      `backlogLow（${out.backlogLow}）高于 backlogHigh（${out.backlogHigh}），已把低水位压到 ${out.backlogHigh}`,
+    );
+    out.backlogLow = out.backlogHigh;
+    if (!source.backlogLow) source.backlogLow = 'clamped';
+  }
   out.notes = notes;
   out.changed = Object.keys(source);
   return out;

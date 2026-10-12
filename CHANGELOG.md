@@ -1,5 +1,57 @@
 # 更新日志
 
+## v0.14.4
+
+修：**"好友那边卡到 6.5 秒" —— 背压只盯着我们自己的队列，而 1.6 MB 的数据正压在 Steam 的发送缓冲里**
+
+### 现场是什么样
+
+房主侧 Minecraft 服务端推区块时，好友的人物移动成秒级延迟（最坏 6.5 秒）。同一时刻我们这一侧的所有队列读数都是 0：`globalQueueBytes=0`、`streamQueueBytes=0`、`tcpWritableLength=0`、`egressQueues=[]`、`dropped=0`。
+
+### 真因
+
+1. **背压看错了信号。** `applyBackpressure()` 只统计 `peerOutBytes()`（我们自己的出站队列），而 Steam 的发送缓冲有 2 MiB（`network/steam-netconfig.cjs` 的 `sendBufferSize`），灌满之前 `sendMessage` 一律回 success ⇒ 数据躺在 Steam 内部队列里，我们这边读数是 0，背压一次都不触发。
+2. **"暂停本机 socket"从来没真的执行过。** 老代码只 `peer.socket.pause()`，而多路复用模式下 `peer.socket` 恒为 `null`，真正的数据源是每条流的 `stream.socket`。
+3. **暂停会让 30 秒看门狗误判。** 暂停期间不再 flush，`lastProgressAt` 不再更新，正在慢慢排空的健康连接会被 destroy。
+
+现场数据（`%APPDATA%\stronghold-link\net-latency-host-2026-10-12T15-28-21-927Z.jsonl`，242 帧）：`pendingReliable` 峰值 **1.62 MB**、`queueMs` 峰值 **6486 ms**（114 帧 >0，中位 1688 ms、p95 5765 ms）、RTT 57–62 ms、发送上限恒 256 KB/s。
+
+### 现在怎么修
+
+| # | 位置 | 改动 |
+|---|------|------|
+| 1 | `network/steam-adapter.cjs` | 新增 `readSteamRealtimeStatus()` / `steamBacklogBytes()` / `sampleSteamBacklog()`（按 20 ms 节流读 `getConnectionRealTimeStatus().pendingReliable`）/ `pumpPeerBackpressure()` / `collectSourceSockets()` / `pauseSourceSockets()` / `resumeSourceSockets()` |
+| 2 | `network/steam-adapter.cjs` | `applyBackpressure()` 增加 Steam 高水位分支；暂停与硬上限销毁都作用到**该连接全部**数据源 socket（`peer.socket` + 各条流的 `stream.socket`） |
+| 3 | `network/steam-adapter.cjs` | `resumeOrAbort()` 要求两路水位都降下来才恢复（防每 tick 抖动）；排空中的连接用 Steam 积压变小来刷新 `lastProgressAt`，不被 30 s 看门狗误杀 |
+| 4 | `network/steam-adapter.cjs` | 房主泵与加入者泵每 tick 先 `pumpPeerBackpressure()`；`openStream` / `bindStream` / `bindLocalSocket` 绑上新 socket 时若已暂停则一并暂停 |
+| 5 | `network/link-tuning.cjs` | 新增 `SHL_STEAM_BACKPRESSURE`（默认开，`0` = 回 0.14.3）、`SHL_STEAM_BACKLOG_HIGH`（默认 262144）、`SHL_STEAM_BACKLOG_LOW`（默认 65536），低水位高于高水位时自动压回并记 `notes` |
+| 6 | `tools/steam-backpressure-model.cjs`（新增） | 确定性背压模型：生产端缓冲 → 出站队列 → Steam 缓冲（2 MiB，满则记账 `k_EResultLimitExceeded`）→ 按速率放行 → RTT；丢包整块重传、字节严格 FIFO、完整性守恒 |
+| 7 | `tools/steam-egress-sim.cjs` | 新增 `--backpressure`：跑 6 策略 × 9 场景矩阵，按「零丢失 → 排队 → 吞吐 → 翻转最少 → 延迟」自动择优 |
+| 8 | `test/steam-adapter.test.cjs`（+14）、`test/link-tuning.test.cjs`（+4）、`test/steam-backpressure-model.test.cjs`（新增 12） | 高低水位、滞回、连接间隔离、多流一起暂停、指标不可用回退、部分确认不抖动、慢连接不被误杀、模型零丢失与确定性 |
+
+### 模型数字（heavy：区块 1 MB/s + 50 Hz 移动包，链路 256 KB/s、RTT 60 ms）
+
+| 策略 | 移动包 p50 / p95 | 待发 p95 / 峰值 | 暂停占比 | 翻转 | 限额拒 |
+|------|------------------|-----------------|----------|------|--------|
+| 0.14.3（不暂停） | 2348 / 4336 ms | 2046.98 / 2048 KB | 0 | 0 | 837 |
+| **A 256/64 KiB（选中）** | 1612 / **2020** ms | 88.04 / 316.39 KB | 0.93 | 11 | 0 |
+| A128 128/32 KiB | 1356 / 1532 ms | 43.51 / 158.2 KB | 0.96 | 23 | 0 |
+| A512 512/128 KiB | 2072 / 2736 ms | 509.63 / 514.06 KB | 0.81 | 7 | 0 |
+| C 自适应 | 1216 / 1648 ms | 88.04 / 260.07 KB | 0.93 | 39 | 0 |
+
+跨场景汇总：A 的最坏排队 p95 **1133 ms**（基线 8000 ms）、延迟比 0.6334、待发比 0.2266、吞吐比 1.0004（吞吐不降）；A128 更快但翻转约 2×；A512 峰值 2011 ms 超出 2000 ms 目标；C 翻转约 3×（自适应抖动）。`slow` 场景（生产端 180 KB/s < 链路）六种策略逐项相同 ⇒ 新背压不介入。
+
+### 风险与未验证
+
+- **真机 A/B 未做**：没有在真实校园网 + 真实对端上跑空闲/区块突发/连续游戏三场景，上表全部是模型结果，不能当真机数据。
+- 模型不含真实 Steam/SDR、拥塞控制、ACK 细节与本机事件循环开销。
+- `pendingReliable` 是连接级指标，一条流灌满 Steam 缓冲时同一干道上的其它流会被一起暂停（多流只在模型里验证）。
+- 需两边都升级才对称生效；对端留在 0.14.3 时其出站方向仍有同样的排队。
+
+### 回滚
+
+`SHL_STEAM_BACKPRESSURE=0` 完全退回 0.14.3 行为（不再调用 `getConnectionRealTimeStatus`，只按本机队列水位）。
+
 ## v0.14.3
 
 修：**"地图一动人就飘" —— 出站队列按到达顺序发，一张 900KB 的地图区块能把一个 64 字节的移动包挡住 1.5 秒**

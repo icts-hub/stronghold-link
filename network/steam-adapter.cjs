@@ -331,6 +331,8 @@ const PEER_OUT_LOW_WATER = 128 * 1024;
 const PEER_OUT_MAX_WATER = 8 * 1024 * 1024;
 /** 暂停后这么久还一点都送不出去，就不再等了 —— 一直停着会让对端无限等待。 */
 const PEER_PAUSE_ABORT_MS = 30000;
+// 0.14.4：读一次 Steam 实时状态的最小间隔（毫秒），限制 getConnectionRealTimeStatus 的调用频率。
+const STEAM_STATUS_MIN_INTERVAL_MS = 20;
 // 加入者侧：一条 Steam P2P 连接"一个字节都没回来"就断了，多半是这次握手本身没成。
 // 与其把浏览器的连接一起掐掉（页面就一直转圈），不如悄悄重连一次并把请求重放出去。
 // 现场证据：首页 22 个资源里随机几个请求 0 字节 / ECONNRESET，失败耗时集中在 1.2~2.5 秒
@@ -510,11 +512,105 @@ function dropFromOut(peer, n) {
 }
 
 /**
+ * 0.14.4：读取一条 Steam 连接的实时状态（getConnectionRealTimeStatus）。
+ * 绑定缺失、连接为空、调用抛错时一律返回 null。
+ */
+function readSteamRealtimeStatus(steam, connection) {
+  const sockets = steam && steam.networkingSockets;
+  if (!sockets || typeof sockets.getConnectionRealTimeStatus !== 'function') return null;
+  if (connection == null) return null;
+  try {
+    const status = sockets.getConnectionRealTimeStatus(connection);
+    return status && typeof status === 'object' ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+/** pendingReliable：已经进了 Steam 队列、还没送到对端的可靠字节数。取不到返回 null。 */
+function steamBacklogBytes(status) {
+  if (!status || typeof status !== 'object') return null;
+  const value = Number(status.pendingReliable);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value;
+}
+
+/**
+ * 按 STEAM_STATUS_MIN_INTERVAL_MS 节流采样一条连接的 Steam 待发可靠字节数。
+ * 积压比上次采样变小时刷新 peer.lastProgressAt；记录 peer.steamBacklog 与 steamBacklogPeak。
+ * 关掉 steamBackpressure 或连接为空时清空读数并返回 null。
+ */
+function sampleSteamBacklog(steam, peer, tuning, now = Date.now()) {
+  if (!peer) return null;
+  if (!tuning || tuning.steamBackpressure === false || peer.connection == null) {
+    peer.steamBacklog = null;
+    return null;
+  }
+  if (peer.steamStatusAt && now - peer.steamStatusAt < STEAM_STATUS_MIN_INTERVAL_MS) {
+    return Number.isFinite(peer.steamBacklog) ? peer.steamBacklog : null;
+  }
+  peer.steamStatusAt = now;
+  const status = readSteamRealtimeStatus(steam, peer.connection);
+  const backlog = steamBacklogBytes(status);
+  if (backlog == null) {
+    peer.steamBacklog = null;
+    return null;
+  }
+  const prev = Number.isFinite(peer.steamBacklog) ? peer.steamBacklog : null;
+  if (prev != null && backlog < prev) peer.lastProgressAt = Date.now();
+  peer.steamBacklog = backlog;
+  peer.steamBacklogPeak = Math.max(peer.steamBacklogPeak || 0, backlog);
+  return backlog;
+}
+
+/**
+ * 一条 Steam 连接上游的全部本机数据源 socket：peer.socket（老路径）与各条流的
+ * stream.socket（多路复用路径，此时 peer.socket 为 null）。
+ */
+function collectSourceSockets(peer) {
+  const list = [];
+  if (!peer) return list;
+  if (peer.socket && !peer.socket.destroyed) list.push(peer.socket);
+  const streams = peer.streams;
+  if (streams && typeof streams.values === 'function') {
+    for (const stream of streams.values()) {
+      const socket = stream && stream.socket;
+      if (socket && !socket.destroyed && !list.includes(socket)) list.push(socket);
+    }
+  }
+  return list;
+}
+
+function pauseSourceSockets(peer) {
+  for (const socket of collectSourceSockets(peer)) {
+    try { if (typeof socket.pause === 'function') socket.pause(); } catch { /* 暂停失败就继续按老路走 */ }
+  }
+}
+
+function resumeSourceSockets(peer) {
+  for (const socket of collectSourceSockets(peer)) {
+    try { if (typeof socket.resume === 'function') socket.resume(); } catch { /* 恢复失败会在 socket 的 close 里收尾 */ }
+  }
+}
+
+/**
+ * 每个泵 tick 对一条连接做一次 0.14.4 背压判定：采样 Steam 待发量，
+ * 达到 tuning.backlogHigh 就对这条连接调 applyBackpressure。返回本次采到的字节数。
+ */
+function pumpPeerBackpressure(steam, peer, tuning, now = Date.now()) {
+  if (!peer || peer.connection == null) return null;
+  const backlog = sampleSteamBacklog(steam, peer, tuning, now);
+  if (backlog == null || !tuning || tuning.steamBackpressure === false) return backlog;
+  if (backlog >= tuning.backlogHigh) applyBackpressure(peer, tuning);
+  return backlog;
+}
+
+/**
  * 发送失败 = Steam 的发送缓冲满了（k_EResultLimitExceeded）。此时**必须停下来等**：
  * 继续从本地 socket 读，读进来也只能丢掉，而丢掉就是在可靠流上戳一个洞。
  * 做法是暂停本地 socket，等泵把积压发出去之后再恢复（见 pump 里的 resume）。
  */
-function applyBackpressure(peer) {
+function applyBackpressure(peer, tuning = null) {
   if (!peer || peer.stalled) return;
   const backlog = peerOutBytes(peer);
   if (backlog >= PEER_OUT_MAX_WATER) {
@@ -522,13 +618,20 @@ function applyBackpressure(peer) {
     // 主动断开，让浏览器/游戏看到一次干净的复位并自己重连 —— 比让它永远挂着强。
     peer.stalled = true;
     peer.dropWhy = `本机积压 ${Math.round(backlog / 1024)} KiB 超过硬上限，Steam 一直不接收`;
-    try { peer.socket?.destroy(); } catch { /* 断开失败不影响其它连接 */ }
+    for (const socket of collectSourceSockets(peer)) {
+      try { socket.destroy(); } catch { /* 断开失败不影响其它连接 */ }
+    }
     return;
   }
-  if (backlog >= PEER_OUT_HIGH_WATER && !peer.paused && peer.socket && !peer.socket.destroyed) {
+  // 0.14.4：除本机队列水位外，再加一路 Steam 待发量水位；peer.backlogPaused 记录是哪一路触发的。
+  const steamHigh = tuning && tuning.steamBackpressure !== false
+    && Number.isFinite(peer.steamBacklog)
+    && peer.steamBacklog >= tuning.backlogHigh;
+  if (steamHigh) peer.backlogPaused = true;
+  if ((backlog >= PEER_OUT_HIGH_WATER || steamHigh) && !peer.paused) {
     peer.paused = true;
     peer.pausedAt = Date.now();
-    try { peer.socket.pause(); } catch { /* 暂停失败就继续按老路走 */ }
+    pauseSourceSockets(peer);
   }
 }
 
@@ -544,19 +647,25 @@ function applyBackpressure(peer) {
  * 现场表现就是"几 MB 的大文件每传 ~28KB 必断、小文件全好"。
  * lastProgressAt 记录的是**任何**一个字节被确认进 Steam 队列的时刻，慢也算在动。
  */
-function resumeOrAbort(peer, written) {
+function resumeOrAbort(peer, written, tuning = null) {
   if (!peer || !peer.paused) return;
-  if (written > 0 || peerOutBytes(peer) <= PEER_OUT_LOW_WATER) {
+  // 两路水位都降下来才恢复：本机队列能送出去（或已排空）且 Steam 待发量降到 backlogLow。
+  const steamGate = !!(tuning && tuning.steamBackpressure !== false) && Number.isFinite(peer.steamBacklog);
+  const steamLow = !steamGate || peer.steamBacklog <= tuning.backlogLow;
+  if ((written > 0 || peerOutBytes(peer) <= PEER_OUT_LOW_WATER) && steamLow) {
     peer.paused = false;
     peer.pausedAt = 0;
-    try { peer.socket.resume(); } catch { /* 恢复失败会在 socket 的 close 里收尾 */ }
+    peer.backlogPaused = false;
+    resumeSourceSockets(peer);
     return;
   }
   const idleSince = Math.max(peer.pausedAt || 0, peer.lastProgressAt || 0, peer.lastSendAt || 0);
   if (idleSince && Date.now() - idleSince > PEER_PAUSE_ABORT_MS) {
     peer.stalled = true;
     peer.dropWhy = `暂停后 ${Math.round((Date.now() - idleSince) / 1000)} 秒一个字节都没送出去`;
-    try { peer.socket.destroy(); } catch { /* 断开失败会在 socket 的 close 里收尾 */ }
+    for (const socket of collectSourceSockets(peer)) {
+      try { socket.destroy(); } catch { /* 断开失败会在 socket 的 close 里收尾 */ }
+    }
   }
 }
 
@@ -604,7 +713,7 @@ function flushPeerOut(steam, peer, sendChunk, tuning = null) {
     peer.lastProgressAt = Date.now();
   }
   if (!result || !result.success) {
-    applyBackpressure(peer);
+    applyBackpressure(peer, tuning);
     return -1;
   }
   egress.clear(peer);
@@ -985,6 +1094,8 @@ function createSteamHost(options = {}) {
     stats.totalStreams = (stats.totalStreams || 0) + 1;
 
     stream.socket.setNoDelay(true);
+    // 干道正处在背压暂停中时，这条新流也要一起停住（连上之后不会开始读游戏服务端）。
+    if (peer.paused) { try { stream.socket.pause(); } catch { /* 暂停失败就继续按老路走 */ } }
     stream.socket.on('connect', () => {
       stream.connected = true;
       for (const chunk of stream.queue.splice(0)) stream.socket.write(chunk);
@@ -1394,7 +1505,9 @@ function createSteamHost(options = {}) {
     if (stopped || !pollGroup) return 0;
     // 先发送本 tick 攒下的小包（合并成大消息）
     for (const peer of peers.values()) {
-      resumeOrAbort(peer, flushPeerOut(steam, peer, sendChunk, tuning));
+      // 0.14.4：先采一次 Steam 侧积压（超水位就先暂停本地数据源），再 flush、再判恢复。
+      pumpPeerBackpressure(steam, peer, tuning);
+      resumeOrAbort(peer, flushPeerOut(steam, peer, sendChunk, tuning), tuning);
     }
     // 「每轮 Steam 消息轮询 + 分发耗时」的取数口（延迟专项）：只量这一段，
     // 不含上面的 flush 与下面的 samplePeers —— 那两个的耗时各自有别的账。
@@ -2350,6 +2463,8 @@ function createSteamJoiner(options = {}) {
     stats.streams = countStreams();
     stats.totalStreams = (stats.totalStreams || 0) + 1;
     socket.setNoDelay(true);
+    // 干道正处于背压暂停时，新挂上来的流也一起暂停。
+    if (trunk.paused) { try { socket.pause(); } catch { /* 暂停失败就继续按老路走 */ } }
     // 先发 OPEN，房主看到它才会去连游戏端口；正文跟在后面，顺序由同一个队列保证。
     // 但**定帧之前一个字节都不发**（见 holdFrames）：对面可能是老房主，OPEN 的帧头
     // 喂给游戏服务就是污染请求头。扣住，等听到魔数再按原顺序补发。
@@ -2527,7 +2642,8 @@ function createSteamJoiner(options = {}) {
     if (stopped) return 0;
     // 先发送本 tick 攒下的小包（合并成大消息）—— 这是吞吐的关键
     for (const peer of peers.values()) {
-      resumeOrAbort(peer, flushPeerOut(steam, peer, sendChunk, tuning));
+      pumpPeerBackpressure(steam, peer, tuning);
+      resumeOrAbort(peer, flushPeerOut(steam, peer, sendChunk, tuning), tuning);
     }
     let handled = 0;
     // 「每轮 Steam 消息轮询 + 分发耗时」（延迟专项）：加入者侧是**逐干道**收，
@@ -2632,6 +2748,8 @@ function createSteamJoiner(options = {}) {
     peer.boundAt = Date.now();
     peers.set(socket, peer);
     socket.setNoDelay(true);
+    // 连接正处于背压暂停时，新绑上来的 socket 也一起暂停。
+    if (peer.paused) { try { socket.pause(); } catch { /* 暂停失败就继续按老路走 */ } }
 
     socket.on('data', (chunk) => {
       const serveStartedAt = hrNow();
@@ -3110,6 +3228,14 @@ module.exports = {
   dropFromOut,
   applyBackpressure,
   resumeOrAbort,
+  readSteamRealtimeStatus,
+  steamBacklogBytes,
+  sampleSteamBacklog,
+  pumpPeerBackpressure,
+  collectSourceSockets,
+  pauseSourceSockets,
+  resumeSourceSockets,
+  STEAM_STATUS_MIN_INTERVAL_MS,
   PEER_OUT_HIGH_WATER,
   PEER_OUT_LOW_WATER,
   PEER_OUT_MAX_WATER,

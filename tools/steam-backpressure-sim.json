@@ -1,0 +1,2688 @@
+{
+  "at": "2026-10-12T16:07:03.442Z",
+  "model": {
+    "note": "确定性背压模型：生产端缓冲 256KiB -> 出站队列 -> Steam 缓冲 2MiB -> 按速率放行；不含真实 Steam/SDR/事件循环。",
+    "scenarios": [
+      "heavy",
+      "sustained",
+      "burst900",
+      "slow",
+      "multi",
+      "lossy",
+      "rtt20",
+      "rtt120",
+      "cap"
+    ],
+    "schemes": [
+      "off",
+      "A",
+      "A128",
+      "A512",
+      "B",
+      "C"
+    ]
+  },
+  "rows": [
+    {
+      "scenario": "heavy",
+      "scenarioLabel": "持续重负载：区块需求 1MB/s + 50Hz 移动包",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 2046.98,
+        "p95KB": 2046.98,
+        "maxKB": 2046.98,
+        "peakKB": 2048
+      },
+      "move": {
+        "n": 78,
+        "p50Ms": 2348,
+        "p95Ms": 4336,
+        "maxMs": 4516
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 837,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 6310592,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 3668967,
+        "bufferedBytes": 4753457,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "heavy",
+      "scenarioLabel": "持续重负载：区块需求 1MB/s + 50Hz 移动包",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 227,
+        "p50Ms": 1612,
+        "p95Ms": 2020,
+        "maxMs": 2048
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 369074,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "heavy",
+      "scenarioLabel": "持续重负载：区块需求 1MB/s + 50Hz 移动包",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 43.51,
+        "p95KB": 43.51,
+        "maxKB": 43.51,
+        "peakKB": 158.2
+      },
+      "move": {
+        "n": 247,
+        "p50Ms": 1356,
+        "p95Ms": 1532,
+        "maxMs": 1552
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4325.16,
+      "pauseRatio": 0.96,
+      "flips": 23,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1880608,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1618464,
+        "bufferedBytes": 323473,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "heavy",
+      "scenarioLabel": "持续重负载：区块需求 1MB/s + 50Hz 移动包",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 341.35,
+        "p95KB": 509.63,
+        "maxKB": 509.63,
+        "peakKB": 514.06
+      },
+      "move": {
+        "n": 210,
+        "p50Ms": 2072,
+        "p95Ms": 2736,
+        "maxMs": 2804
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3939.38,
+      "pauseRatio": 0.81,
+      "flips": 7,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2276472,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 2014328,
+        "bufferedBytes": 719337,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "heavy",
+      "scenarioLabel": "持续重负载：区块需求 1MB/s + 50Hz 移动包",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 227,
+        "p50Ms": 1612,
+        "p95Ms": 2020,
+        "maxMs": 2048
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 369074,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "heavy",
+      "scenarioLabel": "持续重负载：区块需求 1MB/s + 50Hz 移动包",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 24.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 260.07
+      },
+      "move": {
+        "n": 258,
+        "p50Ms": 1216,
+        "p95Ms": 1648,
+        "maxMs": 1808
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4345.19,
+      "pauseRatio": 0.93,
+      "flips": 39,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1860673,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1598529,
+        "bufferedBytes": 303538,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "sustained",
+      "scenarioLabel": "中等负载：区块需求 400KB/s + 50Hz 移动包",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 441.95,
+        "p95KB": 736.2,
+        "maxKB": 736.2,
+        "peakKB": 883.71
+      },
+      "move": {
+        "n": 198,
+        "p50Ms": 1148,
+        "p95Ms": 2116,
+        "maxMs": 2220
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2476736,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 2476736,
+        "bufferedBytes": 919601,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "sustained",
+      "scenarioLabel": "中等负载：区块需求 400KB/s + 50Hz 移动包",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 190.01,
+        "p95KB": 190.01,
+        "maxKB": 190.01,
+        "peakKB": 315.97
+      },
+      "move": {
+        "n": 246,
+        "p50Ms": 1324,
+        "p95Ms": 1624,
+        "maxMs": 1664
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 490.56,
+      "pauseRatio": 0.7,
+      "flips": 9,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1974400,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1768486,
+        "bufferedBytes": 417265,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "sustained",
+      "scenarioLabel": "中等负载：区块需求 400KB/s + 50Hz 移动包",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 94.46,
+        "p95KB": 94.46,
+        "maxKB": 94.46,
+        "peakKB": 158.98
+      },
+      "move": {
+        "n": 244,
+        "p50Ms": 1208,
+        "p95Ms": 1348,
+        "maxMs": 1360
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 558.69,
+      "pauseRatio": 0.84,
+      "flips": 21,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1904640,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1670643,
+        "bufferedBytes": 347505,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "sustained",
+      "scenarioLabel": "中等负载：区块需求 400KB/s + 50Hz 移动包",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 379.45,
+        "p95KB": 441.95,
+        "maxKB": 441.95,
+        "peakKB": 513.59
+      },
+      "move": {
+        "n": 198,
+        "p50Ms": 1148,
+        "p95Ms": 2116,
+        "maxMs": 2220
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 349.14,
+      "pauseRatio": 0.27,
+      "flips": 3,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2119219,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 2059788,
+        "bufferedBytes": 562084,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "sustained",
+      "scenarioLabel": "中等负载：区块需求 400KB/s + 50Hz 移动包",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 190.01,
+        "p95KB": 190.01,
+        "maxKB": 190.01,
+        "peakKB": 315.97
+      },
+      "move": {
+        "n": 246,
+        "p50Ms": 1324,
+        "p95Ms": 1624,
+        "maxMs": 1664
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 490.56,
+      "pauseRatio": 0.7,
+      "flips": 9,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1974400,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1768486,
+        "bufferedBytes": 417265,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "sustained",
+      "scenarioLabel": "中等负载：区块需求 400KB/s + 50Hz 移动包",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 19.7,
+        "p95KB": 147.7,
+        "maxKB": 147.7,
+        "peakKB": 148.72
+      },
+      "move": {
+        "n": 248,
+        "p50Ms": 1128,
+        "p95Ms": 1196,
+        "maxMs": 1204
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 605.78,
+      "pauseRatio": 0.82,
+      "flips": 37,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1856230,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1594086,
+        "bufferedBytes": 299095,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "burst900",
+      "scenarioLabel": "先 900KiB 突发再转持续流",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 7,
+        "p50KB": 843.48,
+        "p95KB": 1284.85,
+        "maxKB": 1284.85,
+        "peakKB": 1432.36
+      },
+      "move": {
+        "n": 235,
+        "p50Ms": 2316,
+        "p95Ms": 3456,
+        "maxMs": 3580
+      },
+      "throughputKBps": 254.08,
+      "suppressedKB": 645.6,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 3562842,
+        "deliveredBytes": 2081423,
+        "flushedBytes": 3562842,
+        "bufferedBytes": 1481419,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 8000
+    },
+    {
+      "scenario": "burst900",
+      "scenarioLabel": "先 900KiB 突发再转持续流",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 7,
+        "p50KB": 261.38,
+        "p95KB": 261.38,
+        "maxKB": 261.38,
+        "peakKB": 316.67
+      },
+      "move": {
+        "n": 345,
+        "p50Ms": 1456,
+        "p95Ms": 1644,
+        "maxMs": 1664
+      },
+      "throughputKBps": 254.08,
+      "suppressedKB": 1724.72,
+      "pauseRatio": 0.98,
+      "flips": 17,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2457818,
+        "deliveredBytes": 2081423,
+        "flushedBytes": 2365850,
+        "bufferedBytes": 376395,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 8000
+    },
+    {
+      "scenario": "burst900",
+      "scenarioLabel": "先 900KiB 突发再转持续流",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 7,
+        "p50KB": 62.98,
+        "p95KB": 62.98,
+        "maxKB": 62.98,
+        "peakKB": 189.95
+      },
+      "move": {
+        "n": 352,
+        "p50Ms": 1264,
+        "p95Ms": 1348,
+        "maxMs": 1356
+      },
+      "throughputKBps": 254.08,
+      "suppressedKB": 1756.81,
+      "pauseRatio": 0.98,
+      "flips": 31,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2424832,
+        "deliveredBytes": 2081423,
+        "flushedBytes": 2162688,
+        "bufferedBytes": 343409,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 8000
+    },
+    {
+      "scenario": "burst900",
+      "scenarioLabel": "先 900KiB 突发再转持续流",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 7,
+        "p50KB": 402.1,
+        "p95KB": 494.28,
+        "maxKB": 494.28,
+        "peakKB": 513.53
+      },
+      "move": {
+        "n": 326,
+        "p50Ms": 1868,
+        "p95Ms": 2364,
+        "maxMs": 2424
+      },
+      "throughputKBps": 254.08,
+      "suppressedKB": 1690,
+      "pauseRatio": 0.56,
+      "flips": 5,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2490624,
+        "deliveredBytes": 2081423,
+        "flushedBytes": 2228480,
+        "bufferedBytes": 409201,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 8000
+    },
+    {
+      "scenario": "burst900",
+      "scenarioLabel": "先 900KiB 突发再转持续流",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 7,
+        "p50KB": 261.38,
+        "p95KB": 261.38,
+        "maxKB": 261.38,
+        "peakKB": 316.67
+      },
+      "move": {
+        "n": 345,
+        "p50Ms": 1456,
+        "p95Ms": 1644,
+        "maxMs": 1664
+      },
+      "throughputKBps": 254.08,
+      "suppressedKB": 1724.72,
+      "pauseRatio": 0.98,
+      "flips": 17,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2457818,
+        "deliveredBytes": 2081423,
+        "flushedBytes": 2365850,
+        "bufferedBytes": 376395,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 8000
+    },
+    {
+      "scenario": "burst900",
+      "scenarioLabel": "先 900KiB 突发再转持续流",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 7,
+        "p50KB": 69.38,
+        "p95KB": 261.38,
+        "maxKB": 261.38,
+        "peakKB": 316.67
+      },
+      "move": {
+        "n": 369,
+        "p50Ms": 1172,
+        "p95Ms": 1544,
+        "maxMs": 1664
+      },
+      "throughputKBps": 254.08,
+      "suppressedKB": 1801.36,
+      "pauseRatio": 0.98,
+      "flips": 53,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2379342,
+        "deliveredBytes": 2081423,
+        "flushedBytes": 2169242,
+        "bufferedBytes": 297919,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 8000
+    },
+    {
+      "scenario": "slow",
+      "scenarioLabel": "慢生产端 180KB/s（低于链路 256KB/s）",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 180,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 0,
+        "p95KB": 0,
+        "maxKB": 0,
+        "peakKB": 0.78
+      },
+      "move": {
+        "n": 296,
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "maxMs": 60
+      },
+      "throughputKBps": 181.28,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1125055,
+        "deliveredBytes": 1113804,
+        "flushedBytes": 1125055,
+        "bufferedBytes": 11251,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "slow",
+      "scenarioLabel": "慢生产端 180KB/s（低于链路 256KB/s）",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 180,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 0,
+        "p95KB": 0,
+        "maxKB": 0,
+        "peakKB": 0.78
+      },
+      "move": {
+        "n": 296,
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "maxMs": 60
+      },
+      "throughputKBps": 181.28,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1125055,
+        "deliveredBytes": 1113804,
+        "flushedBytes": 1125055,
+        "bufferedBytes": 11251,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "slow",
+      "scenarioLabel": "慢生产端 180KB/s（低于链路 256KB/s）",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 180,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 0,
+        "p95KB": 0,
+        "maxKB": 0,
+        "peakKB": 0.78
+      },
+      "move": {
+        "n": 296,
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "maxMs": 60
+      },
+      "throughputKBps": 181.28,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1125055,
+        "deliveredBytes": 1113804,
+        "flushedBytes": 1125055,
+        "bufferedBytes": 11251,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "slow",
+      "scenarioLabel": "慢生产端 180KB/s（低于链路 256KB/s）",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 180,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 0,
+        "p95KB": 0,
+        "maxKB": 0,
+        "peakKB": 0.78
+      },
+      "move": {
+        "n": 296,
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "maxMs": 60
+      },
+      "throughputKBps": 181.28,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1125055,
+        "deliveredBytes": 1113804,
+        "flushedBytes": 1125055,
+        "bufferedBytes": 11251,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "slow",
+      "scenarioLabel": "慢生产端 180KB/s（低于链路 256KB/s）",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 180,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 0,
+        "p95KB": 0,
+        "maxKB": 0,
+        "peakKB": 0.78
+      },
+      "move": {
+        "n": 296,
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "maxMs": 60
+      },
+      "throughputKBps": 181.28,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1125055,
+        "deliveredBytes": 1113804,
+        "flushedBytes": 1125055,
+        "bufferedBytes": 11251,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "slow",
+      "scenarioLabel": "慢生产端 180KB/s（低于链路 256KB/s）",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 180,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 0,
+        "p95KB": 0,
+        "maxKB": 0,
+        "peakKB": 0.78
+      },
+      "move": {
+        "n": 296,
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "maxMs": 60
+      },
+      "throughputKBps": 181.28,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1125055,
+        "deliveredBytes": 1113804,
+        "flushedBytes": 1125055,
+        "bufferedBytes": 11251,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "multi",
+      "scenarioLabel": "两条流共享同一连接",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 2,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 2046.98,
+        "p95KB": 2046.98,
+        "maxKB": 2046.98,
+        "peakKB": 2048
+      },
+      "move": {
+        "n": 78,
+        "p50Ms": 2348,
+        "p95Ms": 4336,
+        "maxMs": 4516
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 837,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 6310592,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 3668967,
+        "bufferedBytes": 4753457,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "multi",
+      "scenarioLabel": "两条流共享同一连接",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 2,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 227,
+        "p50Ms": 1612,
+        "p95Ms": 2020,
+        "maxMs": 2048
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 369074,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "multi",
+      "scenarioLabel": "两条流共享同一连接",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 2,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 43.51,
+        "p95KB": 43.51,
+        "maxKB": 43.51,
+        "peakKB": 158.2
+      },
+      "move": {
+        "n": 247,
+        "p50Ms": 1356,
+        "p95Ms": 1532,
+        "maxMs": 1552
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4325.16,
+      "pauseRatio": 0.96,
+      "flips": 23,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1880608,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1618464,
+        "bufferedBytes": 323473,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "multi",
+      "scenarioLabel": "两条流共享同一连接",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 2,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 341.35,
+        "p95KB": 509.63,
+        "maxKB": 509.63,
+        "peakKB": 514.06
+      },
+      "move": {
+        "n": 210,
+        "p50Ms": 2072,
+        "p95Ms": 2736,
+        "maxMs": 2804
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3939.38,
+      "pauseRatio": 0.81,
+      "flips": 7,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2276472,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 2014328,
+        "bufferedBytes": 719337,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "multi",
+      "scenarioLabel": "两条流共享同一连接",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 2,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 227,
+        "p50Ms": 1612,
+        "p95Ms": 2020,
+        "maxMs": 2048
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 369074,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "multi",
+      "scenarioLabel": "两条流共享同一连接",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 1024,
+        "streams": 2,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 24.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 260.07
+      },
+      "move": {
+        "n": 258,
+        "p50Ms": 1216,
+        "p95Ms": 1648,
+        "maxMs": 1808
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 4345.19,
+      "pauseRatio": 0.93,
+      "flips": 39,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1860673,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1598529,
+        "bufferedBytes": 303538,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "lossy",
+      "scenarioLabel": "2% 丢包 + 40ms 额外延迟",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 100,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0.02
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 2048,
+        "p95KB": 2048,
+        "maxKB": 2048,
+        "peakKB": 2048
+      },
+      "move": {
+        "n": 27,
+        "p50Ms": 3540,
+        "p95Ms": 5260,
+        "maxMs": 5264
+      },
+      "throughputKBps": 89.69,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 970,
+      "idleRatio": 0,
+      "loss": {
+        "events": 19,
+        "retriedKB": 40.19
+      },
+      "integrity": {
+        "producedBytes": 6310592,
+        "deliveredBytes": 551079,
+        "flushedBytes": 2673397,
+        "bufferedBytes": 5759513,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "lossy",
+      "scenarioLabel": "2% 丢包 + 40ms 额外延迟",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 100,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0.02
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 204.03,
+        "p95KB": 290.04,
+        "maxKB": 290.04,
+        "peakKB": 316.88
+      },
+      "move": {
+        "n": 147,
+        "p50Ms": 4220,
+        "p95Ms": 5208,
+        "maxMs": 5288
+      },
+      "throughputKBps": 89.99,
+      "suppressedKB": 5117.82,
+      "pauseRatio": 0.95,
+      "flips": 5,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 19,
+        "retriedKB": 38.59
+      },
+      "integrity": {
+        "producedBytes": 1068282,
+        "deliveredBytes": 552895,
+        "flushedBytes": 806138,
+        "bufferedBytes": 515387,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "lossy",
+      "scenarioLabel": "2% 丢包 + 40ms 额外延迟",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 100,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0.02
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 95.54,
+        "p95KB": 145.6,
+        "maxKB": 145.6,
+        "peakKB": 158.91
+      },
+      "move": {
+        "n": 164,
+        "p50Ms": 3564,
+        "p95Ms": 4376,
+        "maxMs": 4472
+      },
+      "throughputKBps": 89.82,
+      "suppressedKB": 5246.42,
+      "pauseRatio": 0.97,
+      "flips": 9,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 20,
+        "retriedKB": 42.97
+      },
+      "integrity": {
+        "producedBytes": 937874,
+        "deliveredBytes": 551836,
+        "flushedBytes": 675730,
+        "bufferedBytes": 386038,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "lossy",
+      "scenarioLabel": "2% 丢包 + 40ms 额外延迟",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 100,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0.02
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 416.1,
+        "p95KB": 514.92,
+        "maxKB": 514.92,
+        "peakKB": 514.92
+      },
+      "move": {
+        "n": 27,
+        "p50Ms": 3540,
+        "p95Ms": 5260,
+        "maxMs": 5264
+      },
+      "throughputKBps": 89.69,
+      "suppressedKB": 4933.21,
+      "pauseRatio": 0.89,
+      "flips": 3,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 19,
+        "retriedKB": 40.19
+      },
+      "integrity": {
+        "producedBytes": 1256618,
+        "deliveredBytes": 551079,
+        "flushedBytes": 994474,
+        "bufferedBytes": 705539,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "lossy",
+      "scenarioLabel": "2% 丢包 + 40ms 额外延迟",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 100,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0.02
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 204.03,
+        "p95KB": 290.04,
+        "maxKB": 290.04,
+        "peakKB": 316.88
+      },
+      "move": {
+        "n": 147,
+        "p50Ms": 4220,
+        "p95Ms": 5208,
+        "maxMs": 5288
+      },
+      "throughputKBps": 89.99,
+      "suppressedKB": 5117.82,
+      "pauseRatio": 0.95,
+      "flips": 5,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 19,
+        "retriedKB": 38.59
+      },
+      "integrity": {
+        "producedBytes": 1068282,
+        "deliveredBytes": 552895,
+        "flushedBytes": 806138,
+        "bufferedBytes": 515387,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "lossy",
+      "scenarioLabel": "2% 丢包 + 40ms 额外延迟",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 100,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0.02
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 76.03,
+        "p95KB": 222.9,
+        "maxKB": 222.9,
+        "peakKB": 257.84
+      },
+      "move": {
+        "n": 172,
+        "p50Ms": 4000,
+        "p95Ms": 5200,
+        "maxMs": 5288
+      },
+      "throughputKBps": 89.99,
+      "suppressedKB": 5310.44,
+      "pauseRatio": 0.95,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 20,
+        "retriedKB": 40.05
+      },
+      "integrity": {
+        "producedBytes": 871674,
+        "deliveredBytes": 552895,
+        "flushedBytes": 609530,
+        "bufferedBytes": 318779,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt20",
+      "scenarioLabel": "低 RTT 20ms",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 20,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 2046.98,
+        "p95KB": 2046.98,
+        "maxKB": 2046.98,
+        "peakKB": 2048
+      },
+      "move": {
+        "n": 78,
+        "p50Ms": 2308,
+        "p95Ms": 4296,
+        "maxMs": 4476
+      },
+      "throughputKBps": 255.15,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 837,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 6310592,
+        "deliveredBytes": 1567621,
+        "flushedBytes": 3668967,
+        "bufferedBytes": 4742971,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt20",
+      "scenarioLabel": "低 RTT 20ms",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 20,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 227,
+        "p50Ms": 1572,
+        "p95Ms": 1980,
+        "maxMs": 2008
+      },
+      "throughputKBps": 255.15,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1567621,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 358588,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt20",
+      "scenarioLabel": "低 RTT 20ms",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 20,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 43.51,
+        "p95KB": 43.51,
+        "maxKB": 43.51,
+        "peakKB": 158.2
+      },
+      "move": {
+        "n": 247,
+        "p50Ms": 1316,
+        "p95Ms": 1492,
+        "maxMs": 1512
+      },
+      "throughputKBps": 255.15,
+      "suppressedKB": 4325.16,
+      "pauseRatio": 0.96,
+      "flips": 23,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1880608,
+        "deliveredBytes": 1567621,
+        "flushedBytes": 1618464,
+        "bufferedBytes": 312987,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt20",
+      "scenarioLabel": "低 RTT 20ms",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 20,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 341.35,
+        "p95KB": 509.63,
+        "maxKB": 509.63,
+        "peakKB": 514.06
+      },
+      "move": {
+        "n": 211,
+        "p50Ms": 2024,
+        "p95Ms": 2696,
+        "maxMs": 2764
+      },
+      "throughputKBps": 255.15,
+      "suppressedKB": 3939.38,
+      "pauseRatio": 0.81,
+      "flips": 7,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2276472,
+        "deliveredBytes": 1567621,
+        "flushedBytes": 2014328,
+        "bufferedBytes": 708851,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt20",
+      "scenarioLabel": "低 RTT 20ms",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 20,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 227,
+        "p50Ms": 1572,
+        "p95Ms": 1980,
+        "maxMs": 2008
+      },
+      "throughputKBps": 255.15,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1567621,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 358588,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt20",
+      "scenarioLabel": "低 RTT 20ms",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 20,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 24.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 260.07
+      },
+      "move": {
+        "n": 259,
+        "p50Ms": 1176,
+        "p95Ms": 1608,
+        "maxMs": 1768
+      },
+      "throughputKBps": 255.15,
+      "suppressedKB": 4345.19,
+      "pauseRatio": 0.93,
+      "flips": 39,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1860673,
+        "deliveredBytes": 1567621,
+        "flushedBytes": 1598529,
+        "bufferedBytes": 293052,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt120",
+      "scenarioLabel": "高 RTT 120ms",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 120,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 2046.98,
+        "p95KB": 2046.98,
+        "maxKB": 2046.98,
+        "peakKB": 2048
+      },
+      "move": {
+        "n": 77,
+        "p50Ms": 2348,
+        "p95Ms": 4336,
+        "maxMs": 4516
+      },
+      "throughputKBps": 250.88,
+      "suppressedKB": 0,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 837,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 6310592,
+        "deliveredBytes": 1541406,
+        "flushedBytes": 3668967,
+        "bufferedBytes": 4769186,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt120",
+      "scenarioLabel": "高 RTT 120ms",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 120,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 226,
+        "p50Ms": 1672,
+        "p95Ms": 2080,
+        "maxMs": 2108
+      },
+      "throughputKBps": 250.88,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1541406,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 384803,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt120",
+      "scenarioLabel": "高 RTT 120ms",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 120,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 43.51,
+        "p95KB": 43.51,
+        "maxKB": 43.51,
+        "peakKB": 158.2
+      },
+      "move": {
+        "n": 246,
+        "p50Ms": 1416,
+        "p95Ms": 1592,
+        "maxMs": 1612
+      },
+      "throughputKBps": 250.88,
+      "suppressedKB": 4325.16,
+      "pauseRatio": 0.96,
+      "flips": 23,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1880608,
+        "deliveredBytes": 1541406,
+        "flushedBytes": 1618464,
+        "bufferedBytes": 339202,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt120",
+      "scenarioLabel": "高 RTT 120ms",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 120,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 341.35,
+        "p95KB": 509.63,
+        "maxKB": 509.63,
+        "peakKB": 514.06
+      },
+      "move": {
+        "n": 209,
+        "p50Ms": 2132,
+        "p95Ms": 2796,
+        "maxMs": 2864
+      },
+      "throughputKBps": 250.88,
+      "suppressedKB": 3939.38,
+      "pauseRatio": 0.81,
+      "flips": 7,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2276472,
+        "deliveredBytes": 1541406,
+        "flushedBytes": 2014328,
+        "bufferedBytes": 735066,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt120",
+      "scenarioLabel": "高 RTT 120ms",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 120,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 316.39
+      },
+      "move": {
+        "n": 226,
+        "p50Ms": 1672,
+        "p95Ms": 2080,
+        "maxMs": 2108
+      },
+      "throughputKBps": 250.88,
+      "suppressedKB": 4279.62,
+      "pauseRatio": 0.93,
+      "flips": 11,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1541406,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 384803,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "rtt120",
+      "scenarioLabel": "高 RTT 120ms",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 93.44,
+        "lowKB": 23.36,
+        "rateKBps": 256,
+        "rttMs": 120,
+        "chunkRateKBps": 1024,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 88.04,
+        "p95KB": 88.04,
+        "maxKB": 88.04,
+        "peakKB": 260.07
+      },
+      "move": {
+        "n": 256,
+        "p50Ms": 1388,
+        "p95Ms": 1708,
+        "maxMs": 1868
+      },
+      "throughputKBps": 250.88,
+      "suppressedKB": 4281.31,
+      "pauseRatio": 0.93,
+      "flips": 21,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1926209,
+        "deliveredBytes": 1541406,
+        "flushedBytes": 1664065,
+        "bufferedBytes": 384803,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "cap",
+      "scenarioLabel": "起始 3MiB 突发（超过 Steam 缓冲）",
+      "schemeLabel": "0.14.3（完全不停）",
+      "scheme": "off",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 696.35,
+        "p95KB": 990.6,
+        "maxKB": 990.6,
+        "peakKB": 1138.11
+      },
+      "move": {
+        "n": 167,
+        "p50Ms": 1960,
+        "p95Ms": 2764,
+        "maxMs": 2856
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 2817.6,
+      "pauseRatio": 0,
+      "flips": 0,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2737242,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 2737242,
+        "bufferedBytes": 1180107,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "cap",
+      "scenarioLabel": "起始 3MiB 突发（超过 Steam 缓冲）",
+      "schemeLabel": "A 双水位 256/64KiB",
+      "scheme": "A",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 261.38,
+        "p95KB": 261.38,
+        "maxKB": 261.38,
+        "peakKB": 316.67
+      },
+      "move": {
+        "n": 237,
+        "p50Ms": 1444,
+        "p95Ms": 1644,
+        "maxMs": 1664
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3602.47,
+      "pauseRatio": 0.98,
+      "flips": 13,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1933530,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1841562,
+        "bufferedBytes": 376395,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "cap",
+      "scenarioLabel": "起始 3MiB 突发（超过 Steam 缓冲）",
+      "schemeLabel": "A 双水位 128/32KiB",
+      "scheme": "A128",
+      "params": {
+        "highKB": 128,
+        "lowKB": 32,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 62.98,
+        "p95KB": 62.98,
+        "maxKB": 62.98,
+        "peakKB": 189.95
+      },
+      "move": {
+        "n": 248,
+        "p50Ms": 1252,
+        "p95Ms": 1348,
+        "maxMs": 1356
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3634.56,
+      "pauseRatio": 0.98,
+      "flips": 23,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1900544,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1638400,
+        "bufferedBytes": 343409,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "cap",
+      "scenarioLabel": "起始 3MiB 突发（超过 Steam 缓冲）",
+      "schemeLabel": "A 双水位 512/128KiB",
+      "scheme": "A512",
+      "params": {
+        "highKB": 512,
+        "lowKB": 128,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 402.1,
+        "p95KB": 494.28,
+        "maxKB": 494.28,
+        "peakKB": 513.53
+      },
+      "move": {
+        "n": 215,
+        "p50Ms": 1812,
+        "p95Ms": 2352,
+        "maxMs": 2420
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3516,
+      "pauseRatio": 0.5,
+      "flips": 4,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 2022080,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 2022080,
+        "bufferedBytes": 464945,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "cap",
+      "scenarioLabel": "起始 3MiB 突发（超过 Steam 缓冲）",
+      "schemeLabel": "B 双水位 256/64KiB + 排队时间门",
+      "scheme": "B",
+      "params": {
+        "highKB": 256,
+        "lowKB": 64,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 261.38,
+        "p95KB": 261.38,
+        "maxKB": 261.38,
+        "peakKB": 316.67
+      },
+      "move": {
+        "n": 237,
+        "p50Ms": 1444,
+        "p95Ms": 1644,
+        "maxMs": 1664
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3602.47,
+      "pauseRatio": 0.98,
+      "flips": 13,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1933530,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1841562,
+        "bufferedBytes": 376395,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    },
+    {
+      "scenario": "cap",
+      "scenarioLabel": "起始 3MiB 突发（超过 Steam 缓冲）",
+      "schemeLabel": "C 按实测速率/RTT 自适应",
+      "scheme": "C",
+      "params": {
+        "highKB": 64,
+        "lowKB": 16,
+        "rateKBps": 256,
+        "rttMs": 60,
+        "chunkRateKBps": 400,
+        "streams": 1,
+        "lossRate": 0
+      },
+      "pending": {
+        "n": 5,
+        "p50KB": 69.38,
+        "p95KB": 261.38,
+        "maxKB": 261.38,
+        "peakKB": 316.67
+      },
+      "move": {
+        "n": 261,
+        "p50Ms": 1180,
+        "p95Ms": 1580,
+        "maxMs": 1664
+      },
+      "throughputKBps": 253.44,
+      "suppressedKB": 3679.11,
+      "pauseRatio": 0.98,
+      "flips": 37,
+      "limitExceeded": 0,
+      "idleRatio": 0,
+      "loss": {
+        "events": 0,
+        "retriedKB": 0
+      },
+      "integrity": {
+        "producedBytes": 1855054,
+        "deliveredBytes": 1557135,
+        "flushedBytes": 1644954,
+        "bufferedBytes": 297919,
+        "lostBytes": 0,
+        "balanced": true
+      },
+      "simMs": 6000
+    }
+  ],
+  "selection": {
+    "rule": "零丢失 -> 吞吐>=基线90% -> 最坏排队 p95<=1250ms（目标是 1000ms，允许\"接近\"容差）且峰值<=2000ms -> 翻转最少 -> 延迟最低",
+    "targets": {
+      "worstQueueP95Ms": 1000,
+      "worstQueueP95LimitMs": 1250,
+      "worstQueuePeakMs": 2000
+    },
+    "qualified": [
+      {
+        "scheme": "A",
+        "label": "A 双水位 256/64KiB",
+        "latencyRatio": 0.6334,
+        "meanFlips": 9.78,
+        "worstQueueP95Ms": 1133,
+        "worstQueuePeakMs": 1237.8
+      },
+      {
+        "scheme": "B",
+        "label": "B 双水位 256/64KiB + 排队时间门",
+        "latencyRatio": 0.6334,
+        "meanFlips": 9.78,
+        "worstQueueP95Ms": 1133,
+        "worstQueuePeakMs": 1237.8
+      },
+      {
+        "scheme": "A128",
+        "label": "A 双水位 128/32KiB",
+        "latencyRatio": 0.5298,
+        "meanFlips": 19.56,
+        "worstQueueP95Ms": 568.8,
+        "worstQueuePeakMs": 742
+      },
+      {
+        "scheme": "C",
+        "label": "C 按实测速率/RTT 自适应",
+        "latencyRatio": 0.5667,
+        "meanFlips": 30.67,
+        "worstQueueP95Ms": 1021,
+        "worstQueuePeakMs": 1237
+      }
+    ],
+    "chosen": "A"
+  },
+  "summary": [
+    {
+      "scheme": "off",
+      "label": "0.14.3（完全不停）",
+      "latencyRatio": 1,
+      "pendingRatio": 1,
+      "throughputRatio": 1,
+      "meanFlips": 0,
+      "worstQueueP95Ms": 8000,
+      "worstQueuePeakMs": 8000,
+      "unbalancedBytes": 0,
+      "unbalancedRows": 0,
+      "limitExceeded": 4318
+    },
+    {
+      "scheme": "A",
+      "label": "A 双水位 256/64KiB",
+      "latencyRatio": 0.6334,
+      "pendingRatio": 0.2266,
+      "throughputRatio": 1.0004,
+      "meanFlips": 9.78,
+      "worstQueueP95Ms": 1133,
+      "worstQueuePeakMs": 1237.8,
+      "unbalancedBytes": 0,
+      "unbalancedRows": 0,
+      "limitExceeded": 0
+    },
+    {
+      "scheme": "A128",
+      "label": "A 双水位 128/32KiB",
+      "latencyRatio": 0.5298,
+      "pendingRatio": 0.1552,
+      "throughputRatio": 1.0002,
+      "meanFlips": 19.56,
+      "worstQueueP95Ms": 568.8,
+      "worstQueuePeakMs": 742,
+      "unbalancedBytes": 0,
+      "unbalancedRows": 0,
+      "limitExceeded": 0
+    },
+    {
+      "scheme": "A512",
+      "label": "A 双水位 512/128KiB",
+      "latencyRatio": 0.7855,
+      "pendingRatio": 0.4146,
+      "throughputRatio": 1,
+      "meanFlips": 4.78,
+      "worstQueueP95Ms": 2011.4,
+      "worstQueuePeakMs": 2011.4,
+      "unbalancedBytes": 0,
+      "unbalancedRows": 0,
+      "limitExceeded": 0
+    },
+    {
+      "scheme": "B",
+      "label": "B 双水位 256/64KiB + 排队时间门",
+      "latencyRatio": 0.6334,
+      "pendingRatio": 0.2266,
+      "throughputRatio": 1.0004,
+      "meanFlips": 9.78,
+      "worstQueueP95Ms": 1133,
+      "worstQueuePeakMs": 1237.8,
+      "unbalancedBytes": 0,
+      "unbalancedRows": 0,
+      "limitExceeded": 0
+    },
+    {
+      "scheme": "C",
+      "label": "C 按实测速率/RTT 自适应",
+      "latencyRatio": 0.5667,
+      "pendingRatio": 0.2165,
+      "throughputRatio": 1.0004,
+      "meanFlips": 30.67,
+      "worstQueueP95Ms": 1021,
+      "worstQueuePeakMs": 1237,
+      "unbalancedBytes": 0,
+      "unbalancedRows": 0,
+      "limitExceeded": 0
+    }
+  ]
+}

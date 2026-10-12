@@ -58,6 +58,13 @@ const DURATION_MS = Math.max(SMALL_INTERVAL_MS * 2, Number(argOf('--duration', '
 const JSON_OUT = argOf('--json', '');
 const QUIET = argv.includes('--quiet');
 
+// 背压择优目标：跨场景最坏排队 p95 ≤ TARGET_P95_MS（允许 TARGET_P95_TOLERANCE 倍容差）、
+// 最坏峰值 ≤ TARGET_PEAK_MS。
+const TARGET_P95_MS = 1000;
+const TARGET_P95_TOLERANCE = 1.25;
+const TARGET_PEAK_MS = 2000;
+const P95_LIMIT_MS = TARGET_P95_MS * TARGET_P95_TOLERANCE;
+
 const BIG_STREAM = 2;
 const SMALL_STREAM = 3;
 
@@ -217,4 +224,154 @@ if (JSON_OUT) {
     rows,
   }, null, 2), 'utf8');
   if (!QUIET) console.log('结果写入 ' + out);
+}
+
+// ============================================================================
+// --backpressure：Steam 待发可靠数据（pendingReliable）背压的 A/B/C 对照
+// ============================================================================
+// 模型见 tools/steam-backpressure-model.cjs。本段负责跑策略×场景矩阵、打印对照表，
+// 并按零丢失 → 排队 → 吞吐 → 翻转次数 → 延迟的优先级选出推荐策略（--bp-json <path> 可导出 JSON）。
+if (argv.includes('--backpressure')) {
+  const model = require('./steam-backpressure-model.cjs');
+  const BP_JSON = argOf('--bp-json', '');
+  const bpRows = [];
+  for (const sc of model.SCENARIOS) {
+    for (const sch of model.SCHEMES) {
+      bpRows.push({
+        scenario: sc.id,
+        scenarioLabel: sc.label,
+        schemeLabel: sch.label,
+        ...model.simulateBackpressure({
+          scheme: sch.id,
+          backlogHigh: sch.backlogHigh,
+          queueLowMs: sch.queueLowMs,
+          ...sc.options,
+        }),
+      });
+    }
+  }
+
+  const ratios = new Map(); // scheme -> {latency:[], pending:[], throughput:[], flips:[], imbalance:0, unbalanced:0, limit:0, worstP95Ms:0, worstPeakMs:0}
+  for (const sc of model.SCENARIOS) {
+    const rowsOf = bpRows.filter((r) => r.scenario === sc.id);
+    const base = rowsOf.find((r) => r.scheme === 'off');
+    for (const r of rowsOf) {
+      if (!ratios.has(r.scheme)) ratios.set(r.scheme, { latency: [], pending: [], throughput: [], flips: [], imbalance: 0, unbalanced: 0, limit: 0, worstP95Ms: 0, worstPeakMs: 0 });
+      const acc = ratios.get(r.scheme);
+      acc.latency.push(base && base.move.p95Ms ? r.move.p95Ms / base.move.p95Ms : 1);
+      acc.pending.push(base && base.pending.p95KB ? r.pending.p95KB / base.pending.p95KB : 1);
+      acc.throughput.push(base && base.throughputKBps ? r.throughputKBps / base.throughputKBps : 1);
+      acc.flips.push(r.flips);
+      acc.imbalance += r.integrity.lostBytes;
+      if (!r.integrity.balanced) acc.unbalanced += 1;
+      acc.limit += r.limitExceeded;
+      // 排队时间 = 待发字节 / 该场景链路速率（与诊断帧的 queueMs 同口径），跨场景取最坏
+      const perKB = r.params.rateKBps || 0;
+      if (perKB > 0) {
+        acc.worstP95Ms = Math.max(acc.worstP95Ms, (r.pending.p95KB / perKB) * 1000);
+        acc.worstPeakMs = Math.max(acc.worstPeakMs, (r.pending.peakKB / perKB) * 1000);
+      }
+    }
+  }
+  const mean = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0);
+
+  // 择优规则（按任务书 §三 的优先级机械执行）：
+  //   ① 零丢失（完整性平衡 + 无残留不平衡行）② 吞吐 ≥ 基线 90%
+  //   ③ 达到首轮排队目标（跨场景最坏 p95 ≤ 1s、最坏峰值 ≤ 2s）
+  //   ④ 在达标者里选翻转次数最少（最不容易抖动/过度暂停）⑤ 同翻转数再比延迟
+  const candidates = model.SCHEMES
+    .filter((s) => s.id !== 'off')
+    .map((s) => {
+      const acc = ratios.get(s.id);
+      return { s, acc, latency: mean(acc.latency), flips: mean(acc.flips) };
+    })
+    .filter((c) => c.acc.imbalance === 0 && c.acc.unbalanced === 0 && mean(c.acc.throughput) >= 0.9
+      && c.acc.worstP95Ms <= P95_LIMIT_MS && c.acc.worstPeakMs <= TARGET_PEAK_MS)
+    .sort((a, b) => (a.flips - b.flips) || (a.latency - b.latency));
+
+  if (!QUIET) {
+    console.log('');
+    console.log('Steam 待发可靠数据背压 —— 确定性模型对照（链路 256KB/s、RTT 60ms、1Hz 采样口径与诊断帧一致）');
+    console.log('模型：生产端缓冲 256KiB → 出站队列 → Steam 缓冲 2MiB → 按速放行；不含真实 Steam/SDR/事件循环开销。');
+    for (const sc of model.SCENARIOS) {
+      console.log('');
+      console.log('【' + sc.label + '】');
+      console.log(pad('策略', 34) + num('移动包 p50', 12) + num('p95', 9) + num('最大', 9) + num('待发 p95', 11) + num('待发峰值', 11) + num('吞吐KB/s', 11) + num('暂停占比', 11) + num('翻转', 7) + num('限额拒', 8) + num('未平衡', 10));
+      for (const r of bpRows.filter((x) => x.scenario === sc.id)) {
+        console.log(
+          pad(r.schemeLabel, 34) + num(`${r.move.p50Ms}ms`, 12) + num(`${r.move.p95Ms}ms`, 9) + num(`${r.move.maxMs}ms`, 9)
+          + num(`${r.pending.p95KB}KB`, 11) + num(`${r.pending.peakKB}KB`, 11)
+          + num(r.throughputKBps, 11) + num(r.pauseRatio, 11) + num(r.flips, 7)
+          + num(r.limitExceeded, 8) + num(r.integrity.lostBytes, 10),
+        );
+      }
+    }
+    console.log('');
+    console.log('汇总（相对 0.14.3 基线的平均比值，越小越好；吞吐比值要 ≥0.9 才有资格）');
+    console.log(pad('策略', 34) + num('移动包p95', 12) + num('待发p95', 11) + num('吞吐', 9) + num('平均翻转', 11) + num('最坏排队p95', 13) + num('最坏峰值', 11) + num('资格', 7));
+    for (const sch of model.SCHEMES) {
+      const acc = ratios.get(sch.id);
+      if (!acc) continue;
+      const qualified = acc.imbalance === 0 && acc.unbalanced === 0 && mean(acc.throughput) >= 0.9
+        && acc.worstP95Ms <= P95_LIMIT_MS && acc.worstPeakMs <= TARGET_PEAK_MS ? '是' : '否';
+      console.log(
+        pad(sch.label, 34) + num(mean(acc.latency).toFixed(3), 12) + num(mean(acc.pending).toFixed(3), 11)
+        + num(mean(acc.throughput).toFixed(3), 9) + num(mean(acc.flips).toFixed(1), 11)
+        + num(`${acc.worstP95Ms.toFixed(0)}ms`, 13) + num(`${acc.worstPeakMs.toFixed(0)}ms`, 11) + num(qualified, 7),
+      );
+    }
+
+    console.log('');
+    console.log(`择优规则：零丢失 → 吞吐≥基线90% → 最坏排队 p95≤${P95_LIMIT_MS}ms（目标 ${TARGET_P95_MS}ms 的"接近"容差内）且峰值≤${TARGET_PEAK_MS}ms → 翻转最少 → 延迟最低`);
+    if (candidates.length === 0) {
+      console.log('自动择优：没有策略同时满足上述资格，结论是没有可用方案（不许硬选）。');
+    } else {
+      const win = candidates[0];
+      console.log('自动择优：' + win.s.label
+        + `（移动包 p95 平均 ${win.latency.toFixed(3)}× 基线、平均翻转 ${win.flips.toFixed(1)}、最坏排队 p95 ${win.acc.worstP95Ms.toFixed(0)}ms）`);
+      console.log('次优：' + candidates.slice(1).map((c) => `${c.s.label} ${c.latency.toFixed(3)}×/${c.flips.toFixed(1)}翻转`).join('；'));
+    }
+  }
+
+  if (BP_JSON) {
+    const out = path.isAbsolute(BP_JSON) ? BP_JSON : path.join(__dirname, '..', BP_JSON);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, JSON.stringify({
+      at: new Date().toISOString(),
+      model: {
+        note: '确定性背压模型：生产端缓冲 256KiB -> 出站队列 -> Steam 缓冲 2MiB -> 按速率放行；不含真实 Steam/SDR/事件循环。',
+        scenarios: model.SCENARIOS.map((s) => s.id),
+        schemes: model.SCHEMES.map((s) => s.id),
+      },
+      rows: bpRows,
+      selection: {
+        rule: `零丢失 -> 吞吐>=基线90% -> 最坏排队 p95<=${P95_LIMIT_MS}ms（目标是 ${TARGET_P95_MS}ms，允许"接近"容差）且峰值<=${TARGET_PEAK_MS}ms -> 翻转最少 -> 延迟最低`,
+        targets: { worstQueueP95Ms: TARGET_P95_MS, worstQueueP95LimitMs: P95_LIMIT_MS, worstQueuePeakMs: TARGET_PEAK_MS },
+        qualified: candidates.map((c) => ({
+          scheme: c.s.id, label: c.s.label,
+          latencyRatio: Number(c.latency.toFixed(4)),
+          meanFlips: Number(c.flips.toFixed(2)),
+          worstQueueP95Ms: Number(c.acc.worstP95Ms.toFixed(1)),
+          worstQueuePeakMs: Number(c.acc.worstPeakMs.toFixed(1)),
+        })),
+        chosen: candidates.length ? candidates[0].s.id : null,
+      },
+      summary: model.SCHEMES.filter((s) => ratios.has(s.id)).map((s) => {
+        const acc = ratios.get(s.id);
+        return {
+          scheme: s.id, label: s.label,
+          latencyRatio: Number(mean(acc.latency).toFixed(4)),
+          pendingRatio: Number(mean(acc.pending).toFixed(4)),
+          throughputRatio: Number(mean(acc.throughput).toFixed(4)),
+          meanFlips: Number(mean(acc.flips).toFixed(2)),
+          worstQueueP95Ms: Number(acc.worstP95Ms.toFixed(1)),
+          worstQueuePeakMs: Number(acc.worstPeakMs.toFixed(1)),
+          unbalancedBytes: acc.imbalance,
+          unbalancedRows: acc.unbalanced,
+          limitExceeded: acc.limit,
+        };
+      }),
+    }, null, 2), 'utf8');
+    if (!QUIET) console.log('背压模型结果写入 ' + out);
+  }
 }
