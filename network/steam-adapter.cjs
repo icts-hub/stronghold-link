@@ -376,6 +376,232 @@ function streamCloseInfo(target, fallbackKind, fallbackReason) {
 }
 
 /**
+ * 0.14.6：流级字节账本（纯诊断，不改传输语义）。
+ *
+ * 为什么必须有它：现场 `unknown compression method` / `incorrect header check` 的物理含义
+ * 只有一句 —— "这条 TCP 流里少了一段、多了一段、或者换了一段"。而"谁换的"读代码定不了案：
+ * 房主、加入者、Steam 通道、游戏自己，四方都可能。唯一能定案的证据是**两端各自算账**：
+ * 同一条流，房主数"从游戏服务读到多少字节、哈希是多少"，加入者数"交给游戏客户端多少字节、
+ * 哈希是多少"。把两边的 `流结束（…）` 行放在一起比：
+ *   · 完全相等 ⇒ 这条流经我们隧道之后一个字节都没变，问题不在转发；
+ *   · 不相等   ⇒ 直接得到方向，块哈希还能指到首个不同的 64 KiB 块。
+ *
+ * 两个独立哈希（FNV-1a + 乘 31 加权和）不防篡改，只保证"少一个字节"这类差异不会漏判；
+ * 每 64 KiB 落一个 8 字节块指纹，最多记 AUDIT_MAX_BLOCKS 块（再往后只累计总哈希）。
+ * 单流最多哈希 AUDIT_MAX_BYTES，护 CPU。`SHL_STREAM_AUDIT=0` 可整个关掉。
+ */
+const AUDIT_ENABLED = process.env.SHL_STREAM_AUDIT !== '0';
+const AUDIT_BLOCK_BYTES = 64 * 1024;
+const AUDIT_MAX_BLOCKS = 64;
+const AUDIT_MAX_BYTES = 32 * 1024 * 1024;
+const AUDIT_SEED_H1 = 0x811c9dc5;
+const AUDIT_SEED_H2 = 0x9e3779b9;
+
+const auditHex8 = (n) => (n >>> 0).toString(16).padStart(8, '0');
+
+const auditNewSide = () => ({
+  bytes: 0, h1: AUDIT_SEED_H1, h2: AUDIT_SEED_H2,
+  blockH1: AUDIT_SEED_H1, blockH2: AUDIT_SEED_H2, blockBytes: 0,
+  blocks: [], hashed: 0,
+});
+
+/** 一条流的两个方向：out = 发给对端的字节，in = 从对端收到并交给本机游戏的字节。 */
+function createStreamAudit() {
+  if (!AUDIT_ENABLED) return null;
+  return { out: auditNewSide(), in: auditNewSide() };
+}
+
+/** 把一段字节喂进账本。顺序、边界都不影响结果：先喂 ABC 再喂 D 与先喂 ABCD 必须一样。 */
+function auditFeed(rec, buf) {
+  if (!rec || !buf || !buf.length) return;
+  rec.bytes += buf.length;
+  if (rec.hashed >= AUDIT_MAX_BYTES) return;
+  const cap = Math.min(buf.length, AUDIT_MAX_BYTES - rec.hashed);
+  let { h1, h2, blockH1, blockH2, blockBytes } = rec;
+  for (let i = 0; i < cap; i += 1) {
+    const b = buf[i];
+    h1 = Math.imul(h1 ^ b, 16777619) >>> 0;
+    h2 = (Math.imul(h2, 31) + b) >>> 0;
+    blockH1 = Math.imul(blockH1 ^ b, 16777619) >>> 0;
+    blockH2 = (Math.imul(blockH2, 31) + b) >>> 0;
+    blockBytes += 1;
+    if (blockBytes === AUDIT_BLOCK_BYTES) {
+      if (rec.blocks.length < AUDIT_MAX_BLOCKS) {
+        rec.blocks.push(`${auditHex8(blockH1)}${auditHex8(blockH2)}`);
+      }
+      blockH1 = AUDIT_SEED_H1;
+      blockH2 = AUDIT_SEED_H2;
+      blockBytes = 0;
+    }
+  }
+  rec.hashed += cap;
+  rec.h1 = h1;
+  rec.h2 = h2;
+  rec.blockH1 = blockH1;
+  rec.blockH2 = blockH2;
+  rec.blockBytes = blockBytes;
+}
+
+/** 一条流某个方向的账本快照（进日志的那份）。 */
+function auditSide(rec) {
+  if (!rec) return null;
+  return {
+    bytes: rec.bytes,
+    h1: auditHex8(rec.h1),
+    h2: auditHex8(rec.h2),
+    blocks: rec.blocks.slice(),
+    partial: rec.blockBytes ? `${auditHex8(rec.blockH1)}${auditHex8(rec.blockH2)}` : null,
+    partialBytes: rec.blockBytes,
+    hashed: rec.hashed,
+  };
+}
+
+/** 直接摊进 stream-left 事件的负载；没开账本时返回空对象。 */
+function auditFields(audit) {
+  if (!audit) return {};
+  return { auditOut: auditSide(audit.out), auditIn: auditSide(audit.in) };
+}
+
+/**
+ * 0.14.6：跨世代恢复的"可靠确认"账 —— 一条流上的字节只有三种状态，混淆就会出现
+ * 现场那种"对端 TCP 流里少一段"（Minecraft 侧表现成 unknown compression method /
+ * incorrect header check / length wider than 21-bit，全部是字节流对不上边界的症状）。
+ *
+ *   ① 还没交给 Steam：躺在出站队列（egress）里。干道断了 `takePending()` 能整段取回，
+ *      补发绝对不会重复（0.14.5 起就在做）。
+ *   ② 交给 Steam 了、但还没被对端确认：Steam 的可靠通道只保证"连接活着时按序送达"，
+ *      干道一断，这段字节既可能已经送达、也可能永远丢了 —— **只有对端说得清**。
+ *      0.14.5 之前这里是黑洞：流照样"原地复活"，对端于是收到一条中间缺了一截的字节流。
+ *   ③ 对端确认收下并交付了：Ack 里的累计偏移之前的部分，不必也不能再补发。
+ *
+ * ②靠确认协议处理：接收方每交付 STREAM_ACK_EVERY_BYTES 就回一个 Ack（累计偏移）；
+ * 发送方把②对应的原始字节留在 `sentLog` 里；干道复活时先发 `Resume(start)` 再从 start
+ * 续发 —— 接收方据此把"可能重复的那一截"切掉，于是恢复前后字节总数、顺序、内容都一致：
+ * 不丢（从确认点续发）、不重（Resume 让接收方跳过已交付部分）。
+ * 接收方发现 start 比自己的已交付位置还大（对端的内存上限把最老的补发记录丢了）时，
+ * 不装作没事：如实报错并断开这条流，而不是交出一条中间有洞的字节流。
+ *
+ * `SHL_STREAM_ACK=0` 可关掉整条链路（退回 0.14.5 行为：只补发①）。
+ */
+const STREAM_ACK_ENABLED = process.env.SHL_STREAM_ACK !== '0';
+/** 接收方交付满这么多字节就回一个累计 Ack。 */
+const STREAM_ACK_EVERY_BYTES = 32 * 1024;
+/** 每条流最多为"还没被确认的字节"留多少原始数据（越界就从最老的开始丢，靠 Resume 兜底）。 */
+const STREAM_RESEND_KEEP_BYTES = 512 * 1024;
+
+/** ①→②：这些原始字节刚刚交给 Steam，记进补发账。 */
+function noteStreamSent(stream, chunk) {
+  if (!STREAM_ACK_ENABLED || !stream || !chunk || !chunk.length) return;
+  if (!stream.sentLog) {
+    stream.sentLog = [];
+    stream.sentLogBytes = 0;
+    stream.sentBytes = 0;
+  }
+  stream.sentLog.push({ offset: stream.sentBytes, buf: Buffer.from(chunk) });
+  stream.sentBytes += chunk.length;
+  stream.sentLogBytes += chunk.length;
+  trimStreamSent(stream);
+}
+
+/** 丢掉"已确认"（或超内存上限）的补发记录。剩下最老那条的 offset 就是补发起点。 */
+function trimStreamSent(stream) {
+  if (!stream || !Array.isArray(stream.sentLog)) return;
+  const acked = stream.ackedBytes || 0;
+  while (stream.sentLog.length) {
+    const head = stream.sentLog[0];
+    const end = head.offset + head.buf.length;
+    if (end <= acked || stream.sentLogBytes > STREAM_RESEND_KEEP_BYTES) {
+      stream.sentLog.shift();
+      stream.sentLogBytes -= head.buf.length;
+      continue;
+    }
+    break;
+  }
+}
+
+/** ③：对端确认收到 upto 字节；返回这次推进了多少（0 表示没前进，比如迟到的旧 Ack）。 */
+function noteStreamAck(stream, upto) {
+  if (!stream) return 0;
+  const n = Math.max(0, Math.floor(Number(upto) || 0));
+  if (!(n > (stream.ackedBytes || 0))) return 0;
+  stream.ackedBytes = n;
+  stream.ackSeen = true;
+  trimStreamSent(stream);
+  return n;
+}
+
+/**
+ * 干道复活时的补发帧：`Resume(start)` + 从 start 起的原始字节（按新世代重新分帧）。
+ * 没有可补发的内容时返回空数组（比如这条流一个数据字节都没发过）。
+ *
+ * `skipTailBytes`：这条流还有多少**从来没交给 Steam**的字节正躺在出站队列里（那些由
+ * `takePending()` 交回给流、走 pendingFrames 那条路补发）。它们也在 sentLog 里（sentLog
+ * 记的是"推进过 Steam 队列的全部字节"），必须从这里刨掉，否则同一段字节会被补发两遍。
+ */
+function resendTailFrames(stream, generation, stats, skipTailBytes = 0) {
+  if (!STREAM_ACK_ENABLED || !stream || !Array.isArray(stream.sentLog) || !stream.sentLog.length) return [];
+  const start = stream.sentLog[0].offset;
+  const end = stream.sentBytes - Math.max(0, Math.floor(Number(skipTailBytes) || 0));
+  if (!(end > start)) return [];
+  const parts = [];
+  for (const ent of stream.sentLog) {
+    if (ent.offset >= end) break;
+    const take = Math.min(ent.buf.length, end - ent.offset);
+    parts.push(take === ent.buf.length ? ent.buf : ent.buf.subarray(0, take));
+  }
+  if (!parts.length) return [];
+  const blob = parts.length === 1 ? parts[0] : Buffer.concat(parts);
+  if (stats) {
+    stats.streamResent = (stats.streamResent || 0) + 1;
+    stats.streamResentBytes = (stats.streamResentBytes || 0) + blob.length;
+  }
+  return [mux.encodeResume(stream.id, generation, start), ...mux.encodeDataChunks(stream.id, generation, blob)];
+}
+
+/** 这些帧里有多少字节是真正的流数据（用来把"还没交给 Steam"的尾巴从补发范围里刨掉）。 */
+function pendingDataBytes(frames) {
+  let n = 0;
+  for (const frame of frames || []) {
+    if (!Buffer.isBuffer(frame) || frame.length < mux.FRAME_HEADER) continue;
+    if (frame.readUInt8(4) !== mux.TYPE.Data) continue;
+    n += frame.length - mux.FRAME_HEADER;
+  }
+  return n;
+}
+
+/** 接收方：处理 Resume(offset)。返回 { gap }：gap>0 表示这段字节流真的缺了一段。 */
+function setResumeOffset(stream, offset) {
+  if (!stream) return { gap: 0 };
+  const delivered = stream.delivered || 0;
+  const o = Math.max(0, Math.floor(Number(offset) || 0));
+  if (o > delivered) return { gap: o - delivered };
+  stream.skipBytes = delivered - o;
+  return { gap: 0 };
+}
+
+/** 接收方：取这次 DATA 里真正要交付的部分（切掉重复补发的那一截）。null = 整段都是重复的。 */
+function takeDelivery(stream, payload) {
+  if (!stream || !stream.skipBytes) return payload;
+  if (payload.length <= stream.skipBytes) {
+    stream.skipBytes -= payload.length;
+    return null;
+  }
+  const out = payload.subarray(stream.skipBytes);
+  stream.skipBytes = 0;
+  return out;
+}
+
+/** 接收方：交付够了就回一个累计 Ack（Ack 走同一条干道的反向）。 */
+function maybeAckStream(stream, peer, pushFrames) {
+  if (!STREAM_ACK_ENABLED || !stream || !peer || peer.dropped || peer.framed !== true) return false;
+  const delivered = stream.delivered || 0;
+  if (delivered - (stream.ackedSent || 0) < STREAM_ACK_EVERY_BYTES) return false;
+  stream.ackedSent = delivered;
+  pushFrames(peer, [mux.encodeAck(stream.id, stream.generation, delivered)]);
+  return true;
+}
+
+/**
  * 送进 queueOut 的最终 key：把"要不要按流分开"这个开关合进来。
  *
  * `SHL_STEAM_FAIR_QUEUE=0` 时一律返回 null ⇒ 所有帧进同一条干道队列、先到先发，
@@ -1061,6 +1287,8 @@ function createSteamHost(options = {}) {
   /** 一条流上的字节转给游戏端口那条本机 socket；还没连上就先攒着。 */
   const writeStream = (stream, payload) => {
     if (!stream || stream.socket.destroyed || !payload.length) return;
+    // 账本"入"：对端发来、并且我们确实交给了游戏服务的字节。
+    auditFeed(stream.audit && stream.audit.in, payload);
     if (!stream.connected) {
       if (stream.queueBytes + payload.length > PEER_QUEUE_MAX_BYTES) {
         // 连上都还没连上就攒了 1MB：与其带伤上路，不如断开让客户端重来一次。
@@ -1073,6 +1301,10 @@ function createSteamHost(options = {}) {
       return;
     }
     stream.socket.write(payload);
+    // 0.14.6：这是"已经按顺序交付给本机游戏服务"的字节 —— 累计之后回一个 Ack，
+    // 对端才能把这一截从补发账里划掉（不然跨世代恢复时会重发一遍）。
+    stream.delivered = (stream.delivered || 0) + payload.length;
+    maybeAckStream(stream, stream.owner, pushFrames);
   };
 
   /**
@@ -1160,6 +1392,17 @@ function createSteamHost(options = {}) {
       parkBytes: 0,
       parkedAt: 0,
       migrations: 0,
+      /** 流级字节账本（见 createStreamAudit）：out=发给对端、in=交给本机游戏。 */
+      audit: createStreamAudit(),
+      /** 0.14.6：跨世代恢复的确认账（见 noteStreamSent 的注释）。 */
+      sentBytes: 0,
+      sentLog: [],
+      sentLogBytes: 0,
+      ackedBytes: 0,
+      ackSeen: false,
+      delivered: 0,
+      ackedSent: 0,
+      skipBytes: 0,
     };
     peer.streams.set(streamId, stream);
     stats.streams = peer.streams.size;
@@ -1170,8 +1413,12 @@ function createSteamHost(options = {}) {
     if (peer.paused) { try { stream.socket.pause(); } catch { /* 暂停失败就继续按老路走 */ } }
     stream.socket.on('connect', () => {
       stream.connected = true;
-      for (const chunk of stream.queue.splice(0)) stream.socket.write(chunk);
+      for (const chunk of stream.queue.splice(0)) {
+        stream.socket.write(chunk);
+        stream.delivered = (stream.delivered || 0) + chunk.length;
+      }
       stream.queueBytes = 0;
+      maybeAckStream(stream, stream.owner, pushFrames);
       const owner = stream.owner;
       emit('stream-added', { peer: owner?.steamId || String(owner?.connection ?? '?'), stream: streamId });
     });
@@ -1180,6 +1427,8 @@ function createSteamHost(options = {}) {
       stats.bytesToPeer += chunk.length;
       stats.packetsToPeer += 1;
       stream.bytesToPeer += chunk.length;
+      // 账本"出"：游戏服务吐出来的原始字节（这就是对端那条 TCP 流应当收到的内容）。
+      auditFeed(stream.audit && stream.audit.out, chunk);
       const owner = stream.owner;
       if (!owner || owner.dropped || owner.framed !== true) {
         // 没有归属干道（或者它已经废了）：**不能丢**，先寄存着。
@@ -1197,6 +1446,8 @@ function createSteamHost(options = {}) {
       }
       // 数据帧与 CLOSE 帧走同一个有序队列 —— 游戏服务"回完响应立刻关连接"时，
       // 那段响应必然排在 CLOSE 前面，不会再出现"最后一段字节丢掉"。
+      // 0.14.6：这段字节马上要交给 Steam（进入"②已交 Steam、未确认"），先记进补发账。
+      noteStreamSent(stream, chunk);
       pushFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
       // 本地服务给的那段字节：从 Node 的 data 回调进门、到编码完塞进 Steam 队列出门的耗时。
       // 这是"房主 TCP/Node 服务处理时间"里我们能测的那一半（另一半在游戏进程里，测不到）。
@@ -1243,6 +1494,7 @@ function createSteamHost(options = {}) {
         ageMs,
         bytesToPeer: stream.bytesToPeer,
         bytesFromPeer: stream.bytesFromPeer,
+        ...auditFields(stream.audit),
         paused: !!owner.paused,
         backlogBytes: peerOutBytes(owner),
         steamBacklogBytes: Number.isFinite(owner.steamBacklog) ? owner.steamBacklog : null,
@@ -1264,8 +1516,14 @@ function createSteamHost(options = {}) {
     stats.streamsMigrated = (stats.streamsMigrated || 0) + 1;
     // 0.14.5：再补发"断开那一刻还压在出站队列里"的字节 —— 它们比 parkQueue 里的更早，
     // 而且带的是旧世代号，必须改成新世代，否则对端按"迟到帧"整段丢掉（那等于又丢一次）。
-    if (stream.pendingFrames && stream.pendingFrames.length) {
-      const frames = stream.pendingFrames;
+    // 0.14.6：在它更前面还要补"②交给 Steam 了但没等到 Ack"的那一截：先发 Resume(start)
+    // 把补发起点告诉对端，对端才能把可能重复的一截切掉；没有这一步，那截字节就是个黑洞。
+    // pendingFrames 里那些字节从来没交给 Steam，要从补发范围里刨掉，否则同一段补两遍。
+    const pendingKeep = stream.pendingFrames;
+    const replay = resendTailFrames(stream, stream.generation, stats, pendingDataBytes(pendingKeep));
+    if (replay.length) pushFrames(peer, replay);
+    if (pendingKeep && pendingKeep.length) {
+      const frames = pendingKeep;
       stream.pendingFrames = null;
       for (const frame of frames) pushFrames(peer, [retagFrame(frame, stream.id, stream.generation)]);
     }
@@ -1273,7 +1531,10 @@ function createSteamHost(options = {}) {
     if (stream.parkBytes) {
       const parked = stream.parkQueue.splice(0);
       stream.parkBytes = 0;
-      for (const chunk of parked) pushFrames(peer, mux.encodeDataChunks(stream.id, stream.generation, chunk));
+      for (const chunk of parked) {
+        noteStreamSent(stream, chunk);
+        pushFrames(peer, mux.encodeDataChunks(stream.id, stream.generation, chunk));
+      }
     }
     // socket 在寄存期间自己关了：补一条 CLOSE，让对端知道这条流结束了。
     if (stream.socket.destroyed) {
@@ -1341,6 +1602,7 @@ function createSteamHost(options = {}) {
         ageMs: now - stream.bornAt,
         bytesToPeer: stream.bytesToPeer,
         bytesFromPeer: stream.bytesFromPeer,
+        ...auditFields(stream.audit),
       });
     }
     return gone;
@@ -1362,6 +1624,7 @@ function createSteamHost(options = {}) {
         ageMs: Date.now() - stream.bornAt,
         bytesToPeer: stream.bytesToPeer,
         bytesFromPeer: stream.bytesFromPeer,
+        ...auditFields(stream.audit),
       });
     }
     stats.streams = peer.streams.size;
@@ -1417,7 +1680,38 @@ function createSteamHost(options = {}) {
       // "朋友一个字节都没送上来"，其实只是房主这条路从来没有记过账
       // （加入者侧的对应位置见另一份 handleStreamFrame 实现）。
       stream.bytesFromPeer += frame.payload.length;
-      writeStream(stream, frame.payload);
+      // 0.14.6：对端刚发过 Resume(offset) 时，这串 DATA 是从那个绝对偏移补发来的，
+      // 开头"我们已经交付过的那一截"必须切掉 —— 不切就是让游戏服务重复收到字节。
+      const payload = takeDelivery(stream, frame.payload);
+      if (payload) writeStream(stream, payload);
+      return;
+    }
+    if (type === mux.TYPE.Ack) {
+      // ③：对端说"这条流我已经按顺序交付了这么多字节" —— 之前的补发记录可以划掉了。
+      noteStreamAck(stream, mux.decodeStreamOffset(frame.payload));
+      return;
+    }
+    if (type === mux.TYPE.Resume) {
+      const res = setResumeOffset(stream, mux.decodeStreamOffset(frame.payload));
+      if (res.gap > 0) {
+        // 对端从"比我们已交付位置还靠前"的地方续发？说明它把这段字节弄丢了（补发记录被内存上限挤掉）。
+        // 这时绝不能装作没事继续交付：那等于交给游戏服务一条中间缺了一截的 TCP 流。
+        stats.resumeGaps = (stats.resumeGaps || 0) + 1;
+        stats.dropped += 1;
+        emit('error', {
+          stage: 'mux-resume',
+          error: {
+            code: 'ERESUMEGAP',
+            friendly: `对端的补发起点比本机已交付位置靠前 ${res.gap} 字节：这条流的字节流中间真缺了一段，只能如实断开让客户端重连（不装作没事）`,
+            message: `resume gap ${res.gap}`,
+          },
+        });
+        noteLocalClose(stream, 'ProtocolViolation', `跨世代补发出现 ${res.gap} 字节空洞，这条流已不可能拼回连续的字节流`);
+        peer.streams.delete(streamId);
+        stats.streams = peer.streams.size;
+        try { if (!stream.socket.destroyed) stream.socket.destroy(); } catch { /* 断一条流不影响别的流 */ }
+        return;
+      }
       return;
     }
     if (type === mux.TYPE.Window) { stream.remoteCredit = mux.decodeWindowCredit(frame.payload); return; }
@@ -1972,8 +2266,14 @@ function createSteamJoiner(options = {}) {
       pushFrames(peer, [mux.encodeOpen(id, stream.generation)]);
       // 0.14.5：紧接着补发"断开那一刻还压在出站队列里"的字节（比 parkQueue 里那些更早），
       // 世代改成新的，否则房主按"迟到帧"整段丢掉 —— 那等于又丢一次。
-      if (stream.pendingFrames && stream.pendingFrames.length) {
-        const frames = stream.pendingFrames;
+      // 0.14.6：在它更前面还要补"②交给 Steam 了但没等到 Ack"的那一截：先发 Resume(start)
+      // 把补发起点告诉房主，房主才能把可能重复的一截切掉；没有这一步，那截字节就是个黑洞。
+      // pendingFrames 里那些字节从来没交给 Steam，要从补发范围里刨掉，否则同一段会补两遍。
+      const pendingKeep = stream.pendingFrames;
+      const replay = resendTailFrames(stream, stream.generation, stats, pendingDataBytes(pendingKeep));
+      if (replay.length) pushFrames(peer, replay);
+      if (pendingKeep && pendingKeep.length) {
+        const frames = pendingKeep;
         stream.pendingFrames = null;
         for (const frame of frames) pushFrames(peer, [retagFrame(frame, id, stream.generation)]);
       }
@@ -1981,7 +2281,10 @@ function createSteamJoiner(options = {}) {
       if (stream.parkBytes) {
         const parked = stream.parkQueue.splice(0);
         stream.parkBytes = 0;
-        for (const chunk of parked) pushFrames(peer, mux.encodeDataChunks(id, stream.generation, chunk));
+        for (const chunk of parked) {
+          noteStreamSent(stream, chunk);
+          pushFrames(peer, mux.encodeDataChunks(id, stream.generation, chunk));
+        }
       }
       n += 1;
     }
@@ -2013,6 +2316,7 @@ function createSteamJoiner(options = {}) {
           ageMs: now - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
+          ...auditFields(stream.audit),
         });
       }
     }
@@ -2282,9 +2586,47 @@ function createSteamJoiner(options = {}) {
 
     if (type === mux.TYPE.Data) {
       stream.bytesFromPeer += frame.payload.length;
-      if (stream.localSocket && !stream.localSocket.destroyed) stream.localSocket.write(frame.payload);
-      else if (stream.socket && !stream.socket.destroyed) stream.socket.write(frame.payload);
-      else stats.dropped += 1;
+      // 0.14.6：对端刚发过 Resume(offset) 时，这串 DATA 是从那个绝对偏移补发来的 ——
+      // 开头"已经交给游戏客户端的那一截"要切掉，否则客户端会收到重复字节
+      //（Minecraft 的 netty 解码器一样会因此报 unknown compression method）。
+      const payload = takeDelivery(stream, frame.payload);
+      if (!payload) return;
+      // 账本"入"：干道送来、并且我们确实交给了本机游戏客户端的字节。
+      auditFeed(stream.audit && stream.audit.in, payload);
+      let wrote = false;
+      if (stream.localSocket && !stream.localSocket.destroyed) { stream.localSocket.write(payload); wrote = true; }
+      else if (stream.socket && !stream.socket.destroyed) { stream.socket.write(payload); wrote = true; }
+      if (!wrote) { stats.dropped += 1; return; }
+      // 0.14.6：交付计数 + 回 Ack，让房主把这一截从"未确认"里划掉。
+      stream.delivered = (stream.delivered || 0) + payload.length;
+      maybeAckStream(stream, stream.trunk, pushFrames);
+      return;
+    }
+    if (type === mux.TYPE.Ack) {
+      // ③：房主说"我这条流已经按顺序交付了这么多字节" —— 我们这边对应的补发记录可以划掉了。
+      noteStreamAck(stream, mux.decodeStreamOffset(frame.payload));
+      return;
+    }
+    if (type === mux.TYPE.Resume) {
+      const res = setResumeOffset(stream, mux.decodeStreamOffset(frame.payload));
+      if (res.gap > 0) {
+        // 房主从"比我们已交付位置还靠前"的地方续发？说明它把这段字节弄丢了（补发记录被内存上限挤掉）。
+        // 这时绝不能装作没事继续交付：那等于交给游戏客户端一条中间缺了一截的 TCP 流。
+        stats.resumeGaps = (stats.resumeGaps || 0) + 1;
+        stats.dropped += 1;
+        emit('error', {
+          stage: 'mux-resume',
+          error: {
+            code: 'ERESUMEGAP',
+            friendly: `房主的补发起点比本机已交付位置靠前 ${res.gap} 字节：这条流的字节流中间真缺了一段，只能如实断开让客户端重连（不装作没事）`,
+            message: `resume gap ${res.gap}`,
+          },
+        });
+        const sock = stream.localSocket || stream.socket;
+        noteLocalClose(stream, 'ProtocolViolation', `跨世代补发出现 ${res.gap} 字节空洞，这条流已不可能拼回连续的字节流`);
+        try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* 断一条流不影响别的流 */ }
+        return;
+      }
       return;
     }
     if (type === mux.TYPE.Window) { stream.remoteCredit = mux.decodeWindowCredit(frame.payload); return; }
@@ -2336,6 +2678,7 @@ function createSteamJoiner(options = {}) {
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
+          ...auditFields(stream.audit),
         });
       }
     }
@@ -2618,6 +2961,17 @@ function createSteamJoiner(options = {}) {
       parkBytes: 0,
       parkedAt: 0,
       migrations: 0,
+      /** 流级字节账本（见 createStreamAudit）：out=交给干道/对端、in=交给本机游戏客户端。 */
+      audit: createStreamAudit(),
+      /** 0.14.6：跨世代恢复的确认账（见 noteStreamSent 的注释）。 */
+      sentBytes: 0,
+      sentLog: [],
+      sentLogBytes: 0,
+      ackedBytes: 0,
+      ackSeen: false,
+      delivered: 0,
+      ackedSent: 0,
+      skipBytes: 0,
     };
     trunk.streams.set(streamId, stream);
     stats.streams = countStreams();
@@ -2637,6 +2991,8 @@ function createSteamJoiner(options = {}) {
       stats.bytesToPeer += chunk.length;
       stats.packetsToPeer += 1;
       stream.bytesToPeer += chunk.length;
+      // 账本"出"：本机游戏客户端写进来的原始字节。
+      auditFeed(stream.audit && stream.audit.out, chunk);
       // 一律读 stream.trunk，**不认闭包里的 trunk**：干道断了以后这条流会被重新挂到
       // 另一条干道上（resumeOrphanStreams），闭包里那条已经不是它的归属了。
       const owner = stream.trunk;
@@ -2659,6 +3015,8 @@ function createSteamJoiner(options = {}) {
       }
       if (holdsFrames(owner)) {
         // 干道还在等房主开口：正文也一起扣住，否则它会在 OPEN 之前漏出去。
+        // 0.14.6：扣住的也是"即将交给 Steam"的字节，一起记进补发账（补发按原始字节重切帧）。
+        noteStreamSent(stream, chunk);
         holdFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
         if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
         return;
@@ -2669,6 +3027,8 @@ function createSteamJoiner(options = {}) {
         if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
         return;
       }
+      // 0.14.6：这段字节马上要交给 Steam（进入"②已交 Steam、未确认"），先记进补发账。
+      noteStreamSent(stream, chunk);
       pushFrames(owner, mux.encodeDataChunks(streamId, stream.generation, chunk));
       if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
     });
@@ -2699,6 +3059,7 @@ function createSteamJoiner(options = {}) {
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
+          ...auditFields(stream.audit),
           paused: !!(owner && owner.paused),
           backlogBytes: owner ? peerOutBytes(owner) : null,
           steamBacklogBytes: owner && Number.isFinite(owner.steamBacklog) ? owner.steamBacklog : null,
@@ -3394,6 +3755,15 @@ module.exports = {
   createRouteReporter,
   retagFrame,
   STREAM_CLOSE_KINDS,
+  createStreamAudit,
+  auditFeed,
+  auditSide,
+  noteStreamSent,
+  noteStreamAck,
+  resendTailFrames,
+  setResumeOffset,
+  takeDelivery,
+  maybeAckStream,
   queueOut,
   flushPeerOut,
   flushPeerOutSoon,
