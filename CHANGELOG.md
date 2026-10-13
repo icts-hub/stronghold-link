@@ -1,5 +1,54 @@
 # 更新日志
 
+## v0.14.5
+
+修：**干道（Steam P2P 连接）断开重挂时，出站队列里"还没交给 Steam"的字节被整段丢掉 —— 对端 Minecraft 收到残缺的 TCP 字节流，报 `DataFormatException: unknown compression method` 后掉线**
+
+### 现场是什么样
+
+好友进世界后几秒到几十秒内必掉线（聊天框里反复"加入了游戏 / 退出了游戏"），而 Steam Lobby 全程在线；主机侧日志里每一条流都以 `流结束（本机游戏服务把这条件接关了）` 结束，看上去像"游戏服务自己关的"。客户端报：
+
+```
+Internal Exception: io.netty.handler.codec.DecoderException: java.util.zip.DataFormatException: unknown compression method
+```
+
+真机日志里能抓到关键一刻（`%APPDATA%\stronghold-link\startup.log`）：一条已下行 19 MB 的干道被 Steam 判死（`Relay received unexpected noconnection packet`，Steam 原因 5010），紧接着 `干道断了，先把 2 条本机连接寄存 60 秒等新干道来接`。
+
+### 真因
+
+1. **寄存只搬流对象，不搬出站队列。** `parkPeerStreams()` / `parkTrunkStreams()` 把本机 socket 挪进 `orphanStreams` 等新干道，但 `peer.out` / `egress` 里那些**已经排好队、只是还没交到 Steam 手里**的帧，既没有转移到流上、也没有任何标记，随旧 peer 一起消失。
+2. **流却被"原地复活"。** 新干道用 `OPEN(同一个流号, 世代 + 1)` 把这条流原样挂回来继续收发 —— 两端都不认为连接断过。
+3. 于是对端那条 TCP 可靠字节流的**中间少了一截**：Minecraft 的 netty 解码器按包长切分时错位，读出脏压缩头 ⇒ `unknown compression method` ⇒ 掉线并自动重连 ⇒ 主机侧只看到"玩家反复加入/退出"。
+4. **日志把方向带反了。** 流结束的 `kind`/`reason` 是写死的"本机游戏服务把这条件接关了"，"我们自己 destroy（背压/迁移/清理）"和"游戏侧真的关了"长得一模一样；`stats.dropped` 又把迟到的 CLOSE/Window 也算成"丢了数据"，一起把人往错方向引。
+
+### 现在怎么修
+
+| # | 位置 | 改动 |
+|---|------|------|
+| 1 | `network/egress-queue.cjs` | 新增 `takePending(peer, ids)`：把"确认前缀之外、从没交给 Steam"的帧按队列 FIFO 整段取出（已确认的前缀早被 `commit()` 出队，所以取出来的**一定没送达**，补发不会重复） |
+| 2 | `network/steam-adapter.cjs` | 新增 `retagFrame(frame, streamId, generation)`：跨世代补发前只改**这条流**的世代字段（偏移 9），其余字节原样 —— 否则对端按"迟到帧"整段丢掉，等于又丢一次 |
+| 3 | `network/steam-adapter.cjs` | 房主 `parkPeerStreams()` 与加入者 `parkTrunkStreams()` 寄存前 `takePending()`，把待发帧挂到 `stream.pendingFrames` |
+| 4 | `network/steam-adapter.cjs` | 房主 `adoptOrphan()` 与加入者 `resumeOrphanStreams()` 复活时，先补发 `pendingFrames`（`retagFrame` 成新世代），**再**补发寄存期间的 `parkQueue` —— 两段之间的先后顺序就是原始字节顺序 |
+| 5 | `network/steam-adapter.cjs` | `schedulePeerReconnect()` 不再 `egress.clear(peer)`（旧注释"重发只会让对端收到重复字节"是错的：队列里只有没交给 Steam 的字节），改为 `takePending()` 后接回 `peer.queue` |
+| 6 | `network/steam-adapter.cjs` | 关闭日志改为"谁动手谁留名"：新增 `STREAM_CLOSE_KINDS` / `noteLocalClose()` / `noteLocalCloseFor()` / `streamCloseInfo()`，13 条清理与关闭路径各自留名；`stream-left` 事件带 `by`（发起方）、`paused`、`backlogBytes`、`steamBacklogBytes`。删掉写死的 `本机游戏服务把这条件接关了` / `浏览器/游戏自己关掉了本机连接` |
+| 7 | `network/steam-adapter.cjs` | 房主 socket `close` 补上 `firstGone(stream)` 守卫（与加入者侧一致）：同一条流只报一行；`destroyPeerStreams()` 支持 `kind`，协议错乱报 `BadFraming` 而不是笼统的 `TunnelClosed` |
+| 8 | `network/steam-adapter.cjs` | 两处 `handleStreamFrame` 的"未知流"分支只在**带数据的帧**上记 `stats.dropped`：迟到的 CLOSE/Window 是收尾的正常顺序，记成丢字节会让这个指标失真 |
+| 9 | `electron/main.cjs` | `CONNECTION_END_KINDS` 补齐 15 个 kind 的中文说明；`流结束（…）` 这一行追加 `发起方=` / `暂停=` / `本机待发=` / `Steam待发=` |
+| 10 | `test/steam-adapter.test.cjs`（+7）、`test/egress-queue.test.cjs`（+2） | 见下表 |
+
+### 新增回归测试
+
+| 测试 | 钉住的东西 |
+|------|-----------|
+| 房主干道断开时压在出站队列里的字节，复活后必须接着送 | 本修复的核心：修前 `少了 30000 字节 … 26 !== 30026` |
+| 加入者同场景（与房主同一套语义） | 两侧寄存/复活行为一致 |
+| `takePending`：只取没交给 Steam 的帧 / 流内 FIFO + 按流号过滤 | 补发不重复、顺序不乱、不动别的流 |
+| `retagFrame`：只改要跨世代重发的那条流 | 对端不误丢补发数据、别的流一个字节不动 |
+| TCP 分段与合并读取（半个帧 / 两帧粘一起 / 本机分三次写） | 读取边界不是包边界：半个帧一个字节都不许写进去，方向两侧逐字节一致 |
+| 背压暂停→恢复 | 暂停只是"先别生产"：不掐游戏连接、恢复后字节完整、`dropped === 0` |
+| 重复清理（Close → Reset → 破干道） | 同一条流只出一条 `stream-left`、幂等、不误记账 |
+| 关闭日志：游戏侧 / 对端 MUX / 我们清理三种关法 | 报出三种不同发起方，不许再甩锅给游戏侧 |
+
 ## v0.14.4
 
 修：**"好友那边卡到 6.5 秒" —— 背压只盯着我们自己的队列，而 1.6 MB 的数据正压在 Steam 的发送缓冲里**
