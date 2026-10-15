@@ -86,19 +86,19 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | 文件 | sha256 |
 | --- | --- |
 | `app_qml/app_qml.pro` | `72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20` |
-| `app_qml/main.cpp` | `b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006` |
+| `app_qml/main.cpp` | `711c88da3a7d39083eb2c2e041aa9aec2a6299cdaf896d918acf4f1b4e140e99` |
 | `app_qml/backendbridge.h` | `c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd` |
 | `app_qml/backendbridge.cpp` | `59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb` |
-| `app_qml/qml.qrc` | `3fd5a13f741dd32e16e0c2c714013907d93dcb12565e61d46db449a87e05dd64` |
-| `app_qml/qml/Main.qml` | `76342dcdf04ec4860487a64ff8594f0f1e04bad91d943765dc005c81f36d66bb` |
+| `app_qml/qml.qrc` | `16ec6d0155f30e942f7c88b412e7f86d6c3f3918e40cca5e344df0eb26085e2f` |
+| `app_qml/qml/Main.qml` | `1ced2ba10c6627d434f68ea78902f4e70f5b0805fdbaa3617029bfd8b6802f9e` |
 | `app_qml/qml/theme.js` | `0b40b078bc4e8c042a26e9b1be38ee1fd8c584dad6cec638978743a196afddb3` |
 | `app_qml/qml/logic.js` | `afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77` |
 | `app_qml/qml/Pages/SessionPage.qml` | `04693ee8cce42a92b8654fec3ce0e2d48f9e757004f0278611227e4da2f801e7` |
-| `app_qml/qml/Pages/FriendsPage.qml` | `361aff493e589db4a7c3923a421b6f895430a74a8cb40466354392f21152b8a7` |
-| `app_qml/qml/Pages/SettingPage.qml` | `d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342` |
+| `app_qml/qml/Pages/FriendsPage.qml` | `76cf5e07c8c098518b7fe4a557809d1d83ab9728d7e91b775eaa75096ef6b36d` |
+| `app_qml/qml/Pages/SettingPage.qml` | `d1cd99c28a64c8713fc064cadb24450fb435ec5f3048abdf193ae6b82956dd91` |
 | `app_qml/qml/Components/HeroPlate.qml` | `0d37016e07c8793dc89e3ecd3b7f11ec88fe7e6592f706fd6205f0b1f2c760c0` |
 | `app_qml/qml/plate/sketch.js` | `289ed1c68622af87825244952f60d707c3c181f48fb2f531a6a21066e2b65f67` |
-| `app_qml/qml/plate/hero.js` | `5757fe86bb56202ba88864b6d493e0c0fd536ca87d650e98498592bc7bd59d3c` |
+| `app_qml/qml/plate/hero.js` | `cb7cadd4b4c925b6aa7bd4e40bb97f0ff2464d529cadebcbed56c88f7b84699a` |
 | `app_qml/qml/Pages/SettingPage.qml` | `d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342` |
 
 其中 12 个 `Components/*.qml` 与 `qml.qrc` 里列出的其它资源同属本记录，哈希以 `qml.qrc` 的清单为准
@@ -149,15 +149,15 @@ redistributed."*，README 也把美术与音乐署名给鹰角网络。
 
 | 文件 | sha256 |
 | --- | --- |
-| `app_qml/shots/session-1440x900.png` | `cce068399cdd15f689cabf8e6139e8af19e4519729d75cccc32eebee19f5c787` |
-| `app_qml/shots/friends-1440x900.png` | `c8b2c5f4379879d8507eedae324007a5226c2402a5c5203e3e97c36a7a28844c` |
-| `app_qml/shots/setting-1440x900.png` | `b31197fd4c351d0056b574cbf29d9951975a94d8524b07742ed7af93210a8c51` |
-| `app_qml/shots/session-1280x720.png` | `59753cfaa6f64aaa2554c73c69e6c9c0b2e5e7e7338690b95226d578ea7c598b` |
-| `app_qml/shots/friends-1280x720.png` | `8bd2f0e961e2a4afbd86c2bfb87bc86d639ac8286de5cbc97a083ea3d85da01d` |
-| `app_qml/shots/setting-1280x720.png` | `7bdbdf30625e0f62cbf40fe4c8d6b233db66d1cf428c9787e45fd2ae34718e2b` |
-| `app_qml/shots/session-1024x768.png` | `34edd1302a2ff651ec4b10236fe9faaba1fec4c1b93ed51ac68518ce6ba55b29` |
-| `app_qml/shots/friends-1024x768.png` | `4d3b2f1b0f63daceb3bcff946a47d7fb986f6f69d74f84358a3c73802130de39` |
-| `app_qml/shots/setting-1024x768.png` | `9792ca5b19ce477336c06476d8a7b681dd6518691e3af0552da1a8f8da54744d` |
+| `app_qml/shots/session-1440x900.png` | `dfa08dc2701794ab279e94171e461fd9f0a2bafc88522fd208c02b63540f2ccf` |
+| `app_qml/shots/friends-1440x900.png` | `0ae8d6fbffe4e89c4fc944410f9d9d15e601b098c9c2abcfc9cd081dcccaa61e` |
+| `app_qml/shots/setting-1440x900.png` | `866e0f59d7db8c5e8d23a8ec7d2c5cbbb9b86442ad9b5ea11f0ccf4d349c57d6` |
+| `app_qml/shots/session-1280x720.png` | `8a37474f1603d01d90b6779de6bd23ed3c483c95c7c34e63f7a72beb10fb9890` |
+| `app_qml/shots/friends-1280x720.png` | `0d01136604dbe6484d941718cf6950bf710edfd708208aaa9cc1ca61b30da225` |
+| `app_qml/shots/setting-1280x720.png` | `d984ab43659484404fbd2e536f2af481a18d5d007d6b6ba8953502032d55602b` |
+| `app_qml/shots/session-1024x768.png` | `d52ae86a93fb25a7be9e41f6474b4bede880ef60bae7ba9f3b719bc1db1d82af` |
+| `app_qml/shots/friends-1024x768.png` | `707d9adfee29d9ea86e1297252b5f8f04ee40a59ba6e94eaab36e5d56322b1d4` |
+| `app_qml/shots/setting-1024x768.png` | `215c59f5491f374f1260e14b2f0abce0a20ebc00673f82d61f33d7a51aa67fc7` |
 
 ### 8. `qt-runtime` — Qt 6.8.3（**待补哈希**）
 

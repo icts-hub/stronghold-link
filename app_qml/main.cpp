@@ -92,6 +92,12 @@ int main(int argc, char *argv[])
     int cycleCount = 0;   // >0：轮换到此次数后停止（0 表示一直轮换）
     int sessionStartMs = 0; // >0：等这么久后用表单当前默认值真的开一次会话（内存验收）
     int sessionStopMs = 0;  // >0：等这么久后停掉会话（内存验收）
+    // 流动背景的相位（0~1）。给验收用：截图必须可复现，所以允许把动画钉在某一刻。
+    double flowPhase = -1.0; // <0 表示按真实时间走
+    QString flowLevel;       // 覆盖"装饰动效"档位（full / normal / minimal）
+    // 流动背景的组成部分开关（位掩码 1=网点带 2=细流 4=扫光 8=星点，默认 15 全开）。
+    // 这是排查用的：整层一起上会让进程崩，需要把四组元素分别关掉定位是哪一组。
+    int flowParts = 15;
 
     for (int i = 1; i < args.size(); ++i) {
         const QString a = args.at(i);
@@ -114,6 +120,12 @@ int main(int argc, char *argv[])
             sessionStartMs = takeNext().toInt();
         } else if (a == QLatin1String("--session-stop")) {
             sessionStopMs = takeNext().toInt();
+        } else if (a == QLatin1String("--flow-phase")) {
+            flowPhase = takeNext().toDouble();
+        } else if (a == QLatin1String("--flow-level")) {
+            flowLevel = takeNext();
+        } else if (a == QLatin1String("--flow-parts")) {
+            flowParts = takeNext().toInt();
         }
     }
 
@@ -142,6 +154,11 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("sessionStartDelayMs"), sessionStartMs);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionStopDelayMs"), sessionStopMs);
     engine.rootContext()->setContextProperty(QStringLiteral("autoSession"), sessionStartMs > 0 || sessionStopMs > 0);
+    // 流动背景：--flow-phase 把动画钉在某一相位（截图可复现）；--flow-level 覆盖动效档位。
+    engine.rootContext()->setContextProperty(QStringLiteral("initialFlowPhase"), flowPhase);
+    engine.rootContext()->setContextProperty(QStringLiteral("flowPhaseLocked"), flowPhase >= 0.0);
+    engine.rootContext()->setContextProperty(QStringLiteral("flowLevelOverride"), flowLevel);
+    engine.rootContext()->setContextProperty(QStringLiteral("flowPartsMask"), flowParts);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     qInfo("startup: platform=%s qmlWarnings=%d page=%s size=%dx%d",
           qPrintable(QGuiApplication::platformName()),

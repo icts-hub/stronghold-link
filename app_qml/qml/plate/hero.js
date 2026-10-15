@@ -250,6 +250,27 @@ function draw(ctx, w, h, sk, seed, legend, mark) {
     sk.flower(ctx, 292, 862, 1.0, T.vivid, CT, 1)
     sk.flower(ctx, 884, 566, 1.1, T.vivid, CT, 1)
 
+    /* ── 斜向起飞的鸟群（参考项目 plates.ts:174）─────────────────────────
+     * 这是那张图的招牌元素：九只鸟沿一条斜线自盘面右上方飞离，越远越小、
+     * 每三只水平翻转一次（避免看起来是同一只复制九遍）。参考参数：
+     *   x = 580 + i*44 + r()*30, y = 230 - i*18 + r()*40, s = .32 + r()*.38 */
+    ctx.save()
+    ctx.fillStyle = T.ink
+    for (var fb = 0; fb < 9; fb++) {
+        var fx = 580 + fb * 44 + r() * 30
+        var fy = 230 - fb * 18 + r() * 40
+        var fs = 0.32 + r() * 0.38
+        ctx.save()
+        ctx.translate(fx, fy)
+        if (fb % 3 === 1) ctx.scale(-1, 1)
+        ctx.scale(fs, fs)
+        ctx.translate(-50, -30)
+        sk.birdPath(ctx)
+        ctx.fill()
+        ctx.restore()
+    }
+    ctx.restore()
+
     /* ── d 1.3：四枚闪光 + 圆角标签条 ───────────────────────────────────── */
     var sparks = [[170, 420, 22, T.accent], [760, 250, 14, T.cobalt], [640, 860, 18, T.ink], [250, 880, 10, T.accent]]
     for (var sp = 0; sp < sparks.length; sp++) {

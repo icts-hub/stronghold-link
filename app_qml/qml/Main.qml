@@ -79,12 +79,25 @@ Window {
             anchors.top: parent.top
             spacing: 1
 
-            Text {
-                text: "STRONGHOLD LINK  <font size=\"3\" color=\"" + T.MUTED + "\">干线隧道控制台</font>"
-                textFormat: Text.RichText
-                font.family: T.FONT_DISPLAY
-                font.pixelSize: 30
-                color: T.INK
+            Row {
+                spacing: 12
+
+                // 翼形徽记（参考项目左上角那个带翼的标记，这里用几何线条重画）
+                WingMark {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 44
+                    height: 44
+                    seed: 7
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "STRONGHOLD LINK  <font size=\"3\" color=\"" + T.MUTED + "\">干线隧道控制台</font>"
+                    textFormat: Text.RichText
+                    font.family: T.FONT_DISPLAY
+                    font.pixelSize: 30
+                    color: T.INK
+                }
             }
 
             Text {
@@ -330,6 +343,30 @@ Window {
         repeat: true
         running: root.awake
         onTriggered: root.pollMetrics()
+    }
+
+    // ══ 流动背景 ═══════════════════════════════════════════════════════
+    // 压在所有版面之上的一层极淡的"活纸"：网点漂移、细流曲线游走、扫光、星点。
+    // 为什么在最上层：三页的主图版本身是不透明的纸色底，放在它们下面就被盖住了。
+    // 透明度压得很低（网点 0.026~0.045、曲线 0.065~0.10、扫光 0.07~0.10），
+    // 只为"在动"，不为"看得见"，不跟正文抢注意力。
+    //
+    // - awake 决定动不动：窗口最小化或隐藏时时钟停住（画面停在当前相位，不跳回 0）。
+    // - motionTier 来自设置页的"装饰动效"档位：0 最低 = 完全静止。
+    // - --flow-phase <0~1> 把时钟钉死，验收截图因此可复现；--flow-level 可覆盖档位。
+    FlowField {
+        id: flowLayer
+        anchors.fill: parent
+        z: 900
+        enabled: false                                  // 纯装饰，不吃鼠标事件
+        active: root.awake
+        tier: {
+            if (typeof flowLevelOverride !== "undefined" && flowLevelOverride !== "")
+                return flowLevelOverride
+            return root.motionTier <= 0 ? "minimal" : (root.motionTier === 1 ? "normal" : "full")
+        }
+        lockedPhase: (typeof flowPhaseLocked !== "undefined" && flowPhaseLocked) ? initialFlowPhase : -1
+        parts: (typeof flowPartsMask !== "undefined") ? flowPartsMask : 15
     }
 
     // 内存验收用：--cycle <ms> 定期在三页之间轮换，--cycles <n> 轮换 n 次后停下。

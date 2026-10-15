@@ -8,6 +8,8 @@
         <file>qml/plate/people.js</file>
         <file>qml/plate/record.js</file>
         <file>qml/Components/HeroPlate.qml</file>
+    <file>qml/Components/WingMark.qml</file>
+    <file>qml/Components/FlowField.qml</file>
         <file>qml/Components/ConstellationPlate.qml</file>
         <file>qml/Components/RecordPlate.qml</file>
         <file>qml/Components/PaperPlate.qml</file>

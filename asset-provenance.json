@@ -80,7 +80,7 @@
             "copyright_holder": "本项目作者（见 git 历史）",
             "license": "GPL-3.0-only",
             "license_evidence": "新增文件属于本项目源码，受根目录 LICENSE（GPL-3.0）覆盖；文件中不含任何来自第三方的代码片段",
-            "sha256": "b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006",
+            "sha256": "711c88da3a7d39083eb2c2e041aa9aec2a6299cdaf896d918acf4f1b4e140e99",
             "modified": true,
             "included_in_release": true,
             "redistribution_status": "OK",
@@ -152,7 +152,7 @@
             "copyright_holder": "本项目作者（见 git 历史）",
             "license": "GPL-3.0-only",
             "license_evidence": "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素；生成脚本 tools/make-shots.cjs",
-            "sha256": "cce068399cdd15f689cabf8e6139e8af19e4519729d75cccc32eebee19f5c787",
+            "sha256": "dfa08dc2701794ab279e94171e461fd9f0a2bafc88522fd208c02b63540f2ccf",
             "modified": false,
             "included_in_release": false,
             "redistribution_status": "OK",
@@ -240,7 +240,7 @@
             },
             {
                 "path": "app_qml/main.cpp",
-                "sha256": "b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006"
+                "sha256": "711c88da3a7d39083eb2c2e041aa9aec2a6299cdaf896d918acf4f1b4e140e99"
             },
             {
                 "path": "app_qml/backendbridge.h",
@@ -252,11 +252,11 @@
             },
             {
                 "path": "app_qml/qml.qrc",
-                "sha256": "e4256be218ffa884264794038313d7c066b5bb2b7cf916d29ef2ad960908920f"
+                "sha256": "16ec6d0155f30e942f7c88b412e7f86d6c3f3918e40cca5e344df0eb26085e2f"
             },
             {
                 "path": "app_qml/qml/Main.qml",
-                "sha256": "76342dcdf04ec4860487a64ff8594f0f1e04bad91d943765dc005c81f36d66bb"
+                "sha256": "1ced2ba10c6627d434f68ea78902f4e70f5b0805fdbaa3617029bfd8b6802f9e"
             },
             {
                 "path": "app_qml/qml/theme.js",
@@ -288,7 +288,7 @@
             },
             {
                 "path": "app_qml/qml/plate/hero.js",
-                "sha256": "5757fe86bb56202ba88864b6d493e0c0fd536ca87d650e98498592bc7bd59d3c"
+                "sha256": "cb7cadd4b4c925b6aa7bd4e40bb97f0ff2464d529cadebcbed56c88f7b84699a"
             }
         ],
         "mig-backend-split": [
@@ -304,39 +304,39 @@
         "qa-screenshots": [
             {
                 "path": "app_qml/shots/session-1440x900.png",
-                "sha256": "cce068399cdd15f689cabf8e6139e8af19e4519729d75cccc32eebee19f5c787"
+                "sha256": "dfa08dc2701794ab279e94171e461fd9f0a2bafc88522fd208c02b63540f2ccf"
             },
             {
                 "path": "app_qml/shots/friends-1440x900.png",
-                "sha256": "c8b2c5f4379879d8507eedae324007a5226c2402a5c5203e3e97c36a7a28844c"
+                "sha256": "0ae8d6fbffe4e89c4fc944410f9d9d15e601b098c9c2abcfc9cd081dcccaa61e"
             },
             {
                 "path": "app_qml/shots/setting-1440x900.png",
-                "sha256": "b31197fd4c351d0056b574cbf29d9951975a94d8524b07742ed7af93210a8c51"
+                "sha256": "866e0f59d7db8c5e8d23a8ec7d2c5cbbb9b86442ad9b5ea11f0ccf4d349c57d6"
             },
             {
                 "path": "app_qml/shots/session-1280x720.png",
-                "sha256": "59753cfaa6f64aaa2554c73c69e6c9c0b2e5e7e7338690b95226d578ea7c598b"
+                "sha256": "8a37474f1603d01d90b6779de6bd23ed3c483c95c7c34e63f7a72beb10fb9890"
             },
             {
                 "path": "app_qml/shots/friends-1280x720.png",
-                "sha256": "8bd2f0e961e2a4afbd86c2bfb87bc86d639ac8286de5cbc97a083ea3d85da01d"
+                "sha256": "0d01136604dbe6484d941718cf6950bf710edfd708208aaa9cc1ca61b30da225"
             },
             {
                 "path": "app_qml/shots/setting-1280x720.png",
-                "sha256": "7bdbdf30625e0f62cbf40fe4c8d6b233db66d1cf428c9787e45fd2ae34718e2b"
+                "sha256": "d984ab43659484404fbd2e536f2af481a18d5d007d6b6ba8953502032d55602b"
             },
             {
                 "path": "app_qml/shots/session-1024x768.png",
-                "sha256": "34edd1302a2ff651ec4b10236fe9faaba1fec4c1b93ed51ac68518ce6ba55b29"
+                "sha256": "d52ae86a93fb25a7be9e41f6474b4bede880ef60bae7ba9f3b719bc1db1d82af"
             },
             {
                 "path": "app_qml/shots/friends-1024x768.png",
-                "sha256": "4d3b2f1b0f63daceb3bcff946a47d7fb986f6f69d74f84358a3c73802130de39"
+                "sha256": "707d9adfee29d9ea86e1297252b5f8f04ee40a59ba6e94eaab36e5d56322b1d4"
             },
             {
                 "path": "app_qml/shots/setting-1024x768.png",
-                "sha256": "9792ca5b19ce477336c06476d8a7b681dd6518691e3af0552da1a8f8da54744d"
+                "sha256": "215c59f5491f374f1260e14b2f0abce0a20ebc00673f82d61f33d7a51aa67fc7"
             }
         ],
         "shipped-third-party-notices": [
