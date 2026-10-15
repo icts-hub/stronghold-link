@@ -1,0 +1,100 @@
+========================================================================
+Stronghold Link 0.14.4（Qt Quick/QML 版）—— 第三方组件与声明
+========================================================================
+
+本文件说明随本项目分发的第三方组件、它们各自的许可，以及许可全文的位置。
+配套文件：
+  · LICENSES/                    各许可证全文（随分发包一起提供）
+  · ASSET_PROVENANCE.md          素材来源台账（人类可读）
+  · asset-provenance.json        素材来源台账（机器可读，构建守卫校验）
+  · NOTICE.md                    开发期依赖清单（含旧 Electron 渲染层的组件）
+
+本项目自身以 GNU GPL v3 发布，全文见 LICENSES/GPL-3.0-only.txt 与根目录 LICENSE。
+
+
+------------------------------------------------------------------------
+一、随分发包含的第三方组件
+------------------------------------------------------------------------
+
+1) Qt 6.8.3
+   版权：The Qt Company Ltd. 及贡献者
+   许可：GNU Lesser General Public License v3（LGPL-3.0-only）
+   全文：LICENSES/LGPL-3.0-only.txt
+   说明：本项目动态链接 Qt（Qt6Core / Qt6Gui / Qt6Qml / Qt6Quick 等 DLL 与
+         platforms/qwindows.dll 均以独立文件形式随包提供）。
+         依 LGPL-3.0 第 4 条 d) 1)，你**可以替换这些 Qt 库文件**：把它们换成
+         接口兼容的其它版本即可，无需修改或重新编译本程序。本项目不阻止这种替换。
+         本项目未对 Qt 做任何修改。
+   上游：https://www.qt.io/licensing/open-source-lgpl-obligations
+
+2) steamworks-ffi-node 0.11.3
+   版权：Copyright (c) 2025 Artur Khutak
+   许可：MIT
+   全文：LICENSES/steamworks-ffi-node-MIT.txt
+
+3) koffi 3.3.2（steamworks-ffi-node 的 FFI 运行时依赖）
+   版权：Copyright (C) 2026 Niels Martignène
+   许可：MIT
+   全文：LICENSES/koffi-MIT.txt
+
+4) Node.js 运行时（后端进程）
+   版权：Node.js contributors 及内嵌组件各自的版权方
+   许可：MIT（Node 本体）；内嵌的 V8 / OpenSSL / ICU 等组件另有各自许可
+   说明：**分发决策待定**。随包附带 node.exe 时必须一并附上 Node 发行版自带的
+         LICENSE 文件（其中汇总了上述全部许可）。在此之前不得宣称已满足其义务。
+   上游：https://nodejs.org/
+
+
+------------------------------------------------------------------------
+二、不随分发包含的第三方组件（需使用者自行获取）
+------------------------------------------------------------------------
+
+5) Steamworks SDK（steam_api64.dll 等）
+   版权：Valve Corporation
+   许可：Valve 专有许可，**禁止重新分发 SDK 文件**
+   说明：本项目不附带 steam_api64.dll，需使用者自行从 Steamworks 合作伙伴站点获取。
+         缺失时程序会在预检阶段给出可读诊断，不会崩溃。
+
+6) Electron / Chromium（旧 Electron 渲染层）
+   版权：OpenJS Foundation / The Chromium Authors
+   许可：MIT（Electron）/ BSD-3-Clause 及 Chromium 项目各项许可
+   说明：**QML 版不再包含 Electron**。旧版便携包里的 LICENSE.electron.txt 与
+         LICENSES.chromium.html 描述的是那个已经废弃的渲染层。
+
+7) Three.js r186 与内嵌字体子集（MiSans、Inter、IBM Plex Mono）
+   说明：这些只服务于旧 Electron 渲染层（src/ui/）。QML 版界面不使用 Three.js，
+         也不使用上述字体子集，因此不分发它们的文件。详见 NOTICE.md 与
+         ASSET_PROVENANCE.md 第 2 条列出的"阅读陷阱"。
+
+
+------------------------------------------------------------------------
+三、参考项目（仅供设计参考，未分发其任何文件）
+------------------------------------------------------------------------
+
+8) Funkierry/the-masses-travels（提交 7ea40aea1ff28f84c20d58eae5f30497b093517d）
+   说明：QML 界面的视觉规则参考了这个项目。**该项目在其被固定的提交上没有 LICENSE
+         文件，package.json 无 license 字段且 private: true**，因此不能认定它为 MIT
+         （它自带的 THIRD_PARTY_NOTICES.txt 里那段 MIT 正文是 three.js 的，不是它自己的）。
+         所以本项目没有从这个仓库引入任何字节：没有复制它的源代码、图片、字体或模型，
+         只在 QML 里自行重写了配色与线描画法。状态记为 UNVERIFIED，见台账第 5 条。
+
+9) 《明日方舟》客户端提取物（出现在上述参考项目的 public/assets/game/ 内）
+   版权：鹰角网络（Hypergryph）
+   说明：该参考项目自带的 THIRD_PARTY_NOTICES.txt 明确写明这些提取物
+         "for private study only. They must not be redistributed."
+         **本项目未使用、未复制、也未分发这些素材或其任何派生物。**
+         见台账第 6 条（redistribution_status = NO_REDISTRIBUTION）。
+
+
+------------------------------------------------------------------------
+四、维护约定
+------------------------------------------------------------------------
+
+· 任何新引入的第三方代码、图片、音频、字体、SVG、模型或 JS/CSS 片段，
+  都必须先在 asset-provenance.json 里登记，否则 `tools/verify-asset-provenance.cjs`
+  会让打包失败。
+· 上游为 MIT 等需要署名保留的许可时，必须把**真实的许可全文与版权行**复制到
+  LICENSES/，不能在 NOTICE 里只写一句"MIT"。
+· 权利状态为 UNVERIFIED 或 NO_REDISTRIBUTION 的素材，一律不许 included_in_release=true。
+
+（本文件由人工维护；如与 asset-provenance.json 不一致，以台账为准，并须立即修正本文件。）
