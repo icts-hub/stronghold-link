@@ -141,9 +141,33 @@ method` 然后掉线）。
 `THIRD_PARTY_NOTICES.txt`、`ASSET_PROVENANCE.md`、`asset-provenance.json` 必须复制进
 **分发目录内部**，并且 `node tools/verify-asset-provenance.cjs` 通过。
 
+打包前必须处理的已知冲突（否则守卫一定红）：
+
+1. **Qt 运行库要先登记再组装。** 便携包要把 `Qt6Core/Gui/Qml/Quick/Network*.dll`、
+   `platforms/qwindows.dll`、`Qt/plugins/*` 复制到 exe 旁边，这些全是"未登记素材"，
+   守卫会拒。顺序必须是：**先**跑
+   `node tools/refresh-provenance-hashes.cjs --write`（它按实际复制进去的文件回填
+   `qt-runtime` 与 `steamworks-ffi-node` 的 `sha256`，现在这两条还是 `N/A` / `TODO_REHASH`）
+   并同步 `ASSET_PROVENANCE.md`，**再**跑守卫。`TODO_REHASH` 里列的项没清空前不要打包。
+2. **`LICENSES/LGPL-3.0-only.txt` 已经在仓库里**（7652 字节，取自 gnu.org；本机
+   `D:\Qt\6.8.3\mingw_64` 与 `D:\Qt` 下**没有任何** LICENSE 文件，所以全文是抓来的）。
+   LGPL 的义务是"动态链接 + 附全文 + **允许用户替换 Qt 库**"，因此：不得静态链接 Qt，
+   不得给 DLL 加壳或校验，`LICENSES/` 要放在用户够得着的位置（分发目录内），
+   并在 设置 → 关于 → 开源许可 里列出。
+3. **Qt 的 DLL 清单要按实际复制结果生成**，不要手抄一份"应该有哪些"的名单 ——
+   少登记一个就会被守卫按"未登记素材"抓住（这正是守卫存在的意义，别把它调松）。
+4. Steamworks SDK 的 `steam_api64.dll` 属于 Valve 专有、**不许随包分发**，
+   由用户的 Steam 客户端提供；便携包里只允许出现 `steamworks_sdk/` 的**自研加载代码**，
+   不许出现 SDK 头文件、`*.lib`、示例与调试探针。
+
 ### 阶段 6：验收
 
 含真机双机 P2P、10 分钟 soak、与 Minecraft / echo 客户端对账字节账本。
+
+**阶段 0~5 已经做完并可复现，阶段 6 里的"真机双机 P2P"与"字节账本对账"两项从未做过** ——
+现有全部传输层测试都跑在 `test/steam-mock.cjs` 这个假 SDK 上，它不会真的建 P2P 连接、
+不会真的丢包。**单测全绿不等于真机验收通过**，这两项在验收清单里必须保持"未做"，
+直到真的用两台机器、两个 Steam 账号跑过一次。
 
 ---
 

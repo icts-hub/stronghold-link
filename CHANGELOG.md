@@ -54,6 +54,40 @@
   ④ 剥掉注释后，`electron`/`network`/`shared` 里不许有第二份写死的版本号；
   ⑤ README 版本徽章 == package.json。测试文件数 59 → 60。
 
+**审计 A-03：连接关闭原因只能靠自然语言猜**
+
+- 现场：`peerCloseInfo` 只产出 `kind`（`ClosedByPeer` / `ProblemDetectedLocally`）加 Steam 的
+  `endDebugMessage`，于是三种完全不同的情况在日志里长得一模一样：① 游戏/浏览器自己关掉本机连接；
+  ② 应用主动停止（停会话 / 重启后端 / 退出）；③ 干道断了清理挂在上面的流。排障时只能靠猜。
+- 修法：新增 `PEER_CLOSE_REASON_TEXT`（五个固定 origin 的中文文案只在这一处生成）、
+  `TRUNK_CLOSE_ERROR_CODES`（`ETRUNKCLOSED` / `ESESSIONSTOPPED` / `EPROTOFRAME` /
+  `ELOCALTUNNELABORT` / `ELOCALSERVICECLOSED` / `ELOCALCLIENTCLOSED`）、
+  `normalizePeerCause` / `markPeerLocalCause` / `gameSideCloseCause` / `peerCloseCause`
+  （优先级：显式 cause > `peer.localCause` > 按 Steam 状态推）。
+  `peerCloseInfo` 多输出 `causeOrigin` 与 `cause`（`cause` 里带 `origin` / `reason` / `errorCode` /
+  `endReason` / `streamId` / `generation` / `detail`）；`kind` 原样保留，免得既有日志解析失效。
+- 接线点：房主本机服务关连接、房主 Steam 断开回调、`dropPeer`、`closeTrunkStreams`、
+  加入者本机客户端关连接、**以及加入者的老路径（对端 ≤ 0.13.3 的 legacy passthrough）** ——
+  升级过渡期这个组合会长期存在，不能只有新路径带 cause。两处 `emit('stopped')` 也补上
+  `causeOrigin: 'app'`。
+- 回归测试：`test/steam-adapter.test.cjs` 新增「★ 加入者：本机客户端自己关连接时，关闭原因
+  必须机器可判（审计 A-03：别让人靠自然语言猜）」。踩过的坑写进注释：**必须先用 `answerHello`
+  把多路复用谈起来**，否则加入者走的是老路径、根本没有"流"，`stream-left` 永远不会发。
+
+**QML 前端：一条让整个界面变成白板的语法错误（值得单独记一笔）**
+
+- 提交 `20e4117` 给 `Main.qml` 加"整画布等比缩放"时，只加了 `Item { id: canvas … }`
+  **却忘了配对的 `}`**。QML 引擎加载失败（`qrc:/qml/Main.qml:340:1: Expected token '}'`），
+  **窗口照样出现、内容一个都没有**。错误信息指向文件最后一行，极具误导性；那段时间拍的
+  对照图与据此得出的版面结论全部作废。
+- 已修（补 `}`）并加了防复发手段：`tools/qml-brace-scan.cjs`（状态机数花括号，直接报
+  "最近一个没闭合的 `{` 在第几行"）+ `tools/qml-parse-check.cjs`（Qt 自带 `qmlformat` 解析）
+  + `--grab` 必须出图且 `qmlWarnings=0` 才算过。完整事故记录见 `QML_QA_REPORT.md` 第六节。
+- 修好后重跑全部内存场景（可见窗口口径）：空闲 316.7 / 持续切页 358.1 / 10 分钟 soak 321.2 /
+  最小化 322.6 MiB max，六场景全部单调回落无泄漏；**门槛 100 MiB 仍未达标**，
+  原因是架构地板（裸 Node 49.0 + 最小 Qt 窗口 36.3 + conhost 7.3 ≈ 92.6 MiB，还没画一个像素）。
+  详见 `QML_QA_REPORT.md`。
+
 ## v0.14.5
 
 修：**干道（Steam P2P 连接）断开重挂时，出站队列里"还没交给 Steam"的字节被整段丢掉 —— 对端 Minecraft 收到残缺的 TCP 字节流，报 `DataFormatException: unknown compression method` 后掉线**
