@@ -161,6 +161,14 @@ method` 然后掉线）。
 
 ### 阶段 5：删旧渲染层并打包 Windows x64 便携版
 
+> **状态（0.14.5）：打包已做完并实测可跑。** 工具是 `tools/pack-qml.cjs`（`npm run pack:qml`），
+> 产物 `Stronghold-Link-0.14.5-qml-win-x64.zip`（250 个文件 / 138.0 MiB，压后 52.9 MB），
+> 包内自带 Qt 6.8.3 运行库、`node/node.exe`、后端代码与法务四件套；把包拷到仓库外运行，
+> 会话页出图、后端 `app.info` 版本回包一致、`qmlWarnings=0`，`npm test` 831 / 830 通过。
+> 打包规则由 `test/qml-packaging.test.cjs` 守着（禁令、必需清单、启动器卫生）。
+> **未做**：macOS / Linux 产物、代码签名、安装器（本项目只做便携包）。
+> 下面 1~4 条是当初预判的冲突，实际处理方式记在各条末尾。
+
 删掉旧渲染层，打包产物里不许带 Steam SDK 开发文件与调试探针；`LICENSES/`、
 `THIRD_PARTY_NOTICES.txt`、`ASSET_PROVENANCE.md`、`asset-provenance.json` 必须复制进
 **分发目录内部**，并且 `node tools/verify-asset-provenance.cjs` 通过。
@@ -173,16 +181,30 @@ method` 然后掉线）。
    `node tools/refresh-provenance-hashes.cjs --write`（它按实际复制进去的文件回填
    `qt-runtime` 与 `steamworks-ffi-node` 的 `sha256`，现在这两条还是 `N/A` / `TODO_REHASH`）
    并同步 `ASSET_PROVENANCE.md`，**再**跑守卫。`TODO_REHASH` 里列的项没清空前不要打包。
+   → **实际做法**：把分发目录放到**仓库之外**（`../release/Stronghold-Link-<版本>-qml-win-x64/`），
+   于是 windeployqt 铺进来的 Qt QML 模块不会被守卫当成"仓库里未登记的素材"；Qt/Node 运行库的
+   真实性改由**包内** `PORTABLE-CONTENTS.txt`（打包时按实际复制结果生成，逐文件 sha256）记录，
+   仓库内的台账只登记仓库里真实存在的文件 —— 新克隆必须能跑绿 `npm test`，台账不能引用
+   只有打包后才存在的文件。
 2. **`LICENSES/LGPL-3.0-only.txt` 已经在仓库里**（7652 字节，取自 gnu.org；本机
    `D:\Qt\6.8.3\mingw_64` 与 `D:\Qt` 下**没有任何** LICENSE 文件，所以全文是抓来的）。
    LGPL 的义务是"动态链接 + 附全文 + **允许用户替换 Qt 库**"，因此：不得静态链接 Qt，
    不得给 DLL 加壳或校验，`LICENSES/` 要放在用户够得着的位置（分发目录内），
    并在 设置 → 关于 → 开源许可 里列出。
+   → **实际做法**：`LICENSES/` 四份全文（GPL-3.0-only / LGPL-3.0-only / koffi-MIT /
+   steamworks-ffi-node-MIT）连同 `THIRD_PARTY_NOTICES.txt` 与台账两份一起放进包根目录；
+   `dist-extras-qml/README-FIRST.txt` 写明"Qt 库可以整包替换"。设置页的开源许可列表见阶段 3/4 的界面工作。
 3. **Qt 的 DLL 清单要按实际复制结果生成**，不要手抄一份"应该有哪些"的名单 ——
    少登记一个就会被守卫按"未登记素材"抓住（这正是守卫存在的意义，别把它调松）。
+   → **实际做法**：`PORTABLE-CONTENTS.txt` 由打包器遍历组装结果生成（250 条，带 sha256 与字节数）；
+   另有 33 项"少一个就跑不起来"的必需清单逐项核对（`Qt6QuickLayouts.dll`、mingw 三个运行库、
+   `koffi/src/koffi/index.cjs` 等）—— 必需清单是白名单式断言，不替代清单本身。
 4. Steamworks SDK 的 `steam_api64.dll` 属于 Valve 专有、**不许随包分发**，
    由用户的 Steam 客户端提供；便携包里只允许出现 `steamworks_sdk/` 的**自研加载代码**，
    不许出现 SDK 头文件、`*.lib`、示例与调试探针。
+   → **实际做法**：禁令写成打包器里的 8 条正则（`steam_api64.dll`、`steam_api.dll`、
+   `*.lib|exp|pdb|ilk`、`steamworks_sdk/`、`/probe/i`、`*.log|map|tmp`、`test|tests|qml-qa|diag/`、
+   `*.test.cjs`），由 `test/qml-packaging.test.cjs` 反向验证（既验"抓得住"也验"不误伤"）。
 
 ### 阶段 6：验收
 

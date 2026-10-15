@@ -5,8 +5,8 @@
 
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-![tests](https://img.shields.io/badge/tests-824%20passing-brightgreen)
-![version](https://img.shields.io/badge/version-0.14.4-informational)
+![tests](https://img.shields.io/badge/tests-830%20passing-brightgreen)
+![version](https://img.shields.io/badge/version-0.14.5-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密，算法 X25519 + AES-256-GCM
 - **Steam P2P 隧道**：基于 Steam Networking Sockets，跨网络无需端口转发，需自备 Steamworks SDK
@@ -38,7 +38,7 @@ git clone https://github.com/icts-hub/stronghold-link.git
 cd stronghold-link
 npm install                # 需要 Node.js 20+，会装 electron 与可选依赖 steamworks-ffi-node
 npm start                  # 启动图形界面
-npm test                   # 824 个用例通过（共 63 个用例文件）
+npm test                   # 830 个用例通过（共 64 个用例文件）
 ```
 
 想用 Steam 隧道：把 SDK 的 `steam_api64.dll` 放到 `steamworks_sdk/redistributable_bin/win64/`。
@@ -102,20 +102,51 @@ npm run dist:both   # 两版依次产出
 便携版已实测解压即用：解压到干净目录后运行 `--smoke` 返回 `ok: true`、界面正常、stderr 无输出。
 打包细节与 SDK 放置位置见 [docs/PHASE6-BUILD.md](docs/PHASE6-BUILD.md)。
 已经发布的便携版都在 [Releases](https://github.com/icts-hub/stronghold-link/releases/latest)，
-最新一版是 0.14.4（`Stronghold-Link-0.14.4-portable-win-x64.zip`）。
+最新一版是 0.14.5（`Stronghold-Link-0.14.5-portable-win-x64.zip` 与 QML 版的
+`Stronghold-Link-0.14.5-qml-win-x64.zip`）。
+
+### QML 版怎么打包
+
+```powershell
+npm run pack:qml                                              # = node tools/pack-qml.cjs
+node tools/pack-qml.cjs --skip-build                          # 用现有 exe，只重新组装
+node tools/pack-qml.cjs --qt D:\Qt\6.8.3\mingw_64 --out D:\tmp\x
+```
+
+流程：qmake + mingw32-make 编译 → `windeployqt` 把 Qt 运行库铺到 exe 旁边 → 拷后端代码、
+`node/node.exe` 与剪裁过的 npm 依赖 → 放法务文件（`LICENSES/` + 声明 + 台账，都在**包内部**）→
+按实际复制结果生成逐文件 sha256 清单 `PORTABLE-CONTENTS.txt` → 自检 → 压 zip。
+自检四条硬性纪律：包里不许有 Valve 的 `steam_api64.dll` / `*.lib` / `steamworks_sdk/` /
+调试探针 / 测试文件；必需文件（含 `Qt6QuickLayouts.dll`、mingw 三个运行库）逐项核对；
+用包里的 node 起包里的后端问一次 `app.info` 并核对版本回包；剪裁后的依赖 `require` 一遍。
+
+需要 Qt 6.8.3 + MinGW 13.1（默认 `D:\Qt\6.8.3\mingw_64` 与 `D:\Qt\Tools\mingw1310_64`，
+可用 `SHL_QT` / `SHL_MINGW` 或 `--qt` / `--mingw` 改）。产物在**仓库外**的
+`../release/Stronghold-Link-<版本>-qml-win-x64/`（约 250 个文件 / 138 MiB，压后约 53 MB）——
+放仓库外是有意的：`tools/verify-asset-provenance.cjs` 会扫仓库内的分发目录，
+而 windeployqt 铺进来的 Qt QML 模块（`.qml` / `.js`）会被判成「未登记素材」。
+分发附加文件在 `dist-extras-qml/`（启动器 + 说明），**不能塞进 `dist-extras/`**：
+electron-builder 会把整个目录拷进 Electron 包。
 
 ### 发版（本机只推一个标签）
 
 ```powershell
-git tag -a v0.14.4 -m "0.14.4 ..."   # 标签名必须是 v* 才会触发
-git push origin v0.14.4
+git tag -a v0.14.5 -m "0.14.5 ..."   # 标签名必须是 v* 才会触发
+git push origin v0.14.5
 ```
 
 剩下的在 GitHub 的机器上完成（`.github/workflows/release.yml`）：装依赖 → 跑测试 →
-`tools/prepare-portable.cjs` 打便携包（自动剥离 Valve SDK 运行库、放进许可证与启动器）→
+`tools/prepare-portable.cjs` 打 Electron 版便携包（自动剥离 Valve SDK 运行库、放进许可证与启动器）→
 用 `tools/changelog-for.cjs <版本>` 从 CHANGELOG 截出本版说明作 `RELEASE-NOTES.md` →
 `gh release create/upload`。这样本机网络不好、附件传不上去都不影响发版；
 也可以在 Actions 页面手动 `Run workflow` 填标签触发。
+
+> **QML 版的 CI 步骤还没生效。** 「装 Qt 6.8.3 → `tools/pack-qml.cjs` → 两个 zip 一起传」
+> 这几步已经写进 `release.yml`，但改 `.github/workflows/` 需要带 `workflow` 权限的凭据，
+> 本机现用的 token 只有 `repo`/`gist`/`read:org`，推不上去。在那之前：QML 包用
+> `npm run pack:qml` 在本机出，再 `gh release upload <标签> <zip>` 挂到 Release 上
+> （0.14.5 就是这么发的）；权限补上后（`gh auth refresh -h github.com -s workflow`）
+> 推那一个提交即可。
 
 ## 安全模型
 
@@ -157,7 +188,7 @@ git push origin v0.14.4
 ├─ src/ui/stage.js        三维档案背景，Three.js 实例化阵列
 ├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集，MiSans 与 Inter/Plex，许可见同目录
-├─ test/                  node:test 测试：60 个 *.test.cjs 加 3 个工具守卫，824 个用例通过
+├─ test/                  node:test 测试：61 个 *.test.cjs 加 3 个工具守卫，830 个用例通过
 ├─ tools/                 开发工具：Steam 探针、字体子集裁剪、测试运行器、测速、双版本打包、CHANGELOG 截取
 ├─ diag/                  现场诊断探针：预热池 A/B、延迟与整页加载、分段下载、隧道体检（见其中 README）
 └─ docs/                  阶段设计与测试报告
@@ -199,9 +230,9 @@ git push origin v0.14.4
 
 ## 测试
 
-`npm test` 覆盖 **824 个通过的用例**，共 63 个用例文件（`test/` 下 60 个 `*.test.cjs` 加 3 个工具守卫，
+`npm test` 覆盖 **830 个通过的用例**，共 64 个用例文件（`test/` 下 61 个 `*.test.cjs` 加 3 个工具守卫，
 另有 1 个按环境跳过）：适配器、加密、中继、会话、IPC、界面逻辑，以及网络 Provider、
-路由评分与监督、中继服务端与客户端、STUN、NAT-PMP、UPnP、打洞、长时压测。
+路由评分与监督、中继服务端与客户端、STUN、NAT-PMP、UPnP、打洞、长时压测、QML 打包契约。
 全部使用本机回环真实端口与真实数据往返，包括链路抓包无明文、跨会话重放被拒、伪造认证标签被拒、
 旧协议明确拒绝、端口冲突带占用者提示、SDK 目录名容错。
 Steam 传输层逻辑用注入的假 SDK 测试，测试文件内明确标注；真实 Steam 的验证情况见下一节。
@@ -231,6 +262,11 @@ node steam-userdir-probe.cjs "D:\某个安装目录"    # 用指定目录里的 
 
 - 三个顶层页（会话 / 好友 / 设置）在 1440×900、1280×720、1024×768 下都能出图，
   9 张验收截图在 `app_qml/shots/`；`--grab` 出图时 QML 引擎 `qmlWarnings=0`。
+- **已打成便携包**（`npm run pack:qml`，0.14.5）：250 个文件 / 138 MiB，含 Qt 6.8.3 运行库、
+  `node/node.exe`（v24.21.0）与剪裁过的 `steamworks-ffi-node` / `koffi`；包内自带
+  `LICENSES/`、`THIRD_PARTY_NOTICES.txt`、台账与逐文件 sha256 清单。实测把包放到仓库外运行，
+  会话页出图、后端回 `app.info` 版本一致、`qmlWarnings=0`。打包契约由
+  `test/qml-packaging.test.cjs` 在 `npm test` 里守着（禁令 / 必需清单 / 启动器卫生）。
 - 内存（可见窗口口径，进程树 WS）：空闲约 300~330 MiB，最差的持续切页场景约 375 MiB；
   同一口径下 Electron 0.14.4 是 5 个进程约 **805 MiB** —— 省约 2.5 倍，但**100 MiB 门槛未达标**，
   地板是架构性的（裸 Node 49.0 + 最小 Qt 窗口 36.3 + conhost 7.3 ≈ 92.6 MiB，还没画一个像素）。

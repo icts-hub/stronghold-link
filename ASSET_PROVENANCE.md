@@ -93,9 +93,9 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | `app_qml/qml/Main.qml` | `1ced2ba10c6627d434f68ea78902f4e70f5b0805fdbaa3617029bfd8b6802f9e` |
 | `app_qml/qml/theme.js` | `0b40b078bc4e8c042a26e9b1be38ee1fd8c584dad6cec638978743a196afddb3` |
 | `app_qml/qml/logic.js` | `afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77` |
-| `app_qml/qml/Pages/SessionPage.qml` | `04693ee8cce42a92b8654fec3ce0e2d48f9e757004f0278611227e4da2f801e7` |
-| `app_qml/qml/Pages/FriendsPage.qml` | `76cf5e07c8c098518b7fe4a557809d1d83ab9728d7e91b775eaa75096ef6b36d` |
-| `app_qml/qml/Pages/SettingPage.qml` | `d1cd99c28a64c8713fc064cadb24450fb435ec5f3048abdf193ae6b82956dd91` |
+| `app_qml/qml/Pages/SessionPage.qml` | `d5a8386e020d10b436e962cdc340197ea63c8954c0442faeaad682da94b003f6` |
+| `app_qml/qml/Pages/FriendsPage.qml` | `756c8c64ad135b0a4b6b27955f43101378aa97b59b9efb6ea86f4955b0b0bca0` |
+| `app_qml/qml/Pages/SettingPage.qml` | `f7f815bbba905ddc12119d5f9ad9ef9b40b75171b201e362c7d86f303eda99c3` |
 | `app_qml/qml/Components/HeroPlate.qml` | `0d37016e07c8793dc89e3ecd3b7f11ec88fe7e6592f706fd6205f0b1f2c760c0` |
 | `app_qml/qml/plate/sketch.js` | `289ed1c68622af87825244952f60d707c3c181f48fb2f531a6a21066e2b65f67` |
 | `app_qml/qml/plate/hero.js` | `cb7cadd4b4c925b6aa7bd4e40bb97f0ff2464d529cadebcbed56c88f7b84699a` |

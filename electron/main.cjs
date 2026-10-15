@@ -54,7 +54,7 @@ const localAddress = () => lanAddressFromRoute() || require('../network/session.
  * 历史：这里曾是 '0.14.4'，而 electron/preload.cjs 里另写死 '0.11.0' ——
  * 界面"关于"显示一个版本、日志里是另一个，用户报障报的版本号根本对不上。
  */
-const APP_VERSION = '0.14.4';
+const APP_VERSION = '0.14.5';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);

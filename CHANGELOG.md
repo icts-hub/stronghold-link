@@ -1,5 +1,58 @@
 # 更新日志
 
+## v0.14.5 QML 前端首个便携版（0.14.5-qml）
+
+> 版本号说明：0.14.5 / 0.14.6 这两个号早先在**传输层**上用过又整段回滚（见下方两节历史记录，
+> 从未产出过正式产物）。运营方指定 QML 前端这一版沿用 **0.14.5**，所以本节说的是 **QML 前端线**：
+> 渲染层换成 Qt Quick、窗口由自带的 Qt 6.8.3 运行库启动、业务逻辑跑在一个独立的 Node 后端进程里
+> （`backend/stronghold-backend.cjs`，JSON Lines 协议），主进程里既没有 Electron、也没有 QtWebEngine。
+> 这一节记录它第一次打成可分发便携包。
+
+### 打包（迁移计划阶段 5）
+- 新增 `tools/pack-qml.cjs`（`npm run pack:qml`）：qmake + mingw32-make 编译 → `windeployqt`
+  部署 Qt 运行库 → 拷后端代码 / `node/node.exe` / npm 依赖 → 放法务文件 →
+  按实际复制结果生成逐文件 sha256 清单 → 自检 → 压 zip。
+- 产物 `Stronghold-Link-0.14.5-qml-win-x64.zip`：**250 个文件 / 138.0 MiB**（压后 52.9 MB）。
+  zip 的 sha256 每次重新打包都会变（CI 在 GitHub 上重打一遍），校验请以 Release 页面的值为准；
+  要核对包内单个文件，看包里的 `PORTABLE-CONTENTS.txt`。
+  内含 11 个 `Qt6*.dll`（Core/Gui/Network/OpenGL/Qml/QmlMeta/QmlModels/QmlWorkerScript/Quick/
+  QuickLayouts/Svg）+ `D3Dcompiler_47.dll` + mingw 三个运行库、`node/node.exe`（v24.21.0）、
+  剪裁过的 `steamworks-ffi-node` 与 `koffi`（共 125 个文件 2.7 MB，去掉安装期工具与 C++ 源码）。
+- **包里不许有 Valve 的东西**：`steam_api64.dll`、`*.lib|exp|pdb`、`steamworks_sdk/`、调试探针、
+  测试文件一律由打包器自查拦下；Steam 隧道要用的 redistributable 由用户自备，放哪里写在
+  包内 `README-FIRST.txt` 与启动器提示里。
+- 法务：`LICENSES/`（GPL-3.0-only、LGPL-3.0-only、koffi-MIT、steamworks-ffi-node-MIT）、
+  `THIRD_PARTY_NOTICES.txt`、`ASSET_PROVENANCE.md`、`asset-provenance.json` 都在**包内部**；
+  Qt 走动态链接，用户拿自己的 `Qt6*.dll` 覆盖必须能跑（LGPL 的可替换要求，因此不加壳、不校验）。
+- 自检四条：包内文件逐项查禁令与必需清单；用包里的 node 起包里的后端问 `app.info` 并要求回包版本一致；
+  剪裁后的 npm 依赖 `require` 一遍；`LICENSES/LGPL-3.0-only.txt` 必须是 LGPL 全文。
+- 实测（把整包拷到仓库外运行）：会话页 `--grab` 出图 312,361 字节、后端 `app.info` 回包 `version=0.14.5`、
+  `qmlWarnings=0`。**注意**：GamePP 这类注入型覆盖层会让程序在仓库目录里以 `0xC0000005` 退出，
+  验收和日常启动都建议放在仓库外（详见 `docs/启动闪退排查.md`）。
+- 分发附加文件放 `dist-extras-qml/`（**不能放 `dist-extras/`**：electron-builder 会把整个目录
+  拷进 Electron 包）：启动器先扫 GamePP / RTSS / MSI Afterburner 这类注入型软件，并把
+  `0xC0000005`（注入崩）与 `0xC0000135`（缺 DLL）两类退出码分开翻译成人话。
+- 新增 `test/qml-packaging.test.cjs`（7 条）：禁令、必需清单、包名与版本、启动器卫生、说明书要点。
+  打包器要 Qt 才能跑，但它的**规则**必须在 CI 上随时可验。
+- 发版链路：`.github/workflows/release.yml` 已改成「装 Qt 6.8.3 → 先出 Electron 版便携包 →
+  再出 QML 版 → 两个 zip 一起传上 Release，缺任一即失败」，但**这处 workflow 改动还没推上去**：
+  改 `.github/workflows/` 需要带 `workflow` 权限的凭据，本机 git 凭据里的 OAuth token 只有
+  `repo`/`gist`/`read:org`，GitHub 会直接拒收。所以本版 Release 里的 QML 包是本机
+  `npm run pack:qml` 打好后手工挂上去的；等 token 补上权限
+  （`gh auth refresh -h github.com -s workflow`）再推那一个提交，之后 CI 就能一次出两个包。
+
+### 版本与文档
+- `package.json` 与 `electron/main.cjs` 的 `APP_VERSION` 对齐到 `0.14.5`，README 版本徽章同步；
+  顺手修掉 `package.json` 的 `description`（此前是 UTF-8 被按 GBK 误读留下的乱码）。
+- README 补 QML 打包与发版说明、测试计数；`QML_MIGRATION_PLAN.md` 的阶段 5 状态更新。
+- `npm test` = **831 个用例 / 830 通过 / 1 跳过**（61 个 `*.test.cjs` 加 3 个工具守卫 + 素材台账守卫）。
+
+### 已知限制（与 0.14.4 相同，未变）
+- **100 MiB 内存门槛未达标**：地板是架构性的（裸 Node 49.0 + 最小 Qt 窗口 36.3 + conhost 7.3
+  ≈ 92.6 MiB，还没画一个像素）；实测空闲 300~330 MiB、最差持续切页约 375 MiB。
+- 真机双机双 Steam 账号 P2P 与 10 分钟字节账本对账仍未做（传输层测试跑在假 SDK 上）。
+- macOS / Linux 未测、未打包、未签名。
+
 ## 0.14.4 基线重建（在 v0.14.4 标签之上重新实现 A-01 / A-14）
 
 > 编号说明：本文档早先把"版本号三处分叉"误记为 **A-09**（当时压缩了审计编号）。

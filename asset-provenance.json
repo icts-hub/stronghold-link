@@ -268,15 +268,15 @@
             },
             {
                 "path": "app_qml/qml/Pages/SessionPage.qml",
-                "sha256": "04693ee8cce42a92b8654fec3ce0e2d48f9e757004f0278611227e4da2f801e7"
+                "sha256": "d5a8386e020d10b436e962cdc340197ea63c8954c0442faeaad682da94b003f6"
             },
             {
                 "path": "app_qml/qml/Pages/FriendsPage.qml",
-                "sha256": "76cf5e07c8c098518b7fe4a557809d1d83ab9728d7e91b775eaa75096ef6b36d"
+                "sha256": "756c8c64ad135b0a4b6b27955f43101378aa97b59b9efb6ea86f4955b0b0bca0"
             },
             {
                 "path": "app_qml/qml/Pages/SettingPage.qml",
-                "sha256": "d1cd99c28a64c8713fc064cadb24450fb435ec5f3048abdf193ae6b82956dd91"
+                "sha256": "f7f815bbba905ddc12119d5f9ad9ef9b40b75171b201e362c7d86f303eda99c3"
             },
             {
                 "path": "app_qml/qml/Components/HeroPlate.qml",
