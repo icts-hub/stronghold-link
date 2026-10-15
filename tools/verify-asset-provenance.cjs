@@ -119,6 +119,48 @@ for (const rec of RECORDS) {
   }
 }
 
+// ── installed_files 分组里逐个文件对账 ─────────────────────────────────────
+// 为什么要有这一段：assets[] 里每条记录只带**一个** sha256（通常是该组的代表文件），
+// 组内其余文件的哈希全靠 installed_files 列表。守卫原先不看这个列表，于是"改了组内
+// 非代表文件"（例如 theme.js、SessionPage.qml）既不会被发现，刷新器也只认大写键名
+// 而静默跳过 —— 台账会长期漂移而守卫一路绿灯。这里补上逐个文件的字节对账。
+const installedGroups = [];
+for (const key of ['INSTALLED_FILES', 'installed_files']) {
+  const g = manifest[key];
+  if (g && typeof g === 'object' && !Array.isArray(g)) {
+    for (const [name, list] of Object.entries(g)) {
+      if (Array.isArray(list)) installedGroups.push([`${key}.${name}`, list]);
+    }
+  }
+}
+if (!installedGroups.length) {
+  bad('台账里找不到 installed_files / INSTALLED_FILES 分组 —— 键名变了，守卫拒绝静默通过');
+}
+let groupChecked = 0;
+for (const [group, list] of installedGroups) {
+  for (const item of list) {
+    const rel = item && item.path;
+    if (!rel) continue;
+    const abs = path.isAbsolute(rel) ? rel : path.join(root, norm(rel));
+    if (!fs.existsSync(abs)) { bad(`[${group}] 登记的文件不存在：${rel}`); continue; }
+    if (fs.statSync(abs).isDirectory()) { bad(`[${group}] 登记的是目录，无法对账：${rel}`); continue; }
+    // 登记成 [path] 的条目只列出文件名，此时要求能给出台账里的真实哈希
+    if (typeof item === 'string') { continue; }
+    const sha = String(item.sha256 || '');
+    if (sha === 'N/A') continue;
+    if (!/^[0-9a-f]{8,64}$/i.test(sha)) {
+      bad(`[${group}] ${rel} 的 sha256 既不是 N/A 也不是十六进制哈希：${JSON.stringify(item.sha256)}`);
+      continue;
+    }
+    groupChecked += 1;
+    const actual = shaOf(abs);
+    if (actual !== sha.toLowerCase()) {
+      bad(`[${group}] sha256 对不上：台账 ${sha}，磁盘 ${actual}（${rel}）`);
+    }
+  }
+}
+notes.push(`installed_files 分组逐个对账了 ${groupChecked} 个文件的哈希`);
+
 // ── 随包目录里不许有没登记的素材 ──────────────────────────────────────────
 // 登记过的相对路径集合（把 installed_path 归一化后比较）
 const registered = new Set();

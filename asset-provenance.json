@@ -1,357 +1,369 @@
 {
-  "schema": "stronghold-link/asset-provenance@1",
-  "generated_by": "人工登记 + tools/verify-asset-provenance.cjs 校验（哈希由 Get-FileHash / sha256 计算后粘贴，不是手写的）",
-  "project": {
-    "name": "Stronghold Link",
-    "version": "0.14.4",
-    "repository": "C:\\Users\\18072\\Documents\\deepseek-harness\\default-workspace\\Stronghold-Link\\source",
-    "branch": "qml-migration",
-    "license": "GPL-3.0-only"
-  },
-  "field_notes": {
-    "included_in_release": "true = 会随便携包/安装包分发；false = 只在仓库或只作参考",
-    "redistribution_status": "OK = 可再分发；NO_REDISTRIBUTION = 上游明确禁止再分发；UNVERIFIED = 权利没查清（不许 included_in_release=true）；N/A = 不适用（要写理由）",
-    "sha256": "文件内容的 SHA-256；指向目录或不适用时写 N/A 并说明"
-  },
-  "assets": [
-    {
-      "asset_id": "shipped-third-party-notices",
-      "display_name": "随包分发的第三方声明与许可证全文",
-      "source_project": "Stronghold Link（本项目整理）",
-      "source_url": "N/A",
-      "source_commit": "N/A",
-      "source_path": "THIRD_PARTY_NOTICES.txt, LICENSES/",
-      "installed_path": "THIRD_PARTY_NOTICES.txt",
-      "asset_type": "notice-document",
-      "copyright_holder": "各自版权方（见文件内逐条说明）",
-      "license": "N/A（声明汇总；各许可证全文见 LICENSES/）",
-      "license_evidence": "LICENSES/GPL-3.0-only.txt 与本项目 LICENSE 逐字节相同（同一 sha256）；LICENSES/LGPL-3.0-only.txt 取自 https://www.gnu.org/licenses/lgpl-3.0.txt；两个 MIT 全文分别复制自 node_modules/steamworks-ffi-node/LICENSE 与 node_modules/koffi/LICENSE.txt",
-      "sha256": "235b22a10007f5262fad501388d2ebc4cada47f1932195b261dc51d4d6aceeed",
-      "modified": false,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "任务书要求这四类文件（LICENSES/、THIRD_PARTY_NOTICES.txt、ASSET_PROVENANCE.md、asset-provenance.json）必须出现在**分发目录内部**，不能只留在 git、也不能藏进 app.asar —— 打包脚本收尾时要复制进去。LICENSES/ 下四个文件的逐个哈希见 INSTALLED_FILES.shipped-third-party-notices。"
-    },
-    {
-      "asset_id": "project-license-gpl3",
-      "display_name": "本项目自身的许可证全文（GNU GPL v3）",
-      "source_project": "Stronghold Link（本项目）",
-      "source_url": "https://www.gnu.org/licenses/gpl-3.0.txt",
-      "source_commit": "N/A",
-      "source_path": "LICENSE",
-      "installed_path": "LICENSE",
-      "asset_type": "license-text",
-      "copyright_holder": "本项目作者（见 git 历史）",
-      "license": "GPL-3.0-only",
-      "license_evidence": "仓库根目录 LICENSE 第 1-2 行即 'GNU GENERAL PUBLIC LICENSE / Version 3, 29 June 2007'，共 674 行，与本记录 sha256 一致",
-      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-      "modified": false,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "GPL-3.0 要求随二进制分发时提供完整许可证文本；分发目录 LICENSES/ 与根目录都会各放一份。"
-    },
-    {
-      "asset_id": "project-third-party-notices",
-      "display_name": "第三方组件与声明",
-      "source_project": "Stronghold Link（本项目）",
-      "source_url": "N/A",
-      "source_commit": "N/A",
-      "source_path": "NOTICE.md",
-      "installed_path": "NOTICE.md",
-      "asset_type": "notice-document",
-      "copyright_holder": "各自版权方（见文档内表格）",
-      "license": "N/A",
-      "license_evidence": "本文件是声明汇总，逐条列出组件与其许可；所列组件各自的许可证全文另见 LICENSES/",
-      "sha256": "6906537d73adba1d3e20d491297cfb281a23b808aac5fd9929bd783204208c88",
-      "modified": false,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "注意：NOTICE.md 里关于 Electron / Three.js / MiSans / Inter 的条目描述的是**旧 Electron 渲染层**的依赖。QML 版不再打包 Electron、Three.js 与那两套字体子集，见 mig-qml-frontend 与 ref-ui-study 两条记录。"
-    },
-    {
-      "asset_id": "mig-qml-frontend",
-      "display_name": "QML 前端与 C++ 桥（迁移代码）",
-      "source_project": "Stronghold Link（本项目，迁移中新增）",
-      "source_url": "N/A",
-      "source_commit": "N/A",
-      "source_path": "app_qml/",
-      "installed_path": "app_qml/main.cpp",
-      "asset_type": "source-code",
-      "copyright_holder": "本项目作者（见 git 历史）",
-      "license": "GPL-3.0-only",
-      "license_evidence": "新增文件属于本项目源码，受根目录 LICENSE（GPL-3.0）覆盖；文件中不含任何来自第三方的代码片段",
-      "sha256": "b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006",
-      "modified": true,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "sha256 这一条记的是入口 app_qml/main.cpp；全部 23 个文件（app_qml/*.cpp|*.h|*.pro|*.qrc 与 app_qml/qml/**）都在此记录名下，逐个哈希见 INSTALLED_FILES 列表。这些文件是照着参考项目的**视觉规则**重写的 QML/C++，没有复制其 TypeScript 源码。"
-    },
-    {
-      "asset_id": "mig-backend-split",
-      "display_name": "Electron-free 后端入口与业务层（从 electron/main.cjs 摘出）",
-      "source_project": "Stronghold Link（本项目）",
-      "source_url": "N/A",
-      "source_commit": "N/A",
-      "source_path": "electron/main.cjs → backend/",
-      "installed_path": "backend/stronghold-backend.cjs",
-      "asset_type": "source-code",
-      "copyright_holder": "本项目作者（见 git 历史）",
-      "license": "GPL-3.0-only",
-      "license_evidence": "从本项目 electron/main.cjs 摘出的业务逻辑，同属本项目源码，受根目录 LICENSE 覆盖",
-      "sha256": "4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b",
-      "modified": true,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "backend/business.cjs 是从 electron/main.cjs 摘出的业务实现（sha256 见 INSTALLED_FILES）；network/ 下 33 个 .cjs 未改动，仍是同一份 GPL-3.0 源码。"
-    },
-    {
-      "asset_id": "ref-ui-study",
-      "display_name": "参考项目 the-masses-travels 的界面规则（只做学习，未随包分发任何文件）",
-      "source_project": "Funkierry/the-masses-travels",
-      "source_url": "https://github.com/Funkierry/the-masses-travels",
-      "source_commit": "7ea40aea1ff28f84c20d58eae5f30497b093517d",
-      "source_path": "src/sketch.ts, src/collage.ts, src/plates.ts, src/graphic.css, src/style.css",
-      "installed_path": "N/A",
-      "asset_type": "reference-only",
-      "copyright_holder": "UNVERIFIED（该 commit 的仓库根目录没有 LICENSE / COPYING，package.json 无 license 字段且 private: true）",
-      "license": "UNVERIFIED",
-      "license_evidence": "在该 commit 上：根目录列不出 LICENSE；package.json 无 \"license\" 字段且 \"private\": true；src/*.ts 无版权头。THIRD_PARTY_NOTICES.txt:10-28 里那段 MIT 正文是 **three.js** 的，不是该项目的自身许可，容易被误读 —— 所以不能据此认定整仓库为 MIT。",
-      "sha256": "N/A",
-      "modified": false,
-      "included_in_release": false,
-      "redistribution_status": "UNVERIFIED",
-      "notes": "只读了它的绘制算法与配色（纸色/墨色/钴蓝、细线、切角、尺线、十字准星、拼贴），在 app_qml/qml 里用 QML Canvas 自行重写：随机数由 QML 侧的固定种子伪随机生成，曲线是参数方程，没有逐行移植 TypeScript 代码，也没有引入其任何图片/字体/模型文件。因为权利状态 UNVERIFIED，所以 included_in_release=false 且不随包分发任何来自它的字节。"
-    },
-    {
-      "asset_id": "ref-game-derivatives",
-      "display_name": "参考项目里《明日方舟》游戏提取物的派生物（地图、图集切图、立绘、活动 BGM）",
-      "source_project": "Funkierry/the-masses-travels（其 public/assets/game/）",
-      "source_url": "https://github.com/Funkierry/the-masses-travels",
-      "source_commit": "7ea40aea1ff28f84c20d58eae5f30497b093517d",
-      "source_path": "public/assets/game/**",
-      "installed_path": "N/A",
-      "asset_type": "game-extract",
-      "copyright_holder": "鹰角网络（Hypergryph）——《明日方舟》权利方",
-      "license": "NO_REDISTRIBUTION",
-      "license_evidence": "参考项目自带的 THIRD_PARTY_NOTICES.txt 原文写明这些提取物 'for private study only. They must not be redistributed.'；其 README 亦将美术与音乐署名给鹰角网络",
-      "sha256": "N/A",
-      "modified": false,
-      "included_in_release": false,
-      "redistribution_status": "NO_REDISTRIBUTION",
-      "notes": "红线：权利未解决前，任何裁剪/调色/压缩后的派生物都不得进分发目录。本项目一个字节都没有引入 —— app_qml 里唯一的位图是 qml-qa 的三张界面截图（自己渲染的 UI，见 qa-screenshots 记录）。"
-    },
-    {
-      "asset_id": "qa-screenshots",
-      "display_name": "QML 界面三页截图（1440x900 / 1280x720 / 1024x768，共 9 张）",
-      "source_project": "Stronghold Link（本项目，运行时自行渲染）",
-      "source_url": "N/A",
-      "source_commit": "N/A",
-      "source_path": "app_qml/shots/",
-      "installed_path": "app_qml/shots/session-1440x900.png",
-      "asset_type": "image",
-      "copyright_holder": "本项目作者（见 git 历史）",
-      "license": "GPL-3.0-only",
-      "license_evidence": "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素；生成脚本 tools/make-shots.cjs",
-      "sha256": "86d1de5691e02b633d007a54cc3a7aeec297a5b54e251052cd16b488f866452b",
-      "modified": false,
-      "included_in_release": false,
-      "redistribution_status": "OK",
-      "notes": "sha256 是 session-1440x900.png；其余 8 张见 INSTALLED_FILES.qa-screenshots（三页 x 三分辨率）。1024x768 与 1280x720 两张能证明小窗口下版面等比缩放、右侧不再被裁。截图只用于文档与验收，不进便携包。"
-    },
-    {
-      "asset_id": "qt-runtime",
-      "display_name": "Qt 6.8.3（Qt Quick / QtQml / Core / Gui / Network）",
-      "source_project": "The Qt Company",
-      "source_url": "https://www.qt.io/licensing/open-source-lgpl-obligations",
-      "source_commit": "N/A",
-      "source_path": "D:\\Qt\\6.8.3\\mingw_64",
-      "installed_path": "N/A",
-      "asset_type": "third-party-runtime",
-      "copyright_holder": "The Qt Company Ltd. 及贡献者",
-      "license": "LGPL-3.0-only（动态链接）或 GPL-3.0-only，取决于构建时的配置",
-      "license_evidence": "本机 Qt 安装目录下的 LICENSE.LGPL3 与 LICENSE.GPL3 文件；打包时必须把对应全文随包附上",
-      "sha256": "N/A",
-      "modified": false,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "便携包会把 Qt 运行库（Qt6Core.dll / Qt6Gui.dll / Qt6Qml.dll / Qt6Quick.dll 等）与 platforms/qwindows.dll 复制到 exe 旁边。LGPL 要求：动态链接可满足，且必须附带许可证全文、允许用户替换 Qt 库 —— 因此不得静态链接，也不得阻止替换 DLL。QML 模块（QtQuick.Controls 等）若来自 LGPL 之外的许可，另需逐项确认。本记录待最终打包时按实际复制进去的 DLL 清单补全 sha256。"
-    },
-    {
-      "asset_id": "steamworks-sdk",
-      "display_name": "Steamworks SDK（steam_api64.dll）",
-      "source_project": "Valve Corporation",
-      "source_url": "https://partner.steamgames.com/",
-      "source_commit": "N/A",
-      "source_path": "steamworks_sdk/",
-      "installed_path": "N/A",
-      "asset_type": "third-party-runtime",
-      "copyright_holder": "Valve Corporation",
-      "license": "Valve 专有许可（Steamworks SDK License）",
-      "license_evidence": "Steamworks SDK 许可禁止把 SDK 的 DLL 重新分发；仓库 .gitignore 已把 steamworks_sdk/**/*.dll 排除，需使用者自行放入",
-      "sha256": "N/A",
-      "modified": false,
-      "included_in_release": false,
-      "redistribution_status": "NO_REDISTRIBUTION",
-      "notes": "便携包内不含 steam_api64.dll；缺失时必须由 diagnoseSteam() 预检给出可读诊断，绝不允许进程崩溃。"
-    },
-    {
-      "asset_id": "steamworks-ffi-node",
-      "display_name": "steamworks-ffi-node 与 koffi（Node 侧 Steam FFI 绑定）",
-      "source_project": "steamworks-ffi-node / koffi",
-      "source_url": "https://www.npmjs.com/package/steamworks-ffi-node",
-      "source_commit": "N/A",
-      "source_path": "node_modules/",
-      "installed_path": "N/A",
-      "asset_type": "third-party-library",
-      "copyright_holder": "各自作者",
-      "license": "MIT",
-      "license_evidence": "两包的 npm 元数据均声明 MIT；许可证全文在其 node_modules/<包>/LICENSE",
-      "sha256": "N/A",
-      "modified": false,
-      "included_in_release": true,
-      "redistribution_status": "OK",
-      "notes": "便携包若随附 node_modules 中的这两个包，必须同时复制其 LICENSE 全文到 LICENSES/。待最终打包时按实际复制内容补 sha256。"
-    },
-    {
-      "asset_id": "node-runtime",
-      "display_name": "Node.js 运行时（后端进程）",
-      "source_project": "OpenJS Foundation / Node.js contributors",
-      "source_url": "https://nodejs.org/",
-      "source_commit": "N/A",
-      "source_path": "N/A",
-      "installed_path": "N/A",
-      "asset_type": "third-party-runtime",
-      "copyright_holder": "Node.js contributors",
-      "license": "MIT（Node 本体）；其内嵌依赖（V8、OpenSSL、ICU 等）许可见发行版 LICENSE 文件",
-      "license_evidence": "nodejs.org 发行包内附 LICENSE，其中列出 Node 本体 MIT 与各内嵌组件的许可",
-      "sha256": "N/A",
-      "modified": false,
-      "included_in_release": "N/A",
-      "redistribution_status": "N/A",
-      "notes": "开发/验收期用的是系统安装的 node（D:\\Program Files\\nodejs\\node.exe）。**打包决策未定**：随包带 node.exe 就要附 Node 的 LICENSE；改为要求用户自装 Node 则不属于分发。任务书禁止在未验证前宣称可分发，故此处 status 记 N/A 并注明待定。"
-    }
-  ],
-  "installed_files": {
-    "note": "上表里若干记录的 sha256 记的是该记录的**入口文件**；同一个记录名下的其它文件在这里逐个列出。分组记录（qt-runtime / steamworks-ffi-node）在最终打包时按实际复制内容补全。",
-    "mig-qml-frontend": [
-      {
-        "path": "app_qml/app_qml.pro",
-        "sha256": "72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20"
-      },
-      {
-        "path": "app_qml/main.cpp",
-        "sha256": "9314b617f48e73ba037f6c1633ba96107d8d841a5b2bc6937066d663833392cb"
-      },
-      {
-        "path": "app_qml/backendbridge.h",
-        "sha256": "c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd"
-      },
-      {
-        "path": "app_qml/backendbridge.cpp",
-        "sha256": "59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb"
-      },
-      {
-        "path": "app_qml/qml.qrc",
-        "sha256": "e7787a88fe6f9a9aaefd8da2c29033469c8a2a50687310de748c0de345990804"
-      },
-      {
-        "path": "app_qml/qml/Main.qml",
-        "sha256": "4e0bf323774fb934fb3b4023c5c07197e9cade98bfcf46c1548eed3bd79d36c2"
-      },
-      {
-        "path": "app_qml/qml/theme.js",
-        "sha256": "36611badf30f0115835bc9b7b3dbe49c64f824cfd8ca1e184029aac2f2333d1a"
-      },
-      {
-        "path": "app_qml/qml/logic.js",
-        "sha256": "afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77"
-      },
-      {
-        "path": "app_qml/qml/Pages/SessionPage.qml",
-        "sha256": "bac8791c4ff158ca04de415bd0823e12aec89957e48ba6c5dbf52409c1f3a269"
-      },
-      {
-        "path": "app_qml/qml/Pages/FriendsPage.qml",
-        "sha256": "05eb24133d405c8b9d5f58946d7a3035caae776caf360955e550828784a790bd"
-      },
-      {
-        "path": "app_qml/qml/Pages/SettingPage.qml",
-        "sha256": "d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342"
-      }
-    ],
-    "mig-backend-split": [
-      {
-        "path": "backend/stronghold-backend.cjs",
-        "sha256": "4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b"
-      },
-      {
-        "path": "backend/business.cjs",
-        "sha256": "cd26e630e6359d162458ce4d266d650826d7eee1b2cd260d328d8e7ce5661a06"
-      }
-    ],
-    "qa-screenshots": [
-      {
-        "path": "app_qml/shots/session-1440x900.png",
-        "sha256": "86d1de5691e02b633d007a54cc3a7aeec297a5b54e251052cd16b488f866452b"
-      },
-      {
-        "path": "app_qml/shots/friends-1440x900.png",
-        "sha256": "fdf693eabdebb97a1a299fb2fb56e8f3a85d87c31484926b903e6e85d59be015"
-      },
-      {
-        "path": "app_qml/shots/setting-1440x900.png",
-        "sha256": "ba4dc326d760ff8f839558daa6dd854abc029a5646f0cddf3e347389e783cac6"
-      },
-      {
-        "path": "app_qml/shots/session-1280x720.png",
-        "sha256": "d780132b2c0bba14c17714d737004aeec23615c9dec0d07466d354dd0c75aeae"
-      },
-      {
-        "path": "app_qml/shots/friends-1280x720.png",
-        "sha256": "bb7222743c44cb121e393de7735d6cefd8dfc880923edf76602e01ce9cc810d9"
-      },
-      {
-        "path": "app_qml/shots/setting-1280x720.png",
-        "sha256": "877989d137c3f1913c76accd1571c41174ab45b8b48621e36c507b79f53dfd94"
-      },
-      {
-        "path": "app_qml/shots/session-1024x768.png",
-        "sha256": "23b07d0643c3777ae1ef7cf8c48e4063ebfa53ac2e41906edc76e2ee737105fa"
-      },
-      {
-        "path": "app_qml/shots/friends-1024x768.png",
-        "sha256": "76ee87534efba5447f4fc281567d9309f85d1f98cda3b63d5ebdbccd1f617262"
-      },
-      {
-        "path": "app_qml/shots/setting-1024x768.png",
-        "sha256": "430bf9f4a9d716070266dd4ca44ae39742e7c604b2df6e351c597e2de14929b6"
-      }
-    ],
-    "shipped-third-party-notices": [
-      {
-        "path": "LICENSES/GPL-3.0-only.txt",
-        "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
-      },
-      {
-        "path": "LICENSES/LGPL-3.0-only.txt",
-        "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
-      },
-      {
-        "path": "LICENSES/steamworks-ffi-node-MIT.txt",
-        "sha256": "163e3136d3d1067a2fe50cf159236a3aab50fec8cfa5b1d0bbec1aeae39df58f"
-      },
-      {
-        "path": "LICENSES/koffi-MIT.txt",
-        "sha256": "22bcbbbacd739b026a8dc484f62a31484ce4c4e31f3408b60b29b4e41d62b290"
-      },
-      {
-        "path": "THIRD_PARTY_NOTICES.txt",
-        "sha256": "235b22a10007f5262fad501388d2ebc4cada47f1932195b261dc51d4d6aceeed"
-      }
-    ]
-  },
-  "TODO_REHASH": [
-    "qt-runtime 与 steamworks-ffi-node 的 sha256 待最终打包时按实际复制进便携包的 DLL / 包目录补全。",
-    "node-runtime 的 included_in_release 待定：必须先在文档里写明打包决策（随包带 node.exe 还是要求用户自装）。"
-  ]
+    "schema":  "stronghold-link/asset-provenance@1",
+    "generated_by":  "人工登记 + tools/verify-asset-provenance.cjs 校验（哈希由 Get-FileHash / sha256 计算后粘贴，不是手写的）",
+    "project":  {
+                    "name":  "Stronghold Link",
+                    "version":  "0.14.4",
+                    "repository":  "C:\\Users\\18072\\Documents\\deepseek-harness\\default-workspace\\Stronghold-Link\\source",
+                    "branch":  "qml-migration",
+                    "license":  "GPL-3.0-only"
+                },
+    "field_notes":  {
+                        "included_in_release":  "true = 会随便携包/安装包分发；false = 只在仓库或只作参考",
+                        "redistribution_status":  "OK = 可再分发；NO_REDISTRIBUTION = 上游明确禁止再分发；UNVERIFIED = 权利没查清（不许 included_in_release=true）；N/A = 不适用（要写理由）",
+                        "sha256":  "文件内容的 SHA-256；指向目录或不适用时写 N/A 并说明"
+                    },
+    "assets":  [
+                   {
+                       "asset_id":  "shipped-third-party-notices",
+                       "display_name":  "随包分发的第三方声明与许可证全文",
+                       "source_project":  "Stronghold Link（本项目整理）",
+                       "source_url":  "N/A",
+                       "source_commit":  "N/A",
+                       "source_path":  "THIRD_PARTY_NOTICES.txt, LICENSES/",
+                       "installed_path":  "THIRD_PARTY_NOTICES.txt",
+                       "asset_type":  "notice-document",
+                       "copyright_holder":  "各自版权方（见文件内逐条说明）",
+                       "license":  "N/A（声明汇总；各许可证全文见 LICENSES/）",
+                       "license_evidence":  "LICENSES/GPL-3.0-only.txt 与本项目 LICENSE 逐字节相同（同一 sha256）；LICENSES/LGPL-3.0-only.txt 取自 https://www.gnu.org/licenses/lgpl-3.0.txt；两个 MIT 全文分别复制自 node_modules/steamworks-ffi-node/LICENSE 与 node_modules/koffi/LICENSE.txt",
+                       "sha256":  "235b22a10007f5262fad501388d2ebc4cada47f1932195b261dc51d4d6aceeed",
+                       "modified":  false,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "任务书要求这四类文件（LICENSES/、THIRD_PARTY_NOTICES.txt、ASSET_PROVENANCE.md、asset-provenance.json）必须出现在**分发目录内部**，不能只留在 git、也不能藏进 app.asar —— 打包脚本收尾时要复制进去。LICENSES/ 下四个文件的逐个哈希见 INSTALLED_FILES.shipped-third-party-notices。"
+                   },
+                   {
+                       "asset_id":  "project-license-gpl3",
+                       "display_name":  "本项目自身的许可证全文（GNU GPL v3）",
+                       "source_project":  "Stronghold Link（本项目）",
+                       "source_url":  "https://www.gnu.org/licenses/gpl-3.0.txt",
+                       "source_commit":  "N/A",
+                       "source_path":  "LICENSE",
+                       "installed_path":  "LICENSE",
+                       "asset_type":  "license-text",
+                       "copyright_holder":  "本项目作者（见 git 历史）",
+                       "license":  "GPL-3.0-only",
+                       "license_evidence":  "仓库根目录 LICENSE 第 1-2 行即 \u0027GNU GENERAL PUBLIC LICENSE / Version 3, 29 June 2007\u0027，共 674 行，与本记录 sha256 一致",
+                       "sha256":  "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+                       "modified":  false,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "GPL-3.0 要求随二进制分发时提供完整许可证文本；分发目录 LICENSES/ 与根目录都会各放一份。"
+                   },
+                   {
+                       "asset_id":  "project-third-party-notices",
+                       "display_name":  "第三方组件与声明",
+                       "source_project":  "Stronghold Link（本项目）",
+                       "source_url":  "N/A",
+                       "source_commit":  "N/A",
+                       "source_path":  "NOTICE.md",
+                       "installed_path":  "NOTICE.md",
+                       "asset_type":  "notice-document",
+                       "copyright_holder":  "各自版权方（见文档内表格）",
+                       "license":  "N/A",
+                       "license_evidence":  "本文件是声明汇总，逐条列出组件与其许可；所列组件各自的许可证全文另见 LICENSES/",
+                       "sha256":  "6906537d73adba1d3e20d491297cfb281a23b808aac5fd9929bd783204208c88",
+                       "modified":  false,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "注意：NOTICE.md 里关于 Electron / Three.js / MiSans / Inter 的条目描述的是**旧 Electron 渲染层**的依赖。QML 版不再打包 Electron、Three.js 与那两套字体子集，见 mig-qml-frontend 与 ref-ui-study 两条记录。"
+                   },
+                   {
+                       "asset_id":  "mig-qml-frontend",
+                       "display_name":  "QML 前端与 C++ 桥（迁移代码）",
+                       "source_project":  "Stronghold Link（本项目，迁移中新增）",
+                       "source_url":  "N/A",
+                       "source_commit":  "N/A",
+                       "source_path":  "app_qml/",
+                       "installed_path":  "app_qml/main.cpp",
+                       "asset_type":  "source-code",
+                       "copyright_holder":  "本项目作者（见 git 历史）",
+                       "license":  "GPL-3.0-only",
+                       "license_evidence":  "新增文件属于本项目源码，受根目录 LICENSE（GPL-3.0）覆盖；文件中不含任何来自第三方的代码片段",
+                       "sha256":  "b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006",
+                       "modified":  true,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "sha256 这一条记的是入口 app_qml/main.cpp；全部 23 个文件（app_qml/*.cpp|*.h|*.pro|*.qrc 与 app_qml/qml/**）都在此记录名下，逐个哈希见 INSTALLED_FILES 列表。这些文件是照着参考项目的**视觉规则**重写的 QML/C++，没有复制其 TypeScript 源码。"
+                   },
+                   {
+                       "asset_id":  "mig-backend-split",
+                       "display_name":  "Electron-free 后端入口与业务层（从 electron/main.cjs 摘出）",
+                       "source_project":  "Stronghold Link（本项目）",
+                       "source_url":  "N/A",
+                       "source_commit":  "N/A",
+                       "source_path":  "electron/main.cjs → backend/",
+                       "installed_path":  "backend/stronghold-backend.cjs",
+                       "asset_type":  "source-code",
+                       "copyright_holder":  "本项目作者（见 git 历史）",
+                       "license":  "GPL-3.0-only",
+                       "license_evidence":  "从本项目 electron/main.cjs 摘出的业务逻辑，同属本项目源码，受根目录 LICENSE 覆盖",
+                       "sha256":  "4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b",
+                       "modified":  true,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "backend/business.cjs 是从 electron/main.cjs 摘出的业务实现（sha256 见 INSTALLED_FILES）；network/ 下 33 个 .cjs 未改动，仍是同一份 GPL-3.0 源码。"
+                   },
+                   {
+                       "asset_id":  "ref-ui-study",
+                       "display_name":  "参考项目 the-masses-travels 的界面规则（只做学习，未随包分发任何文件）",
+                       "source_project":  "Funkierry/the-masses-travels",
+                       "source_url":  "https://github.com/Funkierry/the-masses-travels",
+                       "source_commit":  "7ea40aea1ff28f84c20d58eae5f30497b093517d",
+                       "source_path":  "src/sketch.ts, src/collage.ts, src/plates.ts, src/graphic.css, src/style.css",
+                       "installed_path":  "N/A",
+                       "asset_type":  "reference-only",
+                       "copyright_holder":  "UNVERIFIED（该 commit 的仓库根目录没有 LICENSE / COPYING，package.json 无 license 字段且 private: true）",
+                       "license":  "UNVERIFIED",
+                       "license_evidence":  "在该 commit 上：根目录列不出 LICENSE；package.json 无 \"license\" 字段且 \"private\": true；src/*.ts 无版权头。THIRD_PARTY_NOTICES.txt:10-28 里那段 MIT 正文是 **three.js** 的，不是该项目的自身许可，容易被误读 —— 所以不能据此认定整仓库为 MIT。",
+                       "sha256":  "N/A",
+                       "modified":  false,
+                       "included_in_release":  false,
+                       "redistribution_status":  "UNVERIFIED",
+                       "notes":  "只读了它的绘制算法与配色（纸色/墨色/钴蓝、细线、切角、尺线、十字准星、拼贴），在 app_qml/qml 里用 QML Canvas 自行重写：随机数由 QML 侧的固定种子伪随机生成，曲线是参数方程，没有逐行移植 TypeScript 代码，也没有引入其任何图片/字体/模型文件。因为权利状态 UNVERIFIED，所以 included_in_release=false 且不随包分发任何来自它的字节。"
+                   },
+                   {
+                       "asset_id":  "ref-game-derivatives",
+                       "display_name":  "参考项目里《明日方舟》游戏提取物的派生物（地图、图集切图、立绘、活动 BGM）",
+                       "source_project":  "Funkierry/the-masses-travels（其 public/assets/game/）",
+                       "source_url":  "https://github.com/Funkierry/the-masses-travels",
+                       "source_commit":  "7ea40aea1ff28f84c20d58eae5f30497b093517d",
+                       "source_path":  "public/assets/game/**",
+                       "installed_path":  "N/A",
+                       "asset_type":  "game-extract",
+                       "copyright_holder":  "鹰角网络（Hypergryph）——《明日方舟》权利方",
+                       "license":  "NO_REDISTRIBUTION",
+                       "license_evidence":  "参考项目自带的 THIRD_PARTY_NOTICES.txt 原文写明这些提取物 \u0027for private study only. They must not be redistributed.\u0027；其 README 亦将美术与音乐署名给鹰角网络",
+                       "sha256":  "N/A",
+                       "modified":  false,
+                       "included_in_release":  false,
+                       "redistribution_status":  "NO_REDISTRIBUTION",
+                       "notes":  "红线：权利未解决前，任何裁剪/调色/压缩后的派生物都不得进分发目录。本项目一个字节都没有引入 —— app_qml 里唯一的位图是 qml-qa 的三张界面截图（自己渲染的 UI，见 qa-screenshots 记录）。"
+                   },
+                   {
+                       "asset_id":  "qa-screenshots",
+                       "display_name":  "QML 界面三页截图（1440x900 / 1280x720 / 1024x768，共 9 张）",
+                       "source_project":  "Stronghold Link（本项目，运行时自行渲染）",
+                       "source_url":  "N/A",
+                       "source_commit":  "N/A",
+                       "source_path":  "app_qml/shots/",
+                       "installed_path":  "app_qml/shots/session-1440x900.png",
+                       "asset_type":  "image",
+                       "copyright_holder":  "本项目作者（见 git 历史）",
+                       "license":  "GPL-3.0-only",
+                       "license_evidence":  "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素；生成脚本 tools/make-shots.cjs",
+                       "sha256":  "88caf1c081f8e0b5bf0901f2c4c61e2371779f940b2e830f0cf9b49032ae7e51",
+                       "modified":  false,
+                       "included_in_release":  false,
+                       "redistribution_status":  "OK",
+                       "notes":  "sha256 是 session-1440x900.png；其余 8 张见 INSTALLED_FILES.qa-screenshots（三页 x 三分辨率）。1024x768 与 1280x720 两张能证明小窗口下版面等比缩放、右侧不再被裁。截图只用于文档与验收，不进便携包。"
+                   },
+                   {
+                       "asset_id":  "qt-runtime",
+                       "display_name":  "Qt 6.8.3（Qt Quick / QtQml / Core / Gui / Network）",
+                       "source_project":  "The Qt Company",
+                       "source_url":  "https://www.qt.io/licensing/open-source-lgpl-obligations",
+                       "source_commit":  "N/A",
+                       "source_path":  "D:\\Qt\\6.8.3\\mingw_64",
+                       "installed_path":  "N/A",
+                       "asset_type":  "third-party-runtime",
+                       "copyright_holder":  "The Qt Company Ltd. 及贡献者",
+                       "license":  "LGPL-3.0-only（动态链接）或 GPL-3.0-only，取决于构建时的配置",
+                       "license_evidence":  "本机 Qt 安装目录下的 LICENSE.LGPL3 与 LICENSE.GPL3 文件；打包时必须把对应全文随包附上",
+                       "sha256":  "N/A",
+                       "modified":  false,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "便携包会把 Qt 运行库（Qt6Core.dll / Qt6Gui.dll / Qt6Qml.dll / Qt6Quick.dll 等）与 platforms/qwindows.dll 复制到 exe 旁边。LGPL 要求：动态链接可满足，且必须附带许可证全文、允许用户替换 Qt 库 —— 因此不得静态链接，也不得阻止替换 DLL。QML 模块（QtQuick.Controls 等）若来自 LGPL 之外的许可，另需逐项确认。本记录待最终打包时按实际复制进去的 DLL 清单补全 sha256。"
+                   },
+                   {
+                       "asset_id":  "steamworks-sdk",
+                       "display_name":  "Steamworks SDK（steam_api64.dll）",
+                       "source_project":  "Valve Corporation",
+                       "source_url":  "https://partner.steamgames.com/",
+                       "source_commit":  "N/A",
+                       "source_path":  "steamworks_sdk/",
+                       "installed_path":  "N/A",
+                       "asset_type":  "third-party-runtime",
+                       "copyright_holder":  "Valve Corporation",
+                       "license":  "Valve 专有许可（Steamworks SDK License）",
+                       "license_evidence":  "Steamworks SDK 许可禁止把 SDK 的 DLL 重新分发；仓库 .gitignore 已把 steamworks_sdk/**/*.dll 排除，需使用者自行放入",
+                       "sha256":  "N/A",
+                       "modified":  false,
+                       "included_in_release":  false,
+                       "redistribution_status":  "NO_REDISTRIBUTION",
+                       "notes":  "便携包内不含 steam_api64.dll；缺失时必须由 diagnoseSteam() 预检给出可读诊断，绝不允许进程崩溃。"
+                   },
+                   {
+                       "asset_id":  "steamworks-ffi-node",
+                       "display_name":  "steamworks-ffi-node 与 koffi（Node 侧 Steam FFI 绑定）",
+                       "source_project":  "steamworks-ffi-node / koffi",
+                       "source_url":  "https://www.npmjs.com/package/steamworks-ffi-node",
+                       "source_commit":  "N/A",
+                       "source_path":  "node_modules/",
+                       "installed_path":  "N/A",
+                       "asset_type":  "third-party-library",
+                       "copyright_holder":  "各自作者",
+                       "license":  "MIT",
+                       "license_evidence":  "两包的 npm 元数据均声明 MIT；许可证全文在其 node_modules/\u003c包\u003e/LICENSE",
+                       "sha256":  "N/A",
+                       "modified":  false,
+                       "included_in_release":  true,
+                       "redistribution_status":  "OK",
+                       "notes":  "便携包若随附 node_modules 中的这两个包，必须同时复制其 LICENSE 全文到 LICENSES/。待最终打包时按实际复制内容补 sha256。"
+                   },
+                   {
+                       "asset_id":  "node-runtime",
+                       "display_name":  "Node.js 运行时（后端进程）",
+                       "source_project":  "OpenJS Foundation / Node.js contributors",
+                       "source_url":  "https://nodejs.org/",
+                       "source_commit":  "N/A",
+                       "source_path":  "N/A",
+                       "installed_path":  "N/A",
+                       "asset_type":  "third-party-runtime",
+                       "copyright_holder":  "Node.js contributors",
+                       "license":  "MIT（Node 本体）；其内嵌依赖（V8、OpenSSL、ICU 等）许可见发行版 LICENSE 文件",
+                       "license_evidence":  "nodejs.org 发行包内附 LICENSE，其中列出 Node 本体 MIT 与各内嵌组件的许可",
+                       "sha256":  "N/A",
+                       "modified":  false,
+                       "included_in_release":  "N/A",
+                       "redistribution_status":  "N/A",
+                       "notes":  "开发/验收期用的是系统安装的 node（D:\\Program Files\\nodejs\\node.exe）。**打包决策未定**：随包带 node.exe 就要附 Node 的 LICENSE；改为要求用户自装 Node 则不属于分发。任务书禁止在未验证前宣称可分发，故此处 status 记 N/A 并注明待定。"
+                   }
+               ],
+    "installed_files":  {
+                            "note":  "上表里若干记录的 sha256 记的是该记录的**入口文件**；同一个记录名下的其它文件在这里逐个列出。分组记录（qt-runtime / steamworks-ffi-node）在最终打包时按实际复制内容补全。",
+                            "mig-qml-frontend":  [
+                                                     {
+                                                         "path":  "app_qml/app_qml.pro",
+                                                         "sha256":  "72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/main.cpp",
+                                                         "sha256":  "b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/backendbridge.h",
+                                                         "sha256":  "c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/backendbridge.cpp",
+                                                         "sha256":  "59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml.qrc",
+                                                         "sha256":  "3fd5a13f741dd32e16e0c2c714013907d93dcb12565e61d46db449a87e05dd64"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/Main.qml",
+                                                         "sha256":  "76342dcdf04ec4860487a64ff8594f0f1e04bad91d943765dc005c81f36d66bb"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/theme.js",
+                                                         "sha256":  "0b40b078bc4e8c042a26e9b1be38ee1fd8c584dad6cec638978743a196afddb3"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/logic.js",
+                                                         "sha256":  "afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/Pages/SessionPage.qml",
+                                                         "sha256":  "04693ee8cce42a92b8654fec3ce0e2d48f9e757004f0278611227e4da2f801e7"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/Pages/FriendsPage.qml",
+                                                         "sha256":  "361aff493e589db4a7c3923a421b6f895430a74a8cb40466354392f21152b8a7"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/Pages/SettingPage.qml",
+                                                         "sha256":  "d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/Components/HeroPlate.qml",
+                                                         "sha256":  "0d37016e07c8793dc89e3ecd3b7f11ec88fe7e6592f706fd6205f0b1f2c760c0"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/plate/sketch.js",
+                                                         "sha256":  "289ed1c68622af87825244952f60d707c3c181f48fb2f531a6a21066e2b65f67"
+                                                     },
+                                                     {
+                                                         "path":  "app_qml/qml/plate/hero.js",
+                                                         "sha256":  "5757fe86bb56202ba88864b6d493e0c0fd536ca87d650e98498592bc7bd59d3c"
+                                                     }
+                                                 ],
+                            "mig-backend-split":  [
+                                                      {
+                                                          "path":  "backend/stronghold-backend.cjs",
+                                                          "sha256":  "4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b"
+                                                      },
+                                                      {
+                                                          "path":  "backend/business.cjs",
+                                                          "sha256":  "cd26e630e6359d162458ce4d266d650826d7eee1b2cd260d328d8e7ce5661a06"
+                                                      }
+                                                  ],
+                            "qa-screenshots":  [
+                                                   {
+                                                       "path":  "app_qml/shots/session-1440x900.png",
+                                                       "sha256":  "88caf1c081f8e0b5bf0901f2c4c61e2371779f940b2e830f0cf9b49032ae7e51"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/friends-1440x900.png",
+                                                       "sha256":  "b5d2093ec5dccde977516b5367f71b10842ffa146f1cb7bd15de1a0b7d079e2d"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/setting-1440x900.png",
+                                                       "sha256":  "b252b86d1ea0d9dce6a9d8ab68b18a76385d7fb9958a92f83fd3b60bea61ce0f"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/session-1280x720.png",
+                                                       "sha256":  "59753cfaa6f64aaa2554c73c69e6c9c0b2e5e7e7338690b95226d578ea7c598b"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/friends-1280x720.png",
+                                                       "sha256":  "48a4e80c8c0259cb88ea1c17e158de14221424d4dbd62a689dba3289cd550ed3"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/setting-1280x720.png",
+                                                       "sha256":  "2ad17a5d10aba2f5a0f19373482d770fd5bb213ce307dd8fe3bae2ffa41aa69d"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/session-1024x768.png",
+                                                       "sha256":  "9147a6bc82d05ca7b3ddec9e887db93d4fe73e42332372ddf7a26373d7700118"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/friends-1024x768.png",
+                                                       "sha256":  "9a4af093a20c49eda7d950ca3e848103a5b744e74f17e629cdb7c7f223626752"
+                                                   },
+                                                   {
+                                                       "path":  "app_qml/shots/setting-1024x768.png",
+                                                       "sha256":  "51f5f9796d2f9ec6b44a737de4fdbd7d4cfaa5b85ca92fdc9a8e21c078a6ed1d"
+                                                   }
+                                               ],
+                            "shipped-third-party-notices":  [
+                                                                {
+                                                                    "path":  "LICENSES/GPL-3.0-only.txt",
+                                                                    "sha256":  "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+                                                                },
+                                                                {
+                                                                    "path":  "LICENSES/LGPL-3.0-only.txt",
+                                                                    "sha256":  "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+                                                                },
+                                                                {
+                                                                    "path":  "LICENSES/steamworks-ffi-node-MIT.txt",
+                                                                    "sha256":  "163e3136d3d1067a2fe50cf159236a3aab50fec8cfa5b1d0bbec1aeae39df58f"
+                                                                },
+                                                                {
+                                                                    "path":  "LICENSES/koffi-MIT.txt",
+                                                                    "sha256":  "22bcbbbacd739b026a8dc484f62a31484ce4c4e31f3408b60b29b4e41d62b290"
+                                                                },
+                                                                {
+                                                                    "path":  "THIRD_PARTY_NOTICES.txt",
+                                                                    "sha256":  "235b22a10007f5262fad501388d2ebc4cada47f1932195b261dc51d4d6aceeed"
+                                                                }
+                                                            ]
+                        },
+    "TODO_REHASH":  [
+                        "qt-runtime 与 steamworks-ffi-node 的 sha256 待最终打包时按实际复制进便携包的 DLL / 包目录补全。",
+                        "node-runtime 的 included_in_release 待定：必须先在文档里写明打包决策（随包带 node.exe 还是要求用户自装）。"
+                    ]
 }

@@ -123,3 +123,43 @@ test('★ package.json 的 license 字段必须与 LICENSE 正文一致（不许
     'LICENSES/GPL-3.0-only.txt 必须与根 LICENSE 逐字节相同（GPL 要求随二进制附全文）');
 });
 
+// 下面这条同样属于"同一件事只有一个来源"，而且它曾经**被守卫漏掉**：
+// assets[] 里每条记录只带一个 sha256（该组的代表文件），组内其余文件的哈希全靠
+// installed_files 列表；守卫原先完全不看那个列表，刷新器又只认大写键名
+// INSTALLED_FILES 而静默跳过小写的 installed_files。结果是：组内非代表文件（例如
+// app_qml/qml/theme.js）改了以后台账哈希一直是旧的，而 `npm test` 一路绿灯。
+test('★ 台账 installed_files 里每个文件的哈希都必须与磁盘一致（守卫不能只看代表文件）', () => {
+  const manifest = JSON.parse(read('asset-provenance.json'));
+  const crypto = require('node:crypto');
+  const groups = [];
+  for (const key of ['INSTALLED_FILES', 'installed_files']) {
+    const g = manifest[key];
+    if (g && typeof g === 'object' && !Array.isArray(g)) {
+      for (const [name, list] of Object.entries(g)) {
+        if (Array.isArray(list)) groups.push([`${key}.${name}`, list]);
+      }
+    }
+  }
+  assert.ok(groups.length > 0,
+    '台账里必须有 installed_files（或 INSTALLED_FILES）分组 —— 键名一改，逐文件对账就等于没有');
+
+  const drift = [];
+  const missing = [];
+  for (const [group, list] of groups) {
+    for (const item of list) {
+      if (!item || typeof item !== 'object' || !item.path) continue;
+      const abs = path.join(root, item.path);
+      if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) { missing.push(`${group} → ${item.path}`); continue; }
+      const actual = crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
+      if (String(item.sha256).toLowerCase() !== actual) {
+        drift.push(`${item.path}（台账 ${item.sha256}，磁盘 ${actual}）`);
+      }
+    }
+  }
+  assert.deepEqual(missing, [],
+    `台账里登记的文件在磁盘上找不到：\n  ${missing.join('\n  ')}`);
+  assert.deepEqual(drift, [],
+    '这些文件的台账哈希与磁盘不一致 —— 跑 `node tools/refresh-provenance-hashes.cjs --write`，'
+    + '并同步 ASSET_PROVENANCE.md 里单独列出的哈希：\n  ' + drift.join('\n  '));
+});
+

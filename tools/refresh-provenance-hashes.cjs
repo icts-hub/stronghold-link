@@ -48,12 +48,30 @@ for (const rec of records) {
 }
 
 // installed_files 里的分组（每个元素 {path, sha256}）同样复算。
-const groups = (doc.INSTALLED_FILES && typeof doc.INSTALLED_FILES === 'object') ? doc.INSTALLED_FILES : {};
+//
+// 这里踩过一个坑：本文件原先只读大写 `INSTALLED_FILES`，而台账里的键其实是小写
+// `installed_files`，于是整组文件被静默跳过，脚本照样打印"全部一致，无需改动" ——
+// 守卫又只对账 assets[].sha256 这一条（它是组里的代表文件），所以组内其余文件的
+// 哈希漂移**两边都发现不了**。现在两种写法都读，并断言至少找到一组。
+const groups = {};
+for (const key of ['INSTALLED_FILES', 'installed_files']) {
+  const g = doc[key];
+  if (g && typeof g === 'object' && !Array.isArray(g)) {
+    for (const [name, list] of Object.entries(g)) {
+      if (Array.isArray(list)) groups[`${key}.${name}`] = list;
+    }
+  }
+}
+if (!Object.keys(groups).length) {
+  console.log('  ✖ 台账里找不到 installed_files / INSTALLED_FILES 分组 —— 键名变了？刷新器拒绝静默通过。');
+  process.exit(2);
+}
+let groupFiles = 0;
 for (const [group, list] of Object.entries(groups)) {
-  if (!Array.isArray(list)) continue;
   for (const item of list) {
     const rel = item && item.path;
     if (!rel) continue;
+    groupFiles += 1;
     const abs = path.isAbsolute(rel) ? rel : path.join(repoRoot, rel);
     if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
       console.log(`  ✖ [${group}] 文件不存在：${rel}`);
@@ -69,6 +87,7 @@ for (const [group, list] of Object.entries(groups)) {
     if (write) item.sha256 = actual;
   }
 }
+console.log(`  分组文件：${groupFiles} 个（${Object.keys(groups).length} 组）`);
 
 if (missing) {
   console.log(`\n台账哈希刷新：有 ${missing} 个登记文件在磁盘上找不到，未写回。`);

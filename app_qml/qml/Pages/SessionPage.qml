@@ -248,166 +248,200 @@ Item {
             Layout.preferredWidth: 5
             spacing: 14
 
-            PaperPlate {
+            // ══ 主视觉图版（逐层复刻参考项目的 homePlate 构图）═════════════
+            // 版式照参考项目：左半是刊头（深色徽标条 + 两行巨型衬线标题 + 中文副题 +
+            // 两条说明 + 深色行动条），右半是钴蓝圆盘构图（40 根锥形光芒、同心圆环与
+            // 96 根刻度、断续十字轴线、纵向量尺、套准标记与裁切角标、飞离盘面的鸟群、
+            // 散落的界面碎片）。实时数据叠在图版右缘，位置与参考项目的轨道图注同高。
+            Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 286
-                seed: 20260419
-                showDots: true
+                Layout.fillHeight: true
+                Layout.preferredHeight: 486
+                Layout.minimumHeight: 380
 
-                // 主视觉：干道圆环 + 放射构图线 + 通道节点
-                Item {
-                    id: stage
+                HeroPlate {
                     anchors.fill: parent
-                    anchors.rightMargin: 178
+                    active: page.active !== false
+                    seed: 61
+                    mark: "S"
+                    legend: "SESSION · FRIENDS · SETTING · STRONGHOLD LINK · "
+                }
 
-                    SketchRing {
-                        id: orbit
-                        anchors.centerIn: parent
-                        radius: Math.min(stage.width, stage.height) * 0.34
-                        seed: 771
-                        weight: 1.3
-                        ticks: true
-                        tickCount: 48
-                        tickLength: 5
-                        stroke: T.INK
-                    }
+                // ── 左半：刊头 ────────────────────────────────────────────
+                Column {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 26
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: 14
+                    width: parent.width * 0.40
+                    spacing: 0
 
-                    SketchRing {
-                        anchors.centerIn: parent
-                        radius: Math.min(stage.width, stage.height) * 0.22
-                        seed: 1789
-                        weight: 1
-                        doubleStroke: false
-                        stroke: page.live ? T.COBALT : T.LINE
-                    }
+                    // 深色徽标条（参考项目左上的胶囊标签）
+                    Item {
+                        width: badgeText.width + (badgeTail.visible ? badgeTail.width + 12 : 0)
+                        height: 30
 
-                    SketchRing {
-                        anchors.centerIn: parent
-                        radius: Math.min(stage.width, stage.height) * 0.42
-                        seed: 31337
-                        weight: 0.9
-                        doubleStroke: false
-                        ticks: true
-                        tickCount: 12
-                        tickLength: 9
-                        stroke: T.LINE_SOFT
-                    }
-
-                    Repeater {
-                        model: 4
-                        delegate: SketchRule {
-                            anchors.fill: parent
-                            x1: stage.width / 2
-                            y1: stage.height / 2
-                            x2: stage.width / 2 + (stage.width * 0.46) * Math.cos(index * Math.PI / 4 + 0.35)
-                            y2: stage.height / 2 + (stage.height * 0.46) * Math.sin(index * Math.PI / 4 + 0.35)
-                            seed: 900 + index * 17
-                            stroke: T.LINE_SOFT
-                            weight: 1
-                        }
-                    }
-
-                    // 通道节点：每个监听端口是一个编号节点
-                    Repeater {
-                        model: page.channels.slice(0, 4)
-                        delegate: Item {
-                            required property var modelData
-                            required property int index
-
-                            readonly property real angle: -1.05 + index * 0.72
-                            x: stage.width / 2 + orbit.radius * Math.cos(angle) - width / 2
-                            y: stage.height / 2 + orbit.radius * Math.sin(angle) - height / 2
-                            width: 128
-                            height: 34
-
-                            Rectangle {
-                                anchors.fill: parent
-                                color: T.PAPER
-                                opacity: 0.86
-                            }
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: "0" + (index + 1) + "  " + modelData.protocol + " :" + (modelData.rule ? modelData.rule.localPort : "")
-                                font.family: T.FONT_MONO
-                                font.pixelSize: 10
-                                color: T.INK
-                            }
-
-                            SketchRing {
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                radius: 3.5
-                                weight: 1.2
-                                doubleStroke: false
-                                stroke: page.live ? T.COBALT : T.MUTED
-                                seed: 500 + index
-                                width: 14
-                                height: 14
-                            }
-                        }
-                    }
-
-                    // 左下：会话标题与状态
-                    Column {
-                        anchors.left: parent.left
-                        anchors.bottom: parent.bottom
-                        spacing: 2
-
-                        Text {
-                            text: "STRONGHOLD LINK"
-                            font.family: T.FONT_DISPLAY
-                            font.pixelSize: 27
+                        Rectangle {
+                            id: badgeBar
+                            width: badgeText.width + 22
+                            height: parent.height
                             color: T.INK
                         }
 
                         Text {
-                            text: "会话 / SESSION   ·   " + (page.role === "host" ? "房主" : "加入者") + "   ·   " + page.recipe
+                            id: badgeText
+                            anchors.left: parent.left
+                            anchors.leftMargin: 11
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "QML EDITION / TUNNEL CONSOLE"
                             font.family: T.FONT_MONO
-                            font.pixelSize: 10
-                            color: T.MUTED
+                            font.pixelSize: 12
+                            font.letterSpacing: 2.4
+                            color: T.PAPER
                         }
 
-                        Text {
-                            text: "后端 " + (bridge.version.length ? "v" + bridge.version : "（读取中）") + "   ·   " + (bridge.ready ? "已连接" : "连接中")
-                            font.family: T.FONT_MONO
-                            font.pixelSize: 10
-                            color: bridge.ready ? T.MUTED : T.WARN
+                        Rectangle {
+                            id: badgeTail
+                            anchors.left: badgeBar.right
+                            anchors.leftMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 24
+                            height: parent.height
+                            color: T.ACCENT
                         }
                     }
 
-                    // 右下：状态圆环读数
-                    Column {
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.rightMargin: 6
-                        spacing: 1
+                    Item { width: 1; height: 26 }
 
-                        Text {
-                            text: L.stateLabel(page.sessionState)
-                            font.family: T.FONT_DISPLAY
-                            font.pixelSize: 22
-                            color: page.stateColor()
-                            anchors.right: parent.right
+                    // 巨型衬线标题两行
+                    Text {
+                        text: "Stronghold"
+                        font.family: T.FONT_DISPLAY
+                        font.pixelSize: 62
+                        color: T.INK
+                    }
+
+                    Text {
+                        text: "Link"
+                        font.family: T.FONT_DISPLAY
+                        font.pixelSize: 62
+                        color: T.INK
+                        leftPadding: 104
+                        topPadding: -12
+                    }
+
+                    Item { width: 1; height: 18 }
+
+                    // 标线 + 中文副题 + 菱形
+                    Row {
+                        spacing: 14
+
+                        Rectangle {
+                            width: 52
+                            height: 1
+                            color: T.INK
+                            anchors.verticalCenter: parent.verticalCenter
                         }
 
                         Text {
-                            text: page.live ? "已监听 " + page.channels.length + " 条通道" : "未启动"
-                            font.family: T.FONT_MONO
-                            font.pixelSize: 10
-                            color: T.MUTED
+                            text: "干线隧道控制台"
+                            font.family: T.FONT_SERIF_CN
+                            font.pixelSize: 21
+                            color: T.INK
+                        }
+
+                        Text {
+                            text: "◆"
+                            font.pixelSize: 9
+                            color: T.INK
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Item { width: 1; height: 20 }
+
+                    Text {
+                        text: "一条干道，两端直连。"
+                        font.family: T.FONT_SERIF_CN
+                        font.pixelSize: 14
+                        color: T.MUTED
+                    }
+
+                    Text {
+                        text: "本机监听端口，字节原样透传。"
+                        font.family: T.FONT_SERIF_CN
+                        font.pixelSize: 14
+                        color: T.MUTED
+                    }
+
+                    Item { width: 1; height: 24 }
+
+                    // 深色行动条：会话状态（参考项目的 CTA 按钮）
+                    Item {
+                        width: parent.width
+                        height: 46
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: T.INK
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.live ? page.stop() : page.start()
+                        }
+
+                        Row {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 14
+
+                            Text {
+                                text: page.live ? "停止会话" : "启动会话"
+                                font.family: T.FONT_SANS
+                                font.pixelSize: 17
+                                color: T.PAPER
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                                text: L.stateLabel(page.sessionState).toUpperCase() + "  ·  " + (page.live ? page.channels.length + " CHANNELS" : "IDLE")
+                                font.family: T.FONT_MONO
+                                font.pixelSize: 10
+                                font.letterSpacing: 1.6
+                                color: T.PAPER
+                                opacity: 0.72
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        Text {
                             anchors.right: parent.right
+                            anchors.rightMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "→"
+                            font.pixelSize: 18
+                            color: T.PAPER
                         }
                     }
                 }
 
-                // 右侧竖排旁注（工程图边缘文字）
+                // ── 右缘：实时读数（纸底 + 黑条，压在圆盘构图的留白上）────
                 Column {
                     anchors.right: parent.right
+                    anchors.rightMargin: 16
                     anchors.top: parent.top
-                    anchors.topMargin: 4
-                    spacing: 6
-                    width: 160
+                    anchors.topMargin: 24
+                    spacing: 7
+                    width: 168
+
+                    Rectangle {
+                        width: parent.width
+                        height: 16
+                        color: T.INK
+                    }
 
                     Text {
                         text: "干道状态"
@@ -448,6 +482,18 @@ Item {
                         label: "累计上/下"
                         value: L.bytes(page.snapshot.bytesToPeer || 0) + " / " + L.bytes(page.snapshot.bytesFromPeer || 0)
                     }
+                }
+
+                // ── 左下角：后端状态（工程图角落注记）──────────────────────
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 26
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 14
+                    text: "后端 " + (bridge.version.length ? "v" + bridge.version : "（读取中）") + "   ·   " + (bridge.ready ? "已连接" : "连接中")
+                    font.family: T.FONT_MONO
+                    font.pixelSize: 10
+                    color: bridge.ready ? T.MUTED : T.WARN
                 }
             }
 

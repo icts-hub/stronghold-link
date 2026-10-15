@@ -14,6 +14,9 @@ var MUTED = "#6c7679"
 var COBALT = "#3a5bc2"
 var HIGHLIGHT = "#2a3fff"
 var AZURE = "#4c92d4"
+// 参考界面里那个高饱和的亮蓝（圆盘上的笔触、小方块与标条尾块）用的就是 HIGHLIGHT
+// 的色值；ACCENT 是它在图版里的语义别名，别改成一个新颜色，否则图版会跟参考跑偏。
+var ACCENT = HIGHLIGHT
 var LINE = "#9aa1a5"
 var LINE_SOFT = "#c2c8ca"
 var GOOD = "#3f6b4a"
@@ -23,6 +26,9 @@ var BAD = "#a33a35"
 var FONT_DISPLAY = "Georgia"
 var FONT_MONO = "Consolas"
 var FONT_SANS = "Segoe UI"
+// 中文衬线：参考界面的中文标题用的是思源宋体一系的衬线字。本机没有字体文件，
+// 所以按可用性依次回退（都是 Windows 自带字体族，不需要随包分发字体）。
+var FONT_SERIF_CN = "Noto Serif SC, Source Han Serif SC, SimSun, NSimSun, serif"
 
 var PAD = 26
 var HAIR = 1
