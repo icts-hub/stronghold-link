@@ -58,10 +58,6 @@ const TYPE = Object.freeze({
   Window: 0x05,
   Ping: 0x06,
   Pong: 0x07,
-  // 0.14.6：跨世代恢复专用的两个帧（见 createStreamAudit 旁边 resendTailFrames 的注释）。
-  // 只在"确认过对端会确认字节"之后才发，老版本收到只会当成不认识的类型忽略，因此不破坏兼容。
-  Ack: 0x08,     // 接收方通告：这条流我已经按顺序交给本机 socket 的字节数（绝对偏移）
-  Resume: 0x09,  // 发送方通告：接下来的 DATA 从这条流的第 X 个字节开始（补发前必发）
 });
 
 /**
@@ -75,8 +71,6 @@ const PRIORITY = Object.freeze({
   [TYPE.Close]: 1,
   [TYPE.Open]: 2,
   [TYPE.Window]: 3,
-  [TYPE.Resume]: 3,
-  [TYPE.Ack]: 3,
   [TYPE.Pong]: 4,
   [TYPE.Ping]: 4,
   [TYPE.Data]: 5,
@@ -203,38 +197,6 @@ function encodeWindow(streamId, generation, credit) {
 
 /** 读窗口通告里的额度。 */
 function decodeWindowCredit(payload) {
-  if (!Buffer.isBuffer(payload) || payload.length < 4) return 0;
-  return payload.readUInt32BE(0);
-}
-
-/**
- * 0.14.6：Ack —— 接收方通告"这条流我已经按顺序交给本机 socket 的字节数"。
- *
- * 与 Window（额度）是两件事：Window 说的是"我还能接多少"，Ack 说的是"我已经收下并
- * 交付了多少"。跨世代补发只信 Ack —— 有它才能保证补发既不重复也不留空洞。
- */
-function encodeAck(streamId, generation, delivered) {
-  const n = Number.isFinite(Number(delivered)) ? Math.max(0, Math.min(Math.floor(Number(delivered)), 0xffffffff)) : 0;
-  const buf = Buffer.allocUnsafe(4);
-  buf.writeUInt32BE(n, 0);
-  return encodeFrame(TYPE.Ack, streamId, generation, buf);
-}
-
-/**
- * 0.14.6：Resume —— 发送方通告"接下来的 DATA 从这条流的第 offset 个字节开始"。
- *
- * 有它，接收方就能把重复补发的那截字节切掉（补发点必然 ≤ 它已交付的位置），
- * 也能在补发点比它已交付的位置还大时立刻发现"中间真缺了一段"并如实断开。
- */
-function encodeResume(streamId, generation, offset) {
-  const n = Number.isFinite(Number(offset)) ? Math.max(0, Math.min(Math.floor(Number(offset)), 0xffffffff)) : 0;
-  const buf = Buffer.allocUnsafe(4);
-  buf.writeUInt32BE(n, 0);
-  return encodeFrame(TYPE.Resume, streamId, generation, buf);
-}
-
-/** 读 Ack / Resume 里的字节偏移。 */
-function decodeStreamOffset(payload) {
   if (!Buffer.isBuffer(payload) || payload.length < 4) return 0;
   return payload.readUInt32BE(0);
 }
@@ -370,9 +332,6 @@ module.exports = {
   decodeResetReason,
   encodeWindow,
   decodeWindowCredit,
-  encodeAck,
-  encodeResume,
-  decodeStreamOffset,
   encodePing,
   encodePong,
   encodeDataChunks,
