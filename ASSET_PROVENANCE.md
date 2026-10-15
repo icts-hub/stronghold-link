@@ -33,7 +33,7 @@
 | 5 | `mig-backend-split` | Electron-free 后端入口与业务层 | GPL-3.0-only | 是 | OK |
 | 6 | `ref-ui-study` | 参考项目界面规则（**只学习，未分发任何字节**） | UNVERIFIED | **否** | UNVERIFIED |
 | 7 | `ref-game-derivatives` | 参考项目内《明日方舟》提取物派生物 | NO_REDISTRIBUTION | **否** | NO_REDISTRIBUTION |
-| 8 | `qa-screenshots` | 本项目 QML 界面三页截图 | GPL-3.0-only | 否 | OK |
+| 8 | `qa-screenshots` | 本项目 QML 界面三页截图（三页 × 三分辨率，共 9 张） | GPL-3.0-only | 否 | OK |
 | 9 | `qt-runtime` | Qt 6.8.3 运行库 | LGPL-3.0-only（动态链接） | 是 | OK（待补哈希） |
 | 10 | `steamworks-sdk` | Steamworks SDK（`steam_api64.dll`） | Valve 专有 | **否** | NO_REDISTRIBUTION |
 | 11 | `steamworks-ffi-node` | steamworks-ffi-node + koffi | MIT | 是 | OK（待补哈希） |
@@ -80,13 +80,13 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 ### 3. `mig-qml-frontend` — QML 前端与 C++ 桥
 
 本项目迁移中新增的代码，受根目录 `LICENSE`（GPL-3.0）覆盖，不含任何第三方代码片段。
-入口文件 `app_qml/main.cpp`，sha256 `394e6fc3bbab91ce55494b6a66d60c46152ad0423512f035e8814d5eea8e5093`。
+入口文件 `app_qml/main.cpp`，sha256 `b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006`。
 全部 11 个源码文件的逐个哈希：
 
 | 文件 | sha256 |
 | --- | --- |
 | `app_qml/app_qml.pro` | `72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20` |
-| `app_qml/main.cpp` | `394e6fc3bbab91ce55494b6a66d60c46152ad0423512f035e8814d5eea8e5093` |
+| `app_qml/main.cpp` | `b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006` |
 | `app_qml/backendbridge.h` | `c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd` |
 | `app_qml/backendbridge.cpp` | `59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb` |
 | `app_qml/qml.qrc` | `e7787a88fe6f9a9aaefd8da2c29033469c8a2a50687310de748c0de345990804` |
@@ -139,13 +139,21 @@ redistributed."*，README 也把美术与音乐署名给鹰角网络。
 ### 7. `qa-screenshots` — 本项目界面截图
 
 由本项目 QML 界面用 `--grab` 开关自行渲染（画面内容全是本项目自己的界面元素），
-仅用于文档与验收，`included_in_release=false`：
+三页 × 三分辨率共 9 张，仅用于文档与验收，`included_in_release=false`。
+生成脚本 `tools/make-shots.cjs`（串行、带重试；注意被测程序是 GUI 子系统程序，
+必须由它自己拼好 Qt 的 PATH，否则会以 `0xC0000135` 直接退出、连日志都不写）：
 
 | 文件 | sha256 |
 | --- | --- |
-| `app_qml/shots/session-1440x900.png` | `c25b4ecd73d0a44428096ab2e1fac2f99e51cd0b9b902ba471f578ace3f74db4` |
-| `app_qml/shots/friends-1440x900.png` | `b545c337a3b968a4514fb35eb7067a5052663f450f3facaabfe6a5b726656e7e` |
-| `app_qml/shots/setting-1440x900.png` | `4f5a045cbdcce7ef6a21c0f89c403af59f2e9e3647a42174e1302160ac1a5fac` |
+| `app_qml/shots/session-1440x900.png` | `86d1de5691e02b633d007a54cc3a7aeec297a5b54e251052cd16b488f866452b` |
+| `app_qml/shots/friends-1440x900.png` | `fdf693eabdebb97a1a299fb2fb56e8f3a85d87c31484926b903e6e85d59be015` |
+| `app_qml/shots/setting-1440x900.png` | `ba4dc326d760ff8f839558daa6dd854abc029a5646f0cddf3e347389e783cac6` |
+| `app_qml/shots/session-1280x720.png` | `d780132b2c0bba14c17714d737004aeec23615c9dec0d07466d354dd0c75aeae` |
+| `app_qml/shots/friends-1280x720.png` | `bb7222743c44cb121e393de7735d6cefd8dfc880923edf76602e01ce9cc810d9` |
+| `app_qml/shots/setting-1280x720.png` | `877989d137c3f1913c76accd1571c41174ab45b8b48621e36c507b79f53dfd94` |
+| `app_qml/shots/session-1024x768.png` | `23b07d0643c3777ae1ef7cf8c48e4063ebfa53ac2e41906edc76e2ee737105fa` |
+| `app_qml/shots/friends-1024x768.png` | `76ee87534efba5447f4fc281567d9309f85d1f98cda3b63d5ebdbccd1f617262` |
+| `app_qml/shots/setting-1024x768.png` | `430bf9f4a9d716070266dd4ca44ae39742e7c604b2df6e351c597e2de14929b6` |
 
 ### 8. `qt-runtime` — Qt 6.8.3（**待补哈希**）
 

@@ -80,7 +80,7 @@
       "copyright_holder": "本项目作者（见 git 历史）",
       "license": "GPL-3.0-only",
       "license_evidence": "新增文件属于本项目源码，受根目录 LICENSE（GPL-3.0）覆盖；文件中不含任何来自第三方的代码片段",
-      "sha256": "394e6fc3bbab91ce55494b6a66d60c46152ad0423512f035e8814d5eea8e5093",
+      "sha256": "b1cf1dc87584c8403faa849c57c21d932b2f489fe0a8cd55d630e9d82bb68006",
       "modified": true,
       "included_in_release": true,
       "redistribution_status": "OK",
@@ -142,7 +142,7 @@
     },
     {
       "asset_id": "qa-screenshots",
-      "display_name": "QML 界面三页截图（1440x900）",
+      "display_name": "QML 界面三页截图（1440x900 / 1280x720 / 1024x768，共 9 张）",
       "source_project": "Stronghold Link（本项目，运行时自行渲染）",
       "source_url": "N/A",
       "source_commit": "N/A",
@@ -151,12 +151,12 @@
       "asset_type": "image",
       "copyright_holder": "本项目作者（见 git 历史）",
       "license": "GPL-3.0-only",
-      "license_evidence": "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素",
-      "sha256": "c25b4ecd73d0a44428096ab2e1fac2f99e51cd0b9b902ba471f578ace3f74db4",
+      "license_evidence": "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素；生成脚本 tools/make-shots.cjs",
+      "sha256": "86d1de5691e02b633d007a54cc3a7aeec297a5b54e251052cd16b488f866452b",
       "modified": false,
       "included_in_release": false,
       "redistribution_status": "OK",
-      "notes": "sha256 是 session-1440x900.png；另两张见 INSTALLED_FILES.qa-screenshots。截图只用于文档与验收，不进便携包。"
+      "notes": "sha256 是 session-1440x900.png；其余 8 张见 INSTALLED_FILES.qa-screenshots（三页 x 三分辨率）。1024x768 与 1280x720 两张能证明小窗口下版面等比缩放、右侧不再被裁。截图只用于文档与验收，不进便携包。"
     },
     {
       "asset_id": "qt-runtime",
@@ -292,15 +292,39 @@
     "qa-screenshots": [
       {
         "path": "app_qml/shots/session-1440x900.png",
-        "sha256": "c25b4ecd73d0a44428096ab2e1fac2f99e51cd0b9b902ba471f578ace3f74db4"
+        "sha256": "86d1de5691e02b633d007a54cc3a7aeec297a5b54e251052cd16b488f866452b"
       },
       {
         "path": "app_qml/shots/friends-1440x900.png",
-        "sha256": "b545c337a3b968a4514fb35eb7067a5052663f450f3facaabfe6a5b726656e7e"
+        "sha256": "fdf693eabdebb97a1a299fb2fb56e8f3a85d87c31484926b903e6e85d59be015"
       },
       {
         "path": "app_qml/shots/setting-1440x900.png",
-        "sha256": "4f5a045cbdcce7ef6a21c0f89c403af59f2e9e3647a42174e1302160ac1a5fac"
+        "sha256": "ba4dc326d760ff8f839558daa6dd854abc029a5646f0cddf3e347389e783cac6"
+      },
+      {
+        "path": "app_qml/shots/session-1280x720.png",
+        "sha256": "d780132b2c0bba14c17714d737004aeec23615c9dec0d07466d354dd0c75aeae"
+      },
+      {
+        "path": "app_qml/shots/friends-1280x720.png",
+        "sha256": "bb7222743c44cb121e393de7735d6cefd8dfc880923edf76602e01ce9cc810d9"
+      },
+      {
+        "path": "app_qml/shots/setting-1280x720.png",
+        "sha256": "877989d137c3f1913c76accd1571c41174ab45b8b48621e36c507b79f53dfd94"
+      },
+      {
+        "path": "app_qml/shots/session-1024x768.png",
+        "sha256": "23b07d0643c3777ae1ef7cf8c48e4063ebfa53ac2e41906edc76e2ee737105fa"
+      },
+      {
+        "path": "app_qml/shots/friends-1024x768.png",
+        "sha256": "76ee87534efba5447f4fc281567d9309f85d1f98cda3b63d5ebdbccd1f617262"
+      },
+      {
+        "path": "app_qml/shots/setting-1024x768.png",
+        "sha256": "430bf9f4a9d716070266dd4ca44ae39742e7c604b2df6e351c597e2de14929b6"
       }
     ],
     "shipped-third-party-notices": [

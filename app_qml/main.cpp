@@ -68,6 +68,12 @@ int main(int argc, char *argv[])
         }
     }
 
+    // 验收诊断：--text native 关闭距离场字形缓存（Qt 默认用距离场渲染文字，字形图集
+    // 是启动期的一块固定驻留）。必须在任何 QQuickWindow 之前设置，否则 QSGTextMask
+    // 已经按默认模式建过材质、切不回原生字形。
+    if (scanArg(argc, argv, "--text") == QLatin1String("native"))
+        QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Stronghold Link"));
     app.setApplicationDisplayName(QStringLiteral("Stronghold Link"));

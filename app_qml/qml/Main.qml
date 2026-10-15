@@ -293,6 +293,14 @@ Window {
             }
         }
     }
+    }
+
+    // 上面这一行收的是 id: canvas 那个 Item。
+    // 教训：加了这层画布包装却忘了配对闭括号时，QML 报的错是文件最后一行的
+    // "Expected token" 提示（解析器要到 EOF 才确认少一个右花括号），会让人误以为
+    // 文件末尾有问题；真正的定位手段是 tools/qml-parse-check.cjs（用 Qt 自己的
+    // qmlformat 解析每个 QML，失败直接报文件名）——自己数花括号不可靠，
+    // 注释里出现反引号或花括号装饰字符都会让手写的计数器误判。
 
     Connections {
         target: bridge
