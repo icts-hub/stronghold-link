@@ -225,75 +225,210 @@ Item {
             Layout.preferredWidth: 5
             spacing: 14
 
-            PaperPlate {
+            // ══ 左列顶部：好友图版（沿用会话页那套刊头构图）═════════════════
+            // 参考项目每个页面都有一张自己的主图版：好友页是 personnelPlate ——
+            // 圆形徽记 + 一圈人像版位连成的关系网 + 工程图附件。这里把图版铺满整块，
+            // 左半边留给刊头文字，实时读数压在最右缘（与会话页同一版式）。
+            // 原来那张通用星座图（PaperPlate + Constellation）已被取代：它只有节点和
+            // 连线，没有版位、引线、徽记与图纸附件，跟参考不是同一种东西。
+            Item {
+                id: friendsHero
                 Layout.fillWidth: true
-                Layout.preferredHeight: 244
-                seed: 60607
-                showDots: true
+                Layout.preferredHeight: 500
+                Layout.minimumHeight: 340
 
-                Item {
-                    anchors.fill: parent
-                    anchors.rightMargin: 150
+                // 三栏并排：刊头（左，226px）· 图版（中，占剩余宽度）· 实时读数（右，158px）。
+                // 之前图版是"铺满整块、靠左栏留白躲开文字"，结果圆盘右半边被实时读数压住；
+                // 现在把它当一个正方形版心摆在中间：作图区 1000x1000 的映射关系不变，
+                // 盘心落在版心正中，两边各让出各自的地盘，谁也不压谁。
+                // 宽高比锁正方形，所以 Canvas 的宽高比与作图空间一致 —— 圆盘不会被拉成椭圆。
+                ConstellationPlate {
+                    id: friendPlate
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(parent.height, parent.width - 2 * 220)
+                    height: width
+                    active: page.active !== false
+                    seed: 97
+                    mark: "F"
+                    legend: "FRIENDS · STEAM LOBBY · PRESENCE · STRONGHOLD LINK · "
+                }
 
-                    Constellation {
-                        id: chart
-                        anchors.fill: parent
-                        items: {
-                            var out = []
-                            for (var i = 0; i < page.friends.length; i++) {
-                                var f = page.friends[i]
-                                out.push({
-                                    name: f.name || "未知好友",
-                                    state: f.stateName || (f.online ? "在线" : "离线"),
-                                    color: f.online ? T.COBALT : T.LINE
-                                })
-                            }
-                            return out
-                        }
-                        seed: 90210
-                        hovered: page.selected
-                        onActivated: (index) => { page.selected = (page.selected === index ? -1 : index) }
-                    }
+                // ── 左半：刊头 ─────────────────────────────────────────────
+                Column {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 26
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: 8
+                    width: 226
+                    spacing: 0
 
-                    Text {
-                        anchors.centerIn: parent
-                        visible: page.friends.length === 0
-                        text: page.ready ? "好友列表为空" : "等待 Steam 好友列表"
-                        font.family: T.FONT_MONO
-                        font.pixelSize: 11
-                        color: T.MUTED
-                    }
+                    Item {
+                        width: badgeBarF.width + 6 + badgeTail.width
+                        height: 30
 
-                    Column {
-                        anchors.left: parent.left
-                        anchors.bottom: parent.bottom
-                        spacing: 1
-
-                        Text {
-                            text: "好友星图"
-                            font.family: T.FONT_DISPLAY
-                            font.pixelSize: 22
+                        Rectangle {
+                            id: badgeBarF
+                            width: badgeTextF.width + 22
+                            height: parent.height
                             color: T.INK
                         }
 
                         Text {
-                            text: page.friends.length + " 位好友 · " + page.onlineCount + " 在线" + (page.selected >= 0 && page.friends[page.selected] ? ("   ·   选中：" + (page.friends[page.selected].name || "")) : "")
+                            id: badgeTextF
+                            anchors.left: parent.left
+                            anchors.leftMargin: 11
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "STEAM LOBBY / PRESENCE"
                             font.family: T.FONT_MONO
-                            font.pixelSize: 10
-                            color: T.MUTED
+                            font.pixelSize: 12
+                            font.letterSpacing: 2.4
+                            color: T.PAPER
+                        }
+
+                        Rectangle {
+                            id: badgeTail
+                            anchors.left: badgeBarF.right
+                            anchors.leftMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 24
+                            height: parent.height
+                            color: T.ACCENT
+                        }
+                    }
+
+                    Item { width: 1; height: 24 }
+
+                    Text {
+                        text: "Friends"
+                        font.family: T.FONT_DISPLAY
+                        font.pixelSize: 56
+                        color: T.INK
+                    }
+
+                    Text {
+                        text: "Roster"
+                        font.family: T.FONT_DISPLAY
+                        font.pixelSize: 56
+                        color: T.INK
+                        leftPadding: 92
+                        topPadding: -10
+                    }
+
+                    Item { width: 1; height: 16 }
+
+                    Row {
+                        spacing: 14
+
+                        Rectangle {
+                            width: 52
+                            height: 1
+                            color: T.INK
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Text {
+                            text: "好友档案"
+                            font.family: T.FONT_SERIF_CN
+                            font.pixelSize: 21
+                            color: T.INK
+                        }
+
+                        Text {
+                            text: "◆"
+                            font.pixelSize: 9
+                            color: T.INK
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Item { width: 1; height: 18 }
+
+                    Text {
+                        text: "好友名单来自 Steam 大厅。"
+                        font.family: T.FONT_SERIF_CN
+                        font.pixelSize: 14
+                        color: T.MUTED
+                    }
+
+                    Text {
+                        text: "不在同一条干道上也能先看到谁在线。"
+                        font.family: T.FONT_SERIF_CN
+                        font.pixelSize: 14
+                        color: T.MUTED
+                    }
+
+                    Item { width: 1; height: 22 }
+
+                    // 深色行动条：动作就是"刷新好友"
+                    Item {
+                        width: parent.width
+                        height: 44
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: T.INK
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.refreshFriends()
+                        }
+
+                        Row {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 14
+
+                            Text {
+                                text: "刷新好友"
+                                font.family: T.FONT_SANS
+                                font.pixelSize: 17
+                                color: T.PAPER
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                                text: (page.loading ? "LOADING" : page.friends.length + " FRIENDS") + "  ·  " + page.onlineCount + " ONLINE"
+                                font.family: T.FONT_MONO
+                                font.pixelSize: 10
+                                font.letterSpacing: 1.6
+                                color: T.PAPER
+                                opacity: 0.72
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        Text {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "→"
+                            font.pixelSize: 18
+                            color: T.PAPER
                         }
                     }
                 }
 
-                // 右缘：Steam 身份
+                // ── 右缘：Steam 身份读数 ──────────────────────────────────
                 Column {
                     anchors.right: parent.right
+                    anchors.rightMargin: 16
                     anchors.top: parent.top
-                    spacing: 5
-                    width: 142
+                    anchors.topMargin: 20
+                    spacing: 6
+                    width: 158
+
+                    Rectangle {
+                        width: parent.width
+                        height: 16
+                        color: T.INK
+                    }
 
                     Text {
-                        text: "STEAM"
+                        text: page.ready ? "STEAM · 已就绪" : ("STEAM · " + (page.attached ? "连接中" : "未连接"))
                         font.family: T.FONT_MONO
                         font.pixelSize: 10
                         color: page.ready ? T.COBALT : T.MUTED
@@ -323,12 +458,19 @@ Item {
                         label: "身份"
                         value: page.isOwner ? "房主" : (page.lobbyId.length ? "成员" : "—")
                     }
+                }
 
-                    StatusReadout {
-                        width: parent.width
-                        label: "可加入"
-                        value: page.lobby.joinable === true ? "是" : "否"
-                    }
+                // ── 左下角：在线/选中摘要 ─────────────────────────────────
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 26
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    text: page.friends.length + " 位好友 · " + page.onlineCount + " 在线"
+                        + (page.selected >= 0 && page.friends[page.selected] ? ("   ·   选中：" + (page.friends[page.selected].name || "")) : "")
+                    font.family: T.FONT_MONO
+                    font.pixelSize: 10
+                    color: T.MUTED
                 }
             }
 
