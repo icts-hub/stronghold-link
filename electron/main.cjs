@@ -40,7 +40,7 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.14.6';
+const APP_VERSION = '0.14.4';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
@@ -377,21 +377,9 @@ const CONNECTION_END_NAMES = new Map([
 const CONNECTION_END_KINDS = {
   ClosedByPeer: '对端关掉了这条 Steam 连接',
   ProblemDetectedLocally: '本机判定这条 Steam 连接出问题',
-  LocalServiceClosed: '游戏服务端关掉了本机连接',
-  LocalClientClosed: '浏览器/游戏客户端关掉了本机连接',
+  LocalServiceClosed: '本机游戏服务把这条件接关了',
+  LocalClientClosed: '浏览器/游戏自己关掉了本机连接',
   LocalTunnelAbort: '我们主动掐断了这条连接',
-  // 0.14.5：多路复用的流结束要能一眼看出"谁先动的手"。以前 kind 是硬编码的，
-  // 我们自己掐掉的流也写成"本机游戏服务把这条件接关了"，排查全被带偏。
-  PeerStreamClosed: '对端用 MUX 关掉了这条流',
-  PeerStreamReset: '对端用 MUX 重置了这条流',
-  TunnelAbort: 'Steam 干道断了（未送出的字节已随流迁移补发）',
-  TunnelClosed: '干道/会话清理时收掉了这条流',
-  BadFraming: '数据流格式不对，协议层收掉了这条流',
-  MigrateExpired: '干道重挂超时，收掉了这条流',
-  OverflowAborted: '待发积压超过上限，收掉了这条流',
-  BackpressureAborted: '背压暂停后长时间无进展，收掉了这条流',
-  SessionStopped: '会话已停止，收掉了这条流',
-  ProtocolViolation: '协议违规，收掉了这条流',
 };
 
 function describeEndReason(code) {
@@ -490,30 +478,10 @@ function logTunnelEvent(event) {
 
   if (type === 'stream-left') {
     const kind = CONNECTION_END_KINDS[payload.kind] || payload.kind || '未知方式';
-    // 0.14.5：把"谁先关的"和"当时还压着多少没交出去"一起写进同一行，
-    // 这样主机端与好友端的日志能按流号对齐同一件事，不用两边各猜一半。
-    let extra = payload.by ? ` 发起方=${payload.by}` : '';
-    if (payload.paused != null) extra += ` 暂停=${payload.paused ? '是' : '否'}`;
-    if (Number.isFinite(payload.backlogBytes)) extra += ` 本机待发=${kib(payload.backlogBytes)}KiB`;
-    if (Number.isFinite(payload.steamBacklogBytes)) extra += ` Steam待发=${kib(payload.steamBacklogBytes)}KiB`;
-    // 0.14.6：流级字节账本（见 network/steam-adapter.cjs 的 createStreamAudit）。
-    // 两端同一条流的这两行放在一起比：字节数与哈希全等 ⇒ 这条流经隧道之后一个字节没变；
-    // 不等 ⇒ 直接看出是哪个方向、并且块指纹能指到首个不同的 64 KiB。
-    const auditOut = payload.auditOut;
-    const auditIn = payload.auditIn;
-    const auditSideText = (a) => (a
-      ? `${a.bytes}B/${a.h1}${a.h2}${a.partial ? `+${a.partialBytes || 0}B:${a.partial}` : ''}`
-      : '-');
-    let auditText = '';
-    if (auditOut || auditIn) auditText = ` 账本=出${auditSideText(auditOut)} 入${auditSideText(auditIn)}`;
     logLine(
-      `${tag}流结束（${kind}）流号=${payload.stream || '?'}${extra} 理由=${payload.reason || '无'} `
-      + `存活=${secs(payload.ageMs)}s 上行=${kib(payload.bytesToPeer)}KiB 下行=${kib(payload.bytesFromPeer)}KiB${auditText}`,
+      `${tag}流结束（${kind}）流号=${payload.stream || '?'} 理由=${payload.reason || '无'} `
+      + `存活=${secs(payload.ageMs)}s 上行=${kib(payload.bytesToPeer)}KiB 下行=${kib(payload.bytesFromPeer)}KiB`,
     );
-    if (auditOut || auditIn) {
-      const blocksOf = (a) => (a && Array.isArray(a.blocks) && a.blocks.length ? a.blocks.join(',') : '-');
-      logLine(`${tag}账本块 流号=${payload.stream || '?'} 出=${blocksOf(auditOut)} 入=${blocksOf(auditIn)}`);
-    }
     return;
   }
 
