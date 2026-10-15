@@ -975,6 +975,42 @@ test('加入者：对面认出魔数却把字节转给了游戏服务 ⇒ 整局
   }
 });
 
+test('★ 加入者：本机客户端自己关连接时，关闭原因必须机器可判（审计 A-03：别让人靠自然语言猜）', async () => {
+  // 0.14.4 的关闭日志只有 kind + Steam 的 endDebugMessage，于是"游戏侧自己关的"、
+  // "应用整体退出"、"干道断了清理"三种情况在日志里长得一模一样。这个用例钉住第一种：
+  // 本机客户端主动断开 → cause.origin 必须是 game，且带上流号与错误码。
+  // 必须先把多路复用谈起来（answerHello），否则走的是老路径，那条路上根本没有"流"。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const events = [];
+  const joiner = createSteamJoiner({
+    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  let client;
+  try {
+    await joiner.ready;
+    client = await h.connect(localPort);
+    const trunk = await answerHello(mock, joiner);
+    assert.ok(await h.waitFor(() => joiner.stats.streams === 1, { timeoutMs: 3000 }), '一条本机连接应成为干道上的一条流');
+
+    client.destroy();
+    assert.ok(await h.waitFor(() => events.some((e) => e.type === 'stream-left' && e.payload.causeOrigin === 'game'),
+      { timeoutMs: 3000 }), '本机客户端关连接必须报一次带 causeOrigin=game 的 stream-left');
+
+    const left = events.filter((e) => e.type === 'stream-left' && e.payload.causeOrigin === 'game').pop();
+    assert.equal(left.payload.cause.origin, 'game', 'cause.origin 要能直接被程序读');
+    assert.equal(left.payload.cause.errorCode, 'ELOCALCLIENTCLOSED', '要带一个稳定的错误码');
+    assert.ok(Number.isInteger(left.payload.cause.streamId), '要带流号，日志才能对上具体哪条连接');
+    assert.match(String(left.payload.cause.reason), /游戏或浏览器/, '还要有一句给人看的中文');
+    // 三种情形不能互相冒充：干道还在，就不许报成"干道清理"。
+    assert.equal(mock.state.closed.some((c) => c.connection === trunk), false, '本机客户端断开绝不能关掉干道');
+  } finally {
+    try { client?.destroy(); } catch { /* ignore */ }
+    await joiner.stop();
+  }
+});
+
 test('加入者：连接结束时必须报出「谁关的、活了多久、搬了多少字节」（隧道体检日志的依据）', async () => {
   // 现场只能看到"游戏卡住了"，看不到是哪一侧、在第几秒、以什么理由关掉了连接。
   // 这些 Steam 都给了（endReason / endDebugMessage），这个用例保证它们不会被丢掉。

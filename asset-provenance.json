@@ -80,7 +80,7 @@
       "copyright_holder": "本项目作者（见 git 历史）",
       "license": "GPL-3.0-only",
       "license_evidence": "新增文件属于本项目源码，受根目录 LICENSE（GPL-3.0）覆盖；文件中不含任何来自第三方的代码片段",
-      "sha256": "9314b617f48e73ba037f6c1633ba96107d8d841a5b2bc6937066d663833392cb",
+      "sha256": "394e6fc3bbab91ce55494b6a66d60c46152ad0423512f035e8814d5eea8e5093",
       "modified": true,
       "included_in_release": true,
       "redistribution_status": "OK",
@@ -234,33 +234,96 @@
   "installed_files": {
     "note": "上表里若干记录的 sha256 记的是该记录的**入口文件**；同一个记录名下的其它文件在这里逐个列出。分组记录（qt-runtime / steamworks-ffi-node）在最终打包时按实际复制内容补全。",
     "mig-qml-frontend": [
-      { "path": "app_qml/app_qml.pro", "sha256": "72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20" },
-      { "path": "app_qml/main.cpp", "sha256": "9314b617f48e73ba037f6c1633ba96107d8d841a5b2bc6937066d663833392cb" },
-      { "path": "app_qml/backendbridge.h", "sha256": "c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd" },
-      { "path": "app_qml/backendbridge.cpp", "sha256": "59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb" },
-      { "path": "app_qml/qml.qrc", "sha256": "e7787a88fe6f9a9aaefd8da2c29033469c8a2a50687310de748c0de345990804" },
-      { "path": "app_qml/qml/Main.qml", "sha256": "4e0bf323774fb934fb3b4023c5c07197e9cade98bfcf46c1548eed3bd79d36c2" },
-      { "path": "app_qml/qml/theme.js", "sha256": "36611badf30f0115835bc9b7b3dbe49c64f824cfd8ca1e184029aac2f2333d1a" },
-      { "path": "app_qml/qml/logic.js", "sha256": "afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77" },
-      { "path": "app_qml/qml/Pages/SessionPage.qml", "sha256": "bac8791c4ff158ca04de415bd0823e12aec89957e48ba6c5dbf52409c1f3a269" },
-      { "path": "app_qml/qml/Pages/FriendsPage.qml", "sha256": "05eb24133d405c8b9d5f58946d7a3035caae776caf360955e550828784a790bd" },
-      { "path": "app_qml/qml/Pages/SettingPage.qml", "sha256": "d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342" }
+      {
+        "path": "app_qml/app_qml.pro",
+        "sha256": "72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20"
+      },
+      {
+        "path": "app_qml/main.cpp",
+        "sha256": "9314b617f48e73ba037f6c1633ba96107d8d841a5b2bc6937066d663833392cb"
+      },
+      {
+        "path": "app_qml/backendbridge.h",
+        "sha256": "c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd"
+      },
+      {
+        "path": "app_qml/backendbridge.cpp",
+        "sha256": "59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb"
+      },
+      {
+        "path": "app_qml/qml.qrc",
+        "sha256": "e7787a88fe6f9a9aaefd8da2c29033469c8a2a50687310de748c0de345990804"
+      },
+      {
+        "path": "app_qml/qml/Main.qml",
+        "sha256": "4e0bf323774fb934fb3b4023c5c07197e9cade98bfcf46c1548eed3bd79d36c2"
+      },
+      {
+        "path": "app_qml/qml/theme.js",
+        "sha256": "36611badf30f0115835bc9b7b3dbe49c64f824cfd8ca1e184029aac2f2333d1a"
+      },
+      {
+        "path": "app_qml/qml/logic.js",
+        "sha256": "afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77"
+      },
+      {
+        "path": "app_qml/qml/Pages/SessionPage.qml",
+        "sha256": "bac8791c4ff158ca04de415bd0823e12aec89957e48ba6c5dbf52409c1f3a269"
+      },
+      {
+        "path": "app_qml/qml/Pages/FriendsPage.qml",
+        "sha256": "05eb24133d405c8b9d5f58946d7a3035caae776caf360955e550828784a790bd"
+      },
+      {
+        "path": "app_qml/qml/Pages/SettingPage.qml",
+        "sha256": "d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342"
+      }
     ],
     "mig-backend-split": [
-      { "path": "backend/stronghold-backend.cjs", "sha256": "4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b" },
-      { "path": "backend/business.cjs", "sha256": "cd26e630e6359d162458ce4d266d650826d7eee1b2cd260d328d8e7ce5661a06" }
+      {
+        "path": "backend/stronghold-backend.cjs",
+        "sha256": "4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b"
+      },
+      {
+        "path": "backend/business.cjs",
+        "sha256": "cd26e630e6359d162458ce4d266d650826d7eee1b2cd260d328d8e7ce5661a06"
+      }
     ],
     "qa-screenshots": [
-      { "path": "app_qml/shots/session-1440x900.png", "sha256": "c25b4ecd73d0a44428096ab2e1fac2f99e51cd0b9b902ba471f578ace3f74db4" },
-      { "path": "app_qml/shots/friends-1440x900.png", "sha256": "b545c337a3b968a4514fb35eb7067a5052663f450f3facaabfe6a5b726656e7e" },
-      { "path": "app_qml/shots/setting-1440x900.png", "sha256": "4f5a045cbdcce7ef6a21c0f89c403af59f2e9e3647a42174e1302160ac1a5fac" }
+      {
+        "path": "app_qml/shots/session-1440x900.png",
+        "sha256": "c25b4ecd73d0a44428096ab2e1fac2f99e51cd0b9b902ba471f578ace3f74db4"
+      },
+      {
+        "path": "app_qml/shots/friends-1440x900.png",
+        "sha256": "b545c337a3b968a4514fb35eb7067a5052663f450f3facaabfe6a5b726656e7e"
+      },
+      {
+        "path": "app_qml/shots/setting-1440x900.png",
+        "sha256": "4f5a045cbdcce7ef6a21c0f89c403af59f2e9e3647a42174e1302160ac1a5fac"
+      }
     ],
     "shipped-third-party-notices": [
-      { "path": "LICENSES/GPL-3.0-only.txt", "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986" },
-      { "path": "LICENSES/LGPL-3.0-only.txt", "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118" },
-      { "path": "LICENSES/steamworks-ffi-node-MIT.txt", "sha256": "163e3136d3d1067a2fe50cf159236a3aab50fec8cfa5b1d0bbec1aeae39df58f" },
-      { "path": "LICENSES/koffi-MIT.txt", "sha256": "22bcbbbacd739b026a8dc484f62a31484ce4c4e31f3408b60b29b4e41d62b290" },
-      { "path": "THIRD_PARTY_NOTICES.txt", "sha256": "235b22a10007f5262fad501388d2ebc4cada47f1932195b261dc51d4d6aceeed" }
+      {
+        "path": "LICENSES/GPL-3.0-only.txt",
+        "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+      },
+      {
+        "path": "LICENSES/LGPL-3.0-only.txt",
+        "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+      },
+      {
+        "path": "LICENSES/steamworks-ffi-node-MIT.txt",
+        "sha256": "163e3136d3d1067a2fe50cf159236a3aab50fec8cfa5b1d0bbec1aeae39df58f"
+      },
+      {
+        "path": "LICENSES/koffi-MIT.txt",
+        "sha256": "22bcbbbacd739b026a8dc484f62a31484ce4c4e31f3408b60b29b4e41d62b290"
+      },
+      {
+        "path": "THIRD_PARTY_NOTICES.txt",
+        "sha256": "235b22a10007f5262fad501388d2ebc4cada47f1932195b261dc51d4d6aceeed"
+      }
     ]
   },
   "TODO_REHASH": [

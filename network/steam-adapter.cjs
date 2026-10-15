@@ -1447,6 +1447,12 @@ function createSteamHost(options = {}) {
           peer: steamId || String(connection),
           kind: peer.dropWhy ? 'LocalTunnelAbort' : 'LocalServiceClosed',
           reason: peer.dropWhy || '本机服务端口把这条件接关了（响应正常收尾，或游戏侧自己超时）',
+          // 审计 A-03：这一支是"本机游戏服务自己关的"，必须能被机器判出来；
+          // 广播模式的 sendMany 也复用同一份 cause（见那里的 markPeerLocalCause）。
+          causeOrigin: peer.dropWhy ? 'local' : 'game',
+          cause: normalizePeerCause(peer.dropWhy
+            ? { origin: 'local', errorCode: 'ELOCALTUNNELABORT', detail: peer.dropWhy }
+            : { origin: 'game', detail: '本地游戏服务关闭了本机连接' }),
           ...info,
         });
       }
@@ -1503,7 +1509,9 @@ function createSteamHost(options = {}) {
         // （加入者那边 dropPeer 之后会 refillTrunks）。房主要做的只是别把流收掉。
         parkPeerStreams(peer, change.info?.endDebugMessage || 'Steam 连接断开');
         if (peer.socket) { try { peer.socket.destroy(); } catch { /* ignore */ } }
-        if (firstGone(peer)) emit('peer-left', { peer: peer.steamId || String(connection), ...info });
+        // 审计 A-03：Steam 报了断开，但如果本机游戏服务刚才自己关过（dropWhy/localCause
+        // 已经记下），那"谁关的"应该是 game，而不是笼统的 Steam 层断开。
+        if (firstGone(peer)) emit('peer-left', { peer: peer.steamId || String(connection), ...peerCloseInfo(peer, change, states, Date.now()) });
       }
     }
   };
@@ -1700,7 +1708,8 @@ function createSteamHost(options = {}) {
     pollGroup = null;
     if (latencyDiag) { latencyDiag.dispose(); latencyDiag = null; }
     if (latencyScheduler) { try { latencyScheduler.stop(); } catch { /* ignore */ } latencyScheduler = null; }
-    emit('stopped', {});
+    // 审计 A-03：应用主动停止是三种关闭情形里的第二种，给机器一个稳定的判定口。
+  emit('stopped', { causeOrigin: 'app', cause: normalizePeerCause({ origin: 'app', errorCode: 'ESESSIONSTOPPED', detail: '会话停止' }) });
   };
 
   const reportRoute = createRouteReporter(steam, stats);
@@ -1948,6 +1957,14 @@ function createSteamJoiner(options = {}) {
   const dropPeer = (peer, { closeConnection = true, parkStreams = true, closeReason = '数据流格式不对', closeKind = 'BadFraming' } = {}) => {
     if (!peer || peer.dropped) return;
     peer.dropped = true;
+    // 审计 A-03：这里被调用的原因不止一种（会话停止 / 协议错帧 / 干道断开），
+    // 但 closeReason/closeKind 只是给人看的文本。按 kind 反推一个 origin 记到 peer 上，
+    // 断开事件里就能回答"到底谁关的"，不用再靠自然语言猜。
+    markPeerLocalCause(peer, {
+      origin: closeKind === 'SessionStopped' ? 'app' : 'local',
+      errorCode: TRUNK_CLOSE_ERROR_CODES[closeKind] || 'EPEERDROPPED',
+      detail: closeReason,
+    });
     // 干道死了，但上面那些本机连接（浏览器/游戏）很可能还活着 —— 规格 §十六：传输层
     // 断开不等于会话结束。先把流寄存在 orphanStreams 里等新干道来接（STREAM_MIGRATE_GRACE_MS 宽限），
     // 而不是反手把它们 destroy 掉。唯一的例外是协议错乱（parkStreams=false）：那种
@@ -2221,8 +2238,15 @@ function createSteamJoiner(options = {}) {
     for (const frame of frames) handleStreamFrame(peer, frame);
   };
 
-  /** 干道断了：挂在上面的所有流一起收摊（浏览器会自己重开，下一次会走别的干道）。 */
+  /** 干道断了：挂在上面的所有流一起收摊（浏览器会自己重开，下一次会走别的干道）。
+   *  审计 A-03：除中文 kind/reason 外再给机器一个 errorCode，并把 origin 标成 trunk ——
+   *  "干道清理"与"对端主动关"在旧日志里长得一样，正是要分开的三种情况之一。 */
   const closeTrunkStreams = (peer, reason, kind = 'TunnelClosed') => {
+    const cause = normalizePeerCause({
+      origin: 'trunk',
+      errorCode: TRUNK_CLOSE_ERROR_CODES[kind] || 'ETRUNKCLOSED',
+      detail: reason,
+    });
     for (const stream of [...peer.streams.values()]) {
       peer.streams.delete(stream.id);
       const sock = stream.localSocket || stream.socket;
@@ -2232,6 +2256,8 @@ function createSteamJoiner(options = {}) {
           peer: `流 ${stream.id}`,
           kind,
           reason,
+          causeOrigin: cause.origin,
+          cause: { ...cause, streamId: stream.id, generation: stream.generation ?? null },
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
@@ -2587,6 +2613,9 @@ function createSteamJoiner(options = {}) {
           peer: `本机客户端 :${socket.remotePort || '?'}`,
           kind: 'LocalClientClosed',
           reason: '浏览器/游戏自己关掉了这条本机连接',
+          // 审计 A-03：交易对手是"本机游戏/浏览器"，这是三种情况里的第一种，必须机器可判。
+          causeOrigin: 'game',
+          cause: gameSideCloseCause('本机客户端主动关闭', streamId, stream.generation ?? null),
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
@@ -2847,6 +2876,12 @@ function createSteamJoiner(options = {}) {
           peer: `本机客户端 :${info.port}`,
           kind: peer.dropWhy ? 'LocalTunnelAbort' : 'LocalClientClosed',
           reason: peer.dropWhy || '浏览器/游戏自己关掉了这条本机连接',
+          // 审计 A-03：老路径（对面是 ≤0.13.3）同样是"本机客户端自己关的"，
+          // 也必须能机器判出来 —— 升级过渡期这个组合会长期存在，不能只有新路径有 cause。
+          causeOrigin: peer.dropWhy ? 'local' : 'game',
+          cause: normalizePeerCause(peer.dropWhy
+            ? { origin: 'local', errorCode: 'ELOCALTUNNELABORT', detail: peer.dropWhy }
+            : gameSideCloseCause('老路径：本机客户端主动关闭')),
           ...info,
         });
       }
@@ -3034,7 +3069,8 @@ function createSteamJoiner(options = {}) {
     stats.connections = 0;
     await new Promise((resolve) => server.close(() => resolve()));
     if (latencyDiag) { latencyDiag.dispose(); latencyDiag = null; }
-    emit('stopped', {});
+    // 审计 A-03：应用主动停止是三种关闭情形里的第二种，给机器一个稳定的判定口。
+  emit('stopped', { causeOrigin: 'app', cause: normalizePeerCause({ origin: 'app', errorCode: 'ESESSIONSTOPPED', detail: '会话停止' }) });
   };
 
   // ── Phase 7：网络健康（规格 §三十 / §三十一）─────────────────────────────────
@@ -3249,13 +3285,91 @@ function peerSample(peer, now) {
   };
 }
 
-/** 连接结束时的完整交代：谁关的（对端 / 本地发现有问题）、Steam 给的理由、走了多少字节。 */
-function peerCloseInfo(peer, change, states, now) {
+// ── 关闭原因归一（审计 A-03）───────────────────────────────────────────────
+// 0.14.4 的关闭日志只有一个 kind（ClosedByPeer / ProblemDetectedLocally）加一句 Steam 的
+// endDebugMessage，**分不清是谁关的**：游戏侧自己收摊、应用整体退出、干道清理三种情况
+// 在日志里长得一模一样，线上只能靠猜。这里把"谁关的"钉成五个固定的 origin，机器可判：
+//   game  = 游戏/浏览器这一侧关掉了本机连接（对端主动，属于正常收尾）
+//   app   = 应用自己要停（会话停止 / 重启后端 / 退出程序）
+//   trunk = 干道断开，挂在它上面的流被清理（不是对端关的，是传输层断了）
+//   peer  = Steam 对端主动断开（ClosedByPeer）
+//   local = 本机自己发现问题（ProblemDetectedLocally / 协议错帧 / 发送失败）
+// 中文文案只在这里生成一处，避免每个调用点各写一句、互相矛盾。
+const PEER_CLOSE_REASON_TEXT = {
+  game: '游戏或浏览器这一侧关掉了本机连接（正常收尾）',
+  app: '应用主动停止，这条连接被收掉',
+  trunk: 'Steam 干道断开，挂在它上面的连接被一起收掉',
+  peer: '对端把这条件接关了',
+  local: '本机发现这条连接有问题，主动断开',
+};
+
+/** 干道清理时的 kind → 机器可判的错误码（审计 A-03）。 */
+const TRUNK_CLOSE_ERROR_CODES = {
+  TunnelClosed: 'ETRUNKCLOSED',
+  SessionStopped: 'ESESSIONSTOPPED',
+  BadFraming: 'EPROTOFRAME',
+  LocalTunnelAbort: 'ELOCALTUNNELABORT',
+  LocalServiceClosed: 'ELOCALSERVICECLOSED',
+  LocalClientClosed: 'ELOCALCLIENTCLOSED',
+};
+
+/** 把调用点给的碎片（origin/errorCode/streamId/generation/friendly）整理成统一的 cause。 */
+function normalizePeerCause(cause) {
+  if (!cause || !cause.origin) return null;
+  return {
+    origin: cause.origin,
+    reason: cause.friendly || PEER_CLOSE_REASON_TEXT[cause.origin] || PEER_CLOSE_REASON_TEXT.local,
+    errorCode: cause.errorCode || null,
+    endReason: cause.endReason ?? null,
+    streamId: cause.streamId ?? null,
+    generation: cause.generation ?? null,
+    detail: cause.detail || null,
+  };
+}
+
+/** 记下"这一端为什么打算关它"，等到真正断开时由 peerCloseInfo 补进 cause。 */
+function markPeerLocalCause(peer, cause) {
+  if (peer) peer.localCause = normalizePeerCause(cause);
+  return peer;
+}
+
+/** "本机游戏/浏览器自己关掉了这条连接"——三种关闭情形里最常见的第一种（审计 A-03）。 */
+function gameSideCloseCause(detail, streamId = null, generation = null) {
+  return normalizePeerCause({
+    origin: 'game',
+    errorCode: 'ELOCALCLIENTCLOSED',
+    detail: detail || '本机客户端主动关闭',
+    streamId,
+    generation,
+  });
+}
+
+function peerCloseCause(peer, change, states, cause) {
+  const declared = normalizePeerCause(cause) || (peer && peer.localCause) || null;
   const info = (change && change.info) || {};
+  const steamSays = change && change.newState === states?.ClosedByPeer ? 'peer' : 'local';
+  return {
+    origin: declared ? declared.origin : steamSays,
+    reason: declared ? declared.reason : (info.endDebugMessage || PEER_CLOSE_REASON_TEXT[steamSays]),
+    errorCode: declared ? declared.errorCode : null,
+    endReason: declared && declared.endReason !== null ? declared.endReason : (info.endReason ?? null),
+    streamId: declared ? declared.streamId : null,
+    generation: declared ? declared.generation : null,
+    detail: declared ? declared.detail : null,
+  };
+}
+
+/** 连接结束时的完整交代：谁关的（对端 / 本地发现有问题）、Steam 给的理由、走了多少字节。 */
+function peerCloseInfo(peer, change, states, now, cause) {
+  const info = (change && change.info) || {};
+  const resolved = peerCloseCause(peer, change, states, cause);
   return {
     kind: change && states && change.newState === states.ClosedByPeer ? 'ClosedByPeer' : 'ProblemDetectedLocally',
+    // 谁关的（机器可判）+ 一句给人看的中文；kind 保留原样只为兼容既有日志解析。
+    causeOrigin: resolved.origin,
+    cause: resolved,
     endReason: info.endReason,
-    reason: info.endDebugMessage || 'Steam P2P 连接断开',
+    reason: info.endDebugMessage || PEER_CLOSE_REASON_TEXT[resolved.origin] || 'Steam P2P 连接断开',
     ...peerSample(peer, now),
   };
 }

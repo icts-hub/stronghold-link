@@ -80,13 +80,13 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 ### 3. `mig-qml-frontend` — QML 前端与 C++ 桥
 
 本项目迁移中新增的代码，受根目录 `LICENSE`（GPL-3.0）覆盖，不含任何第三方代码片段。
-入口文件 `app_qml/main.cpp`，sha256 `9314b617f48e73ba037f6c1633ba96107d8d841a5b2bc6937066d663833392cb`。
+入口文件 `app_qml/main.cpp`，sha256 `394e6fc3bbab91ce55494b6a66d60c46152ad0423512f035e8814d5eea8e5093`。
 全部 11 个源码文件的逐个哈希：
 
 | 文件 | sha256 |
 | --- | --- |
 | `app_qml/app_qml.pro` | `72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20` |
-| `app_qml/main.cpp` | `9314b617f48e73ba037f6c1633ba96107d8d841a5b2bc6937066d663833392cb` |
+| `app_qml/main.cpp` | `394e6fc3bbab91ce55494b6a66d60c46152ad0423512f035e8814d5eea8e5093` |
 | `app_qml/backendbridge.h` | `c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd` |
 | `app_qml/backendbridge.cpp` | `59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb` |
 | `app_qml/qml.qrc` | `e7787a88fe6f9a9aaefd8da2c29033469c8a2a50687310de748c0de345990804` |
