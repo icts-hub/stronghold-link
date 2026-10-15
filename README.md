@@ -5,7 +5,7 @@
 
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-![tests](https://img.shields.io/badge/tests-815%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-824%20passing-brightgreen)
 ![version](https://img.shields.io/badge/version-0.14.4-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密，算法 X25519 + AES-256-GCM
@@ -14,6 +14,10 @@
 - 界面所有状态来自真实中继进程：连接数、字节数、数据报数、拒绝与失败计数、逐条日志
 - 七个页面：首页 / 服务库 / 会话 / 网络 / 适配器 / 好友 / 系统，编号导航、等宽数据、真实遥测波形
 - **Steam 好友与大厅**：一键邀请好友入房，好友接受后自动读到房主 SteamID 与端口
+
+> **另有一条 QML / Qt Quick 前端的迁移分支 `qml-migration`**（渲染层换成 Qt Quick，不含 QtWebEngine；
+> 后端拆成独立 Node 进程）。`main` 上仍然是 Electron 前端。两版的关系、构建方式与验收数据见
+> [QML_QA_REPORT.md](QML_QA_REPORT.md) 与 [QML_MIGRATION_PLAN.md](QML_MIGRATION_PLAN.md)。
 
 > 本项目与 Valve / Steam 无隶属关系。Steamworks SDK 的 redistributable 受 Valve 授权限制，
 > 仓库不含这些文件，需自行放入，见 [steamworks_sdk/README.md](steamworks_sdk/README.md)。
@@ -34,7 +38,7 @@ git clone https://github.com/icts-hub/stronghold-link.git
 cd stronghold-link
 npm install                # 需要 Node.js 20+，会装 electron 与可选依赖 steamworks-ffi-node
 npm start                  # 启动图形界面
-npm test                   # 518 个测试用例
+npm test                   # 824 个用例通过（共 63 个用例文件）
 ```
 
 想用 Steam 隧道：把 SDK 的 `steam_api64.dll` 放到 `steamworks_sdk/redistributable_bin/win64/`。
@@ -98,6 +102,19 @@ npm run dist:both   # 两版依次产出
 便携版已实测解压即用：解压到干净目录后运行 `--smoke` 返回 `ok: true`、界面正常、stderr 无输出。
 打包细节与 SDK 放置位置见 [docs/PHASE6-BUILD.md](docs/PHASE6-BUILD.md)。
 
+### 发版（本机只推一个标签）
+
+```powershell
+git tag -a v0.14.4 -m "0.14.4 ..."   # 标签名必须是 v* 才会触发
+git push origin v0.14.4
+```
+
+剩下的在 GitHub 的机器上完成（`.github/workflows/release.yml`）：装依赖 → 跑测试 →
+`tools/prepare-portable.cjs` 打便携包（自动剥离 Valve SDK 运行库、放进许可证与启动器）→
+用 `tools/changelog-for.cjs <版本>` 从 CHANGELOG 截出本版说明作 `RELEASE-NOTES.md` →
+`gh release create/upload`。这样本机网络不好、附件传不上去都不影响发版；
+也可以在 Actions 页面手动 `Run workflow` 填标签触发。
+
 ## 安全模型
 
 | 项目 | 实现 |
@@ -119,6 +136,8 @@ npm run dist:both   # 两版依次产出
 ├─ electron/
 │  ├─ main.cjs            主进程：配置持久化、会话 IPC、Steam 诊断、启动日志、单实例、--smoke
 │  └─ preload.cjs         contextBridge 白名单桥
+├─ app_qml/               QML 前端（分支 qml-migration）：main.cpp + qml/ 三页 + qml/plate/ 几何绘制 + Components/
+├─ backend/               独立后端进程（QML 版用）：stronghold-backend.cjs + business.cjs，走 JSON Lines
 ├─ network/
 │  ├─ errors.cjs          错误码转中文、端口与口令校验、端口占用者查询
 │  ├─ crypto.cjs          scrypt PSK / X25519 / HKDF / AES-256-GCM / 重放窗口
@@ -136,7 +155,7 @@ npm run dist:both   # 两版依次产出
 ├─ src/ui/stage.js        三维档案背景，Three.js 实例化阵列
 ├─ src/ui/styles/         设计系统：design-tokens / theme / typography / layout / motion / base / components / views
 ├─ src/ui/fonts/          内置字体子集，MiSans 与 Inter/Plex，许可见同目录
-├─ test/                  node:test 测试，42 个文件 518 个用例
+├─ test/                  node:test 测试：60 个 *.test.cjs 加 3 个工具守卫，824 个用例通过
 ├─ tools/                 开发工具：Steam 探针、字体子集裁剪、测试运行器、测速、双版本打包、CHANGELOG 截取
 ├─ diag/                  现场诊断探针：预热池 A/B、延迟与整页加载、分段下载、隧道体检（见其中 README）
 └─ docs/                  阶段设计与测试报告
@@ -178,7 +197,8 @@ npm run dist:both   # 两版依次产出
 
 ## 测试
 
-`npm test` 覆盖 **518 个用例**，42 个测试文件：适配器、加密、中继、会话、IPC、界面逻辑，以及网络 Provider、
+`npm test` 覆盖 **824 个通过的用例**，共 63 个用例文件（`test/` 下 60 个 `*.test.cjs` 加 3 个工具守卫，
+另有 1 个按环境跳过）：适配器、加密、中继、会话、IPC、界面逻辑，以及网络 Provider、
 路由评分与监督、中继服务端与客户端、STUN、NAT-PMP、UPnP、打洞、长时压测。
 全部使用本机回环真实端口与真实数据往返，包括链路抓包无明文、跨会话重放被拒、伪造认证标签被拒、
 旧协议明确拒绝、端口冲突带占用者提示、SDK 目录名容错。
@@ -204,6 +224,20 @@ node steam-userdir-probe.cjs "D:\某个安装目录"    # 用指定目录里的 
 - Steam，真实 SDK、真实 Steam 客户端、AppID 480：SDK 初始化成功、取得本机 SteamID、
   Relay 到达 `Current/Available`、`createListenSocketP2P` 成功、`connectP2P` 到 `Connected`、
   `acceptConnection` 返回 OK、`sendReliable` 调用成功。
+
+**QML 前端（本分支 `qml-migration`，`main` 上还没有）**
+
+- 三个顶层页（会话 / 好友 / 设置）在 1440×900、1280×720、1024×768 下都能出图，
+  9 张验收截图在 `app_qml/shots/`；`--grab` 出图时 QML 引擎 `qmlWarnings=0`。
+- 内存（可见窗口口径，进程树 WS）：空闲约 300~330 MiB，最差的持续切页场景约 375 MiB；
+  同一口径下 Electron 0.14.4 是 5 个进程约 **805 MiB** —— 省约 2.5 倍，但**100 MiB 门槛未达标**，
+  地板是架构性的（裸 Node 49.0 + 最小 Qt 窗口 36.3 + conhost 7.3 ≈ 92.6 MiB，还没画一个像素）。
+  完整场景与原始数据见 [QML_QA_REPORT.md](QML_QA_REPORT.md)。
+- **未验证**：最小化期间"渲染线程完全不跑"只有内存侧间接证据，缺一次 CPU 采样；macOS / Linux 未测、
+  未打包、未签名；真机双机双账号 P2P 与 10 分钟字节账本对账同样未做（与 Electron 版共用网络层，结论一样）。
+- **本机装了游戏加加（GamePP）时，从仓库目录里启动 QML 版必崩 `0xC0000005`**：它按 exe 路径注入
+  覆盖层 DLL `GPP64.dll`。把 exe 复制到仓库外（`%TEMP%`、`D:\shl\qmlrun\`）再跑就正常，
+  `tools/make-shots.cjs` 已经内置这个中立运行目录。矩阵见 [docs/启动闪退排查.md](docs/启动闪退排查.md) 第 6 节。
 
 **未验证与已知限制**
 
