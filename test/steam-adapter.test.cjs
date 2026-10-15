@@ -12,6 +12,8 @@ const {
   createSteamHost, createSteamJoiner, STEAM_ID_PATTERN,
   CALLBACK_INTERVAL_MS, DRAIN_BURST, startCallbackLoop, initSteamSdk, createRouteReporter,
   retagFrame,
+  createStreamAudit, auditFeed, auditSide,
+  noteStreamSent, noteStreamAck, resendTailFrames, setResumeOffset, takeDelivery, maybeAckStream,
 } = require('../network/steam-adapter.cjs');
 const { createMockSdk, HOST_STEAM_ID, STATE } = require('./steam-mock.cjs');
 const h = require('./helpers.cjs');
@@ -86,6 +88,50 @@ const framesFrom = (mock, connection, { skipHello = false } = {}) => {
   if (!wire.length) return [];
   const decoder = mux.createFrameDecoder();
   return decoder.push(wire);
+};
+
+/**
+ * 直接调 `resendTailFrames` / `maybeAckStream` 这类助手时拿到的是**裸帧 Buffer**（还没经过 mock 的
+ * 发送队列），所以不能像 `framesFrom` 那样直接当对象读，要按线上格式自己切一刀：
+ * `len:4 | type:1 | streamId:4 | generation:4 | payload`，`len = 9 + payload.length`。
+ */
+const parseFrame = (frame) => ({
+  type: frame.readUInt8(4),
+  streamId: frame.readUInt32BE(5),
+  generation: frame.readUInt32BE(9),
+  payload: frame.subarray(mux.FRAME_HEADER, 4 + frame.readUInt32BE(0)),
+});
+
+/**
+ * 0.14.6 的接收端规则：把一条（可能跨世代的）干道上所有 DATA 帧拼成"真正交付给本机 socket 的字节流"。
+ *
+ * 发送方跨世代补发前会先发 `Resume(offset)`，声明"接下来的 DATA 从这条流的第 offset 个字节开始"；
+ * 接收端据此把"已经交付过的那一截"切掉（与适配器里的 `setResumeOffset` / `takeDelivery` 同一套语义）。
+ * 不做这一步、直接拼 DATA 载荷，就会把"补发时重发的那一截"算成新字节 —— 那是测试自己没按协议收，
+ * 不是隧道在重复发数据。判定"字节流有没有空洞/重复"必须按接收端真正交付的字节来算。
+ */
+const deliveredOnTrunks = (mock, connections, streamId) => {
+  const out = [];
+  let delivered = 0;
+  let skip = 0;
+  for (const connection of connections) {
+    for (const frame of framesFrom(mock, connection, { skipHello: true })) {
+      if (frame.type === mux.TYPE.Resume) {
+        skip = Math.max(0, delivered - mux.decodeStreamOffset(frame.payload));
+        continue;
+      }
+      if (frame.type !== mux.TYPE.Data || frame.streamId !== streamId) continue;
+      let payload = frame.payload;
+      if (skip > 0) {
+        if (payload.length <= skip) { skip -= payload.length; continue; }
+        payload = payload.subarray(skip);
+        skip = 0;
+      }
+      out.push(payload);
+      delivered += payload.length;
+    }
+  }
+  return Buffer.concat(out);
 };
 
 /** 按流号取**加入者发出**的帧（顺序即发送顺序）。 */
@@ -506,8 +552,13 @@ test('★ 房主：干道断开时还压在出站队列里的字节，复活后�
     await h.waitFor(() => dataBytes(second).length >= last.length, { timeoutMs: 3000 });
     await h.wait(100);
 
-    const wire = Buffer.concat([dataBytes(CONN), dataBytes(second)]);
+    const wire = deliveredOnTrunks(mock, [CONN, second], 2);
     const expected = Buffer.concat([first, stuck, last]);
+    // 0.14.6：补发之前必须先声明起点，否则接收端无从判断"哪一截是重复的"。
+    assert.ok(
+      framesFrom(mock, second, { skipHello: true }).some((f) => f.type === mux.TYPE.Resume),
+      '跨世代补发必须先发 Resume(起点)：没有它，接收端只能把重复的那一截当新字节交付',
+    );
     assert.equal(wire.length, expected.length,
       `送到对端的字节数必须与游戏写进去的完全一致：少了 ${expected.length - wire.length} 字节 —— 这段就是干道断开时被吞掉的，对端的 netty 解码器会在这里错位（unknown compression method）`);
     assert.ok(wire.equals(expected), '送到对端的字节流必须逐字节一致：不允许有空洞或重复');
@@ -539,6 +590,91 @@ test('retagFrame：只改"要跨世代重发的那条流"的世代，别的流�
   // 在这里抛异常会把清理流程打断，剩下的流就没人收摊了）。
   assert.equal(retagFrame(null, 2, 5), null);
   assert.equal(retagFrame(Buffer.alloc(3), 2, 5).length, 3);
+});
+
+test('★ 流级字节账本：同一段字节怎么分块都算出同一份账；差一个字节就能看出来', () => {
+  // 现场判断"隧道有没有改过字节"只能靠两端各自算账再对账。所以账本必须与"分块方式"无关 ——
+  // 两边读到的 TCP 分段大小天然不同，如果分块会影响结果，就会把"两个方向分块不同"误判成隧道改过字节。
+  const a = createStreamAudit();
+  const b = createStreamAudit();
+  const data = Buffer.alloc(200 * 1024);
+  for (let i = 0; i < data.length; i += 1) data[i] = (i * 31 + 7) & 0xff;
+  auditFeed(a.out, data);
+  for (let off = 0; off < data.length; off += 7777) auditFeed(b.out, data.subarray(off, Math.min(off + 7777, data.length)));
+  assert.deepEqual(auditSide(a.out), auditSide(b.out), '分块方式不同不许影响账本');
+  assert.equal(auditSide(a.out).bytes, data.length);
+  assert.equal(auditSide(a.out).blocks.length, 3, '每 64 KiB 落一个块指纹（200 KiB = 3 块 + 一个尾巴）');
+  assert.equal(auditSide(a.out).partialBytes, 8192, '尾巴那 8192 字节也要留下长度，方便两端对账时先看是不是同一刀');
+  assert.equal(auditSide(a.out).partial.length, 16, '尾巴自身的指纹也要有');
+
+  const c = createStreamAudit();
+  const tweaked = Buffer.from(data);
+  tweaked[12345] ^= 0xff;
+  auditFeed(c.out, tweaked);
+  assert.notEqual(auditSide(c.out).h1, auditSide(a.out).h1, '差一个字节，整体指纹必须不同');
+  assert.notEqual(auditSide(c.out).blocks[0], auditSide(a.out).blocks[0], '块指纹要指到出问题的那 64 KiB');
+});
+
+test('★ resendTailFrames：只补"交给 Steam 了但没被确认"的那一截 —— 还没交给 Steam 的尾巴走 takePending，不许补两遍', () => {
+  // 三分法（见 steam-adapter.cjs 里 noteStreamSent 的注释）：
+  //   ① 还压在出站队列里（从没交给 Steam）→ takePending() 取回，走 pendingFrames 补发；
+  //   ② 交给 Steam 了、对端还没确认 → 只有 sentLog 说得清，走 Resume + 补发；
+  //   ③ 对端确认过了 → 必须划掉，绝不能再发。
+  // 这里钉的是①与②的分界：sentLog 记的是"推进过 Steam 队列的全部字节"，
+  // 所以补发时要把①那一截刨掉，否则同一段字节会被补两遍（对端 netty 一样会就此错位）。
+  const stream = { id: 4, generation: 1, sentLog: [], sentLogBytes: 0, sentBytes: 0, ackedBytes: 0 };
+  noteStreamSent(stream, Buffer.alloc(1000, 0x41));
+  noteStreamSent(stream, Buffer.alloc(200, 0x42));
+  assert.equal(stream.sentBytes, 1200, '两段都进过 Steam 队列，累计偏移要一起算');
+
+  const replay = resendTailFrames(stream, 2, {}, 200);
+  assert.equal(replay[0].readUInt8(4), mux.TYPE.Resume, '补发必须先声明起点');
+  assert.equal(mux.decodeStreamOffset(parseFrame(replay[0]).payload), 0);
+  const blob = Buffer.concat(replay.slice(1).map((f) => parseFrame(f).payload));
+  assert.equal(blob.length, 1000, '还没交给 Steam 的 200 字节要刨掉，否则同一段发两遍');
+  assert.ok(blob.equals(Buffer.alloc(1000, 0x41)));
+
+  assert.deepEqual(resendTailFrames(stream, 2, {}, 1200), [], '全都还没交给 Steam：这条路上没有可补发的字节');
+
+  // ③：对端确认之后补发范围要跟着收窄；全确认完了就一个字节都不补。
+  assert.equal(noteStreamAck(stream, 1000), 1000);
+  assert.equal(stream.ackSeen, true);
+  assert.deepEqual(resendTailFrames(stream, 2, {}, 200), [], '已确认的数据绝不再补发');
+  assert.equal(noteStreamAck(stream, 500), 0, '迟到的旧 Ack 不能让确认点倒退');
+  assert.equal(stream.ackedBytes, 1000);
+});
+
+test('★ 跨世代补发的接收端规则：Resume 之后的重复字节要切掉；起点比已交付位置还大就必须报空洞', () => {
+  const stream = { delivered: 100, skipBytes: 0 };
+  assert.deepEqual(setResumeOffset(stream, 60), { gap: 0 }, '补发起点在已交付位置之前 = 有一段重复，切掉即可');
+  assert.equal(stream.skipBytes, 40);
+  assert.equal(takeDelivery(stream, Buffer.alloc(10)), null, '整段都是重复的：一个字节都不许交付');
+  assert.equal(stream.skipBytes, 30);
+  const rest = takeDelivery(stream, Buffer.alloc(50, 0x7a));
+  assert.equal(rest.length, 20, '只有多出来的那 20 字节是新的');
+  assert.equal(stream.skipBytes, 0, '切完一次就清账：后面的 DATA 是正常的新字节');
+  assert.equal(takeDelivery(stream, Buffer.alloc(7)).length, 7);
+
+  // 对端说"从第 130 字节续发"，可我们只交付到 100：中间 30 字节真丢了。
+  // 这时必须报 gap（调用方会如实断开这条流），绝不能装作没事继续交付一条有洞的字节流。
+  const other = { delivered: 100, skipBytes: 0 };
+  assert.deepEqual(setResumeOffset(other, 130), { gap: 30 });
+});
+
+test('★ Ack 协议：接收端交付满 32 KiB 才回一次累计确认，发送端只认前进不认倒退', () => {
+  const frames = [];
+  const push = (peer, f) => frames.push(...f);
+  const peer = { dropped: false, framed: true };
+  const stream = { id: 6, generation: 1, delivered: 32 * 1024 - 1, ackedSent: 0 };
+  assert.equal(maybeAckStream(stream, peer, push), false, '差一字节就不回：免得每个 tick 抖一个 Ack 出去');
+  stream.delivered = 32 * 1024;
+  assert.equal(maybeAckStream(stream, peer, push), true);
+  assert.equal(frames[0].readUInt8(4), mux.TYPE.Ack);
+  assert.equal(mux.decodeStreamOffset(parseFrame(frames[0]).payload), 32 * 1024);
+  assert.equal(maybeAckStream(stream, peer, push), false, '同一个位置只回一次');
+  assert.equal(frames.length, 1);
+  assert.equal(maybeAckStream({ ...stream, ackedSent: 0, delivered: 64 * 1024 }, { dropped: true, framed: true }, push), false,
+    '干道已经废掉的 peer 不回 Ack：发了也没人收');
 });
 
 test('★ TCP 分段与合并读取：半个帧、两帧粘在一起都不是协议边界 —— 两个方向都必须逐字节一致', async () => {
@@ -599,6 +735,17 @@ test('★ TCP 分段与合并读取：半个帧、两帧粘在一起都不是协
     assert.equal(wireUp().toString(), 'onetwothree',
       '上行字节流必须与游戏写进去的逐字节一致、顺序不变（分帧/合并都不许改变内容）');
     assert.equal(host.stats.dropped, 0, '这条可靠流上不允许计任何 dropped');
+
+    // ── ④ 接收方向也要回 Ack（房主侧同样）：交付满 32 KiB 就报一次"我收到并交付到第几字节"。
+    // 没有这个，发送方跨世代恢复时无从知道哪一截已经安全到达，只能整段重发或者干脆丢掉。
+    const inbound = Buffer.alloc(32 * 1024);
+    for (let i = 0; i < inbound.length; i += 1) inbound[i] = (i * 5) & 0xff;
+    mock.state.pushToHost(CONN, mux.encodeData(2, 1, inbound));
+    assert.ok(await h.waitFor(() => Buffer.concat(received).length >= 'ALPHABETAGAMMA'.length + inbound.length, { timeoutMs: 3000 }),
+      '这 32 KiB 应当原样交付给游戏服务');
+    assert.ok(await h.waitFor(() => framesFrom(mock, CONN, { skipHello: true })
+      .some((f) => f.type === mux.TYPE.Ack && mux.decodeStreamOffset(f.payload) === 'ALPHABETAGAMMA'.length + inbound.length), { timeoutMs: 3000 }),
+      '接收端交付满 32 KiB 要回一个累计 Ack（字节数按"已交付"算，不是按"收到多少帧"算）');
   } finally {
     await host.stop();
     await new Promise((resolve) => game.close(resolve));
@@ -1754,14 +1901,128 @@ test('★ 加入者：干道断开时压在出站队列里的字节，复活后�
     await h.waitFor(() => Buffer.concat(dataOn(trunkB)).length >= 'LAST-SEGMENT'.length, { timeoutMs: 3000 });
     await h.wait(120);
 
-    const wire = Buffer.concat([...dataOn(trunkA), ...dataOn(trunkB)]);
+    const wire = deliveredOnTrunks(mock, [trunkA, trunkB], 2);
     const expected = Buffer.concat([first, stuck, Buffer.from('LAST-SEGMENT')]);
+    assert.ok(
+      framesFrom(mock, trunkB, { skipHello: true }).some((f) => f.type === mux.TYPE.Resume),
+      '跨世代补发必须先发 Resume(起点)：没有它，房主只能把重复的那一截当新字节写进游戏端口',
+    );
     assert.equal(wire.length, expected.length,
       `送到对端的字节数必须与写进去的完全一致：少了 ${expected.length - wire.length} 字节 —— 这段就是干道断开时被吞掉的`);
     assert.ok(wire.equals(expected), '送到对端的字节流必须逐字节一致：不允许有空洞或重复');
     assert.equal(joiner.stats.dropped, 0, '可靠流上不允许计任何 dropped');
     assert.ok(!events.some((e) => e.type === 'stream-left' && e.payload?.kind === 'TunnelClosed'),
       '干道断链不该产生 TunnelClosed 的流事件：流从来没断过');
+  } finally {
+    client?.destroy();
+    await joiner.stop();
+  }
+});
+
+test('★ 已交给 Steam、还没被确认的字节（三分法里的②）：干道断了以后必须补发，接收端按 Resume 切掉重复 —— 不丢也不重', async () => {
+  // 0.14.5 修的是①（还压在出站队列里、从没交给 Steam 的字节）。②是另一件事：
+  // 字节已经交给 Steam 了（sendMessage 返回成功），但干道随即被 Steam 判死 —— 这段字节
+  // 可能已经送达、也可能永远丢了，**只有对端说得清**。0.14.5 之前这里是个黑洞：流照样
+  // 原地复活，对端于是收到一条中间缺了一截的 TCP 流（Minecraft 侧就是 unknown compression
+  // method / incorrect header check）。0.14.6 起：补发前先发 Resume(起点)，接收端据此把
+  // 重复的那一截切掉 —— 恢复前后字节总数、顺序、内容都一致，既不丢也不重。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const events = [];
+  const joiner = createSteamJoiner({
+    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  const dataOn = (connection) => Buffer.concat(framesFrom(mock, connection, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data).map((f) => f.payload));
+  let client;
+  try {
+    await joiner.ready;
+    client = await h.connect(localPort);
+    const trunkA = await answerHello(mock, joiner);
+
+    // 这一段**顺利交给 Steam** 了（没有 blocked）⇒ 它属于②，不是①。
+    const body = Buffer.alloc(5000);
+    for (let i = 0; i < body.length; i += 1) body[i] = (i * 7) & 0xff;
+    client.write(body);
+    assert.ok(await h.waitFor(() => dataOn(trunkA).length >= body.length, { timeoutMs: 3000 }),
+      '先确认这段字节确实已经交给了 Steam');
+
+    // ── 干道 A 断：这段"已交给 Steam、未被确认"的字节此刻就是黑洞 ──
+    mock.state.emitState({
+      connection: trunkA, newState: STATE.ClosedByPeer,
+      info: { identityRemote: HOST_STEAM_ID, endDebugMessage: 'I/O Operation Failed' },
+    });
+    await h.wait(120);
+    assert.equal(joiner.stats.streamsParked, 1, '流要寄存等新干道，而不是就地销毁');
+
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }), '断链后应立刻拉新干道');
+    const trunkB = mock.state.connectedTo[1].handle;
+    mock.state.emitState({ connection: trunkB, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    mock.state.pushToClient(trunkB, mux.encodeHello());
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, trunkB, { skipHello: true }).some((f) => f.type === mux.TYPE.Resume),
+      { timeoutMs: 3000 },
+    ), '②那截字节必须由 Resume 声明起点后补发：没有它，接收方只能把重复的那一截当新字节交付');
+    assert.ok(await h.waitFor(() => dataOn(trunkB).length >= body.length, { timeoutMs: 3000 }),
+      '补发的字节要真的送出去');
+
+    // 复活之后客户端再写一段新的：按接收端规则（Resume + 去重）算账，交付的字节流必须与写进去的一模一样。
+    client.write(Buffer.from('TAIL'));
+    await h.wait(150);
+    const delivered = deliveredOnTrunks(mock, [trunkA, trunkB], 2);
+    assert.equal(delivered.length, body.length + 4, '交付的字节数必须与客户端写进去的完全一致（补发不许变成重复字节）');
+    assert.ok(delivered.equals(Buffer.concat([body, Buffer.from('TAIL')])), '恢复前后逐字节一致：不丢也不重');
+    assert.equal(joiner.stats.dropped, 0, '可靠流上不允许计任何 dropped');
+    assert.ok((joiner.stats.streamResent || 0) >= 1, '这件事必须留下"补发过一次"的证据，否则日志上没人看得出来发生过');
+  } finally {
+    client?.destroy();
+    await joiner.stop();
+  }
+});
+
+test('★ 已确认的数据绝不再补发：Ack 之后换干道，一个字节都不许重发（未确认的必须补、已确认的不许补）', async () => {
+  // 0.14.6 的确认协议只有两条规则，这条用例把两条都钉住：
+  //   · 对端 Ack 过的字节 = ③，已经安全交付，换干道时一个都不许再发（重复字节同样会让 netty 错位）；
+  //   · 没 Ack 过的 = ②，必须补发（上一条用例）。
+  const mock = createMockSdk();
+  const localPort = await h.freePort();
+  const joiner = createSteamJoiner({ localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk, onEvent: () => {} });
+  const dataOn = (connection) => Buffer.concat(framesFrom(mock, connection, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data).map((f) => f.payload));
+  let client;
+  try {
+    await joiner.ready;
+    client = await h.connect(localPort);
+    const trunkA = await answerHello(mock, joiner);
+
+    const first = Buffer.from('FIRST-');
+    client.write(first);
+    assert.ok(await h.waitFor(() => dataOn(trunkA).length >= first.length, { timeoutMs: 3000 }), '先确认它交给了 Steam');
+    // 房主确认"这 6 个字节我收下并交付给游戏服务了"。
+    mock.state.pushToClient(trunkA, mux.encodeAck(2, 1, first.length));
+    await h.wait(80);
+
+    mock.state.emitState({
+      connection: trunkA, newState: STATE.ClosedByPeer,
+      info: { identityRemote: HOST_STEAM_ID, endDebugMessage: 'I/O Operation Failed' },
+    });
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }));
+    const trunkB = mock.state.connectedTo[1].handle;
+    mock.state.emitState({ connection: trunkB, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    mock.state.pushToClient(trunkB, mux.encodeHello());
+    await h.wait(200);
+
+    const onB = framesFrom(mock, trunkB, { skipHello: true });
+    assert.ok(onB.some((f) => f.type === mux.TYPE.Open && f.generation === 2), '流仍要按新世代原地复活');
+    assert.ok(!onB.some((f) => f.type === mux.TYPE.Resume), '全部确认过的流不该发 Resume：没有要补发的东西');
+    assert.ok(!onB.some((f) => f.type === mux.TYPE.Data), '已确认的数据一个字节都不许重发');
+
+    client.write(Buffer.from('AFTER'));
+    await h.wait(150);
+    const delivered = deliveredOnTrunks(mock, [trunkA, trunkB], 2);
+    assert.ok(delivered.equals(Buffer.concat([first, Buffer.from('AFTER')])),
+      '确认过的字节不重发，复活之后的新字节照常送达');
   } finally {
     client?.destroy();
     await joiner.stop();

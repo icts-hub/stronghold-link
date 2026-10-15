@@ -40,7 +40,7 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
-const APP_VERSION = '0.14.5';
+const APP_VERSION = '0.14.6';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
 const PROTOCOLS = new Set(['TCP', 'UDP', 'TCP + UDP', 'CUSTOM']);
@@ -496,10 +496,24 @@ function logTunnelEvent(event) {
     if (payload.paused != null) extra += ` 暂停=${payload.paused ? '是' : '否'}`;
     if (Number.isFinite(payload.backlogBytes)) extra += ` 本机待发=${kib(payload.backlogBytes)}KiB`;
     if (Number.isFinite(payload.steamBacklogBytes)) extra += ` Steam待发=${kib(payload.steamBacklogBytes)}KiB`;
+    // 0.14.6：流级字节账本（见 network/steam-adapter.cjs 的 createStreamAudit）。
+    // 两端同一条流的这两行放在一起比：字节数与哈希全等 ⇒ 这条流经隧道之后一个字节没变；
+    // 不等 ⇒ 直接看出是哪个方向、并且块指纹能指到首个不同的 64 KiB。
+    const auditOut = payload.auditOut;
+    const auditIn = payload.auditIn;
+    const auditSideText = (a) => (a
+      ? `${a.bytes}B/${a.h1}${a.h2}${a.partial ? `+${a.partialBytes || 0}B:${a.partial}` : ''}`
+      : '-');
+    let auditText = '';
+    if (auditOut || auditIn) auditText = ` 账本=出${auditSideText(auditOut)} 入${auditSideText(auditIn)}`;
     logLine(
       `${tag}流结束（${kind}）流号=${payload.stream || '?'}${extra} 理由=${payload.reason || '无'} `
-      + `存活=${secs(payload.ageMs)}s 上行=${kib(payload.bytesToPeer)}KiB 下行=${kib(payload.bytesFromPeer)}KiB`,
+      + `存活=${secs(payload.ageMs)}s 上行=${kib(payload.bytesToPeer)}KiB 下行=${kib(payload.bytesFromPeer)}KiB${auditText}`,
     );
+    if (auditOut || auditIn) {
+      const blocksOf = (a) => (a && Array.isArray(a.blocks) && a.blocks.length ? a.blocks.join(',') : '-');
+      logLine(`${tag}账本块 流号=${payload.stream || '?'} 出=${blocksOf(auditOut)} 入=${blocksOf(auditIn)}`);
+    }
     return;
   }
 

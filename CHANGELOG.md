@@ -49,6 +49,63 @@ Internal Exception: io.netty.handler.codec.DecoderException: java.util.zip.DataF
 | 重复清理（Close → Reset → 破干道） | 同一条流只出一条 `stream-left`、幂等、不误记账 |
 | 关闭日志：游戏侧 / 对端 MUX / 我们清理三种关法 | 报出三种不同发起方，不许再甩锅给游戏侧 |
 
+## v0.14.6
+
+修：**"已经交给 Steam、但还没被对端确认"的那一截字节在干道断开重挂时无人认领 —— 对端收到中间缺一截的 TCP 字节流，Minecraft 报 `incorrect header check` / `unknown compression method` / `length wider than 21-bit` 后掉线**
+
+### 现场是什么样
+
+0.14.5 修掉"还没交给 Steam"的字节之后，好友**仍会掉线**，而且这一局日志里根本没有发生迁移：干道从头到尾没断（`存活 795s`）、`[MUX] … stale=0 reset=0 queued=0 dropped=0`，流结束那行写的是 `发起方=本机应用` —— 客户端是自己解码失败后关的 socket。客户端日志（`latest.log`）把异常钉在**解码服务端发来的字节**时抛出：
+
+```
+[Netty NIO IO #7/ERROR] [net.minecraft.network.Connection/]: Exception caught in connection
+io.netty.handler.codec.DecoderException: java.util.zip.DataFormatException: incorrect header check
+  at net.minecraft.network.CompressionDecoder.decode(CompressionDecoder.java:42)
+  at java.util.zip.Inflater.inflate(...)
+```
+
+即坏字节来自**房主 → 加入者**方向。同一份日志里历次掉线依次是 `连接中断`、`incorrect header check`(18:45:13)、`unknown compression method`(18:46:05)、`CorruptedFrameException: length wider than 21-bit`(18:46:49) —— 全是"这条 TCP 流中间少/多了一段"的形状。
+
+### 真因
+
+把一条流的字节按"命运"分成三类，0.14.5 只解决了第①类：
+
+1. **① 还没交给 Steam**（还压在出站队列里）⇒ 0.14.5 用 `takePending()` 整段取回补发，**已经修好**。
+2. **② 交给 Steam 了、对端还没确认** ⇒ `sendMessage()` 返回成功只代表 Steam 收下了，干道一断这截字节**可能已经送达、也可能永远丢了**，只有对端说得清。0.14.5 之前这里是**黑洞**：没有任何"对端确认"的概念（`remoteCredit` 只写不读、`encodeWindow` 从没发出去过），流却照样被"原地复活"，于是对端收到一条中间缺一截的字节流。
+3. **③ 对端确认已交付** ⇒ 必须划掉，绝不能重发（重复字节同样会让 netty 错位）。
+
+### 现在怎么修
+
+| # | 位置 | 改动 |
+|---|------|------|
+| 1 | `network/stream-mux.cjs` | 新增两种帧：`Ack(0x08)` = "我已按顺序交付到这条流的第 X 字节"、`Resume(0x09)` = "接下来的 DATA 从第 X 字节开始"；新增 `encodeAck()` / `encodeResume()` / `decodeStreamOffset()`。老版本只会把不认识的类型忽略 ⇒ 版本兼容 |
+| 2 | `network/steam-adapter.cjs` | 新增可靠确认层：`noteStreamSent()`（记下"刚交给 Steam 的原始字节"）、`trimStreamSent()`、`noteStreamAck()`（确认点只前进）、`resendTailFrames()`（生成 `Resume + DATA` 补发帧）、`pendingDataBytes()`、`setResumeOffset()` / `takeDelivery()`（接收端切掉重复的那一截）、`maybeAckStream()`（交付满 32 KiB 回一次累计确认） |
+| 3 | `network/steam-adapter.cjs` | 房主/加入者两个流对象各加 8 个字段：`sentBytes` / `sentLog` / `sentLogBytes` / `ackedBytes` / `ackSeen` / `delivered` / `ackedSent` / `skipBytes` |
+| 4 | `network/steam-adapter.cjs` | 所有把 DATA 交给 Steam 的出口都过 `noteStreamSent()`（房主 socket data、加入者 socket data 的两条分支、两处 `parkQueue` 补发） |
+| 5 | `network/steam-adapter.cjs` | 复活（`adoptOrphan()` / `resumeOrphanStreams()`）顺序固定为：先 `Resume(起点) + 补发②`，再补发①（`retagFrame` 改世代的 `pendingFrames`），最后 `parkQueue`。补发时用 `skipTailBytes = pendingDataBytes(pendingFrames)` 把①刨掉，否则同一段字节会补两遍 |
+| 6 | `network/steam-adapter.cjs` | 接收端：`Ack` 推进确认点；`Resume` 之后用 `takeDelivery()` 切掉重复前缀；**起点比本机已交付位置还大**（对端补发记录被内存上限挤掉）时报 `ERESUMEGAP` 并如实断开这条流，不交出一条有洞的字节流 |
+| 7 | `network/steam-adapter.cjs` | 新增流级字节账本：`createStreamAudit()` / `auditFeed()` / `auditSide()` / `auditFields()` —— 每条流两个方向各记"字节数 + 两个哈希 + 每 64 KiB 一个块指纹"，接在四条真实字节路径上，`SHL_STREAM_AUDIT=0` 可关 |
+| 8 | `electron/main.cjs` | `流结束（…）` 行追加 `账本=出… 入…`，并另起一行 `账本块 …`：两端同一条流对齐比这两行，就能判定"隧道有没有改过字节"，块指纹直接指到首个不同的 64 KiB |
+| 9 | `test/steam-adapter.test.cjs` | 新增测试助手 `deliveredOnTrunks()` / `parseFrame()`（按 0.14.6 接收端规则对账），见下表 |
+
+### 新增回归测试
+
+| 测试 | 钉住的东西 |
+|------|-----------|
+| 流级字节账本：分块方式不同也要算出同一份账；差一个字节就能看出来 | 账本与 TCP 分段无关；块指纹能指到出问题的 64 KiB |
+| `resendTailFrames`：只补②、不补① | 没交给 Steam 的尾巴走 `takePending`，同一段字节不许补两遍 |
+| 接收端规则：`Resume` 之后的重复字节要切掉 / 起点超前必须报空洞 | 恢复前后字节总数、顺序、内容一致；宁可如实断流也不交出有洞的字节流 |
+| `Ack` 协议：满 32 KiB 回一次累计确认，发送端只认前进不认倒退 | 迟到的旧 Ack 不能让确认点倒退 |
+| ②（已交给 Steam、未被确认）跨世代恢复 | 补发后交付的字节与客户端写进去的**逐字节一致**、`streamResent >= 1`、`dropped === 0` |
+| ③（已确认）绝不再补发 | 换干道时不许出现 `Resume` / 重复 `Data`，仍按世代 +1 原地复活 |
+| 两条既有迁移用例（房主 / 加入者）改按接收端规则对账 | 修前把"补发重发的那一截"误算成新字节（`30040 !== 30026`），并断言新干道上必须出现 `Resume` |
+| TCP 分段与合并读取用例新增第 ④ 段 | 下行满 32 KiB 时房主必须回 `Ack`，且确认点按"已交付"算 |
+
+### 实机验证
+
+- **隧道字节完整性：已验证。** 真机自连探针 `tools/steam-integrity-probe.cjs`（两个真实 `SessionManager` + 真实 Steam P2P + 真实本机 TCP）：64 MB 下行 + 16 MB 上行逐字节一致；再注入 15% 随机拒收（12180 次发送 / 1934 次被 Steam 拒绝）后 32 MB + 8 MB 仍逐字节一致 —— 暂停→恢复期间不丢字节、不掐连接。
+- **与好友的真实 Minecraft 联机：尚未验证。** 两端都升到 0.14.6 复测后，同一局的两端 `%APPDATA%\stronghold-link\startup.log` 里按流号比对 `账本=出… 入…`：全等 ⇒ 这条流经隧道一个字节没变（问题在游戏侧）；不等 ⇒ 按 `账本块` 的块指纹定位首个不同的 64 KiB。
+
 ## v0.14.4
 
 修：**"好友那边卡到 6.5 秒" —— 背压只盯着我们自己的队列，而 1.6 MB 的数据正压在 Steam 的发送缓冲里**
