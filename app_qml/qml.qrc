@@ -6,8 +6,10 @@
         <file>qml/plate/sketch.js</file>
         <file>qml/plate/hero.js</file>
         <file>qml/plate/people.js</file>
+        <file>qml/plate/record.js</file>
         <file>qml/Components/HeroPlate.qml</file>
         <file>qml/Components/ConstellationPlate.qml</file>
+        <file>qml/Components/RecordPlate.qml</file>
         <file>qml/Components/PaperPlate.qml</file>
         <file>qml/Components/SketchRing.qml</file>
         <file>qml/Components/SketchRule.qml</file>

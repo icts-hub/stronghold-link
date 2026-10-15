@@ -152,7 +152,7 @@
             "copyright_holder": "本项目作者（见 git 历史）",
             "license": "GPL-3.0-only",
             "license_evidence": "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素；生成脚本 tools/make-shots.cjs",
-            "sha256": "98390dcd76ebe4875fa9f9d179c621598e1cfedf24c9d108e4c8717bb7e5308b",
+            "sha256": "cce068399cdd15f689cabf8e6139e8af19e4519729d75cccc32eebee19f5c787",
             "modified": false,
             "included_in_release": false,
             "redistribution_status": "OK",
@@ -252,7 +252,7 @@
             },
             {
                 "path": "app_qml/qml.qrc",
-                "sha256": "3ef532f98b9a1b1dd88d58cd2d390ecf352fe3db4e08e5b02067c1f75e49ce9a"
+                "sha256": "e4256be218ffa884264794038313d7c066b5bb2b7cf916d29ef2ad960908920f"
             },
             {
                 "path": "app_qml/qml/Main.qml",
@@ -276,7 +276,7 @@
             },
             {
                 "path": "app_qml/qml/Pages/SettingPage.qml",
-                "sha256": "d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342"
+                "sha256": "d1cd99c28a64c8713fc064cadb24450fb435ec5f3048abdf193ae6b82956dd91"
             },
             {
                 "path": "app_qml/qml/Components/HeroPlate.qml",
@@ -304,39 +304,39 @@
         "qa-screenshots": [
             {
                 "path": "app_qml/shots/session-1440x900.png",
-                "sha256": "98390dcd76ebe4875fa9f9d179c621598e1cfedf24c9d108e4c8717bb7e5308b"
+                "sha256": "cce068399cdd15f689cabf8e6139e8af19e4519729d75cccc32eebee19f5c787"
             },
             {
                 "path": "app_qml/shots/friends-1440x900.png",
-                "sha256": "2a0cc6cce36341b9164f41516b914b6f5c7a500e04ab9196a4ccf20e9b0bcc48"
+                "sha256": "c8b2c5f4379879d8507eedae324007a5226c2402a5c5203e3e97c36a7a28844c"
             },
             {
                 "path": "app_qml/shots/setting-1440x900.png",
-                "sha256": "efa21bae2835ee9b979af49defcd1d293d710a5e629adcfaa5a892e759d57395"
+                "sha256": "b31197fd4c351d0056b574cbf29d9951975a94d8524b07742ed7af93210a8c51"
             },
             {
                 "path": "app_qml/shots/session-1280x720.png",
-                "sha256": "6fc7181cec2721ddfc1b99a86f2506c7aa1cf46bb9a28415904d894a5fc310d6"
+                "sha256": "59753cfaa6f64aaa2554c73c69e6c9c0b2e5e7e7338690b95226d578ea7c598b"
             },
             {
                 "path": "app_qml/shots/friends-1280x720.png",
-                "sha256": "a6436feeb60ccf046d51b36371ed01389d6678ffd224587de2b966cdfe118b72"
+                "sha256": "8bd2f0e961e2a4afbd86c2bfb87bc86d639ac8286de5cbc97a083ea3d85da01d"
             },
             {
                 "path": "app_qml/shots/setting-1280x720.png",
-                "sha256": "e671dbb42a1febca38c7cc6cfc07776e362e337c59ac9f5858fe806960b99a39"
+                "sha256": "7bdbdf30625e0f62cbf40fe4c8d6b233db66d1cf428c9787e45fd2ae34718e2b"
             },
             {
                 "path": "app_qml/shots/session-1024x768.png",
-                "sha256": "4571ba558be085255a573197410d270cf70d64389ebb97460503c605362ac2bf"
+                "sha256": "34edd1302a2ff651ec4b10236fe9faaba1fec4c1b93ed51ac68518ce6ba55b29"
             },
             {
                 "path": "app_qml/shots/friends-1024x768.png",
-                "sha256": "a9b995625a2b474e4321c6f85f3dacc9023094b92c26fd51e264ea99f174d1ce"
+                "sha256": "4d3b2f1b0f63daceb3bcff946a47d7fb986f6f69d74f84358a3c73802130de39"
             },
             {
                 "path": "app_qml/shots/setting-1024x768.png",
-                "sha256": "cbf6cf8846f0b6b9ababe5e84d15ca29ec7d90205639988c92d1c318670c96b1"
+                "sha256": "9792ca5b19ce477336c06476d8a7b681dd6518691e3af0552da1a8f8da54744d"
             }
         ],
         "shipped-third-party-notices": [

@@ -149,15 +149,15 @@ redistributed."*，README 也把美术与音乐署名给鹰角网络。
 
 | 文件 | sha256 |
 | --- | --- |
-| `app_qml/shots/session-1440x900.png` | `98390dcd76ebe4875fa9f9d179c621598e1cfedf24c9d108e4c8717bb7e5308b` |
-| `app_qml/shots/friends-1440x900.png` | `2a0cc6cce36341b9164f41516b914b6f5c7a500e04ab9196a4ccf20e9b0bcc48` |
-| `app_qml/shots/setting-1440x900.png` | `efa21bae2835ee9b979af49defcd1d293d710a5e629adcfaa5a892e759d57395` |
-| `app_qml/shots/session-1280x720.png` | `6fc7181cec2721ddfc1b99a86f2506c7aa1cf46bb9a28415904d894a5fc310d6` |
-| `app_qml/shots/friends-1280x720.png` | `a6436feeb60ccf046d51b36371ed01389d6678ffd224587de2b966cdfe118b72` |
-| `app_qml/shots/setting-1280x720.png` | `e671dbb42a1febca38c7cc6cfc07776e362e337c59ac9f5858fe806960b99a39` |
-| `app_qml/shots/session-1024x768.png` | `4571ba558be085255a573197410d270cf70d64389ebb97460503c605362ac2bf` |
-| `app_qml/shots/friends-1024x768.png` | `a9b995625a2b474e4321c6f85f3dacc9023094b92c26fd51e264ea99f174d1ce` |
-| `app_qml/shots/setting-1024x768.png` | `cbf6cf8846f0b6b9ababe5e84d15ca29ec7d90205639988c92d1c318670c96b1` |
+| `app_qml/shots/session-1440x900.png` | `cce068399cdd15f689cabf8e6139e8af19e4519729d75cccc32eebee19f5c787` |
+| `app_qml/shots/friends-1440x900.png` | `c8b2c5f4379879d8507eedae324007a5226c2402a5c5203e3e97c36a7a28844c` |
+| `app_qml/shots/setting-1440x900.png` | `b31197fd4c351d0056b574cbf29d9951975a94d8524b07742ed7af93210a8c51` |
+| `app_qml/shots/session-1280x720.png` | `59753cfaa6f64aaa2554c73c69e6c9c0b2e5e7e7338690b95226d578ea7c598b` |
+| `app_qml/shots/friends-1280x720.png` | `8bd2f0e961e2a4afbd86c2bfb87bc86d639ac8286de5cbc97a083ea3d85da01d` |
+| `app_qml/shots/setting-1280x720.png` | `7bdbdf30625e0f62cbf40fe4c8d6b233db66d1cf428c9787e45fd2ae34718e2b` |
+| `app_qml/shots/session-1024x768.png` | `34edd1302a2ff651ec4b10236fe9faaba1fec4c1b93ed51ac68518ce6ba55b29` |
+| `app_qml/shots/friends-1024x768.png` | `4d3b2f1b0f63daceb3bcff946a47d7fb986f6f69d74f84358a3c73802130de39` |
+| `app_qml/shots/setting-1024x768.png` | `9792ca5b19ce477336c06476d8a7b681dd6518691e3af0552da1a8f8da54744d` |
 
 ### 8. `qt-runtime` — Qt 6.8.3（**待补哈希**）
 

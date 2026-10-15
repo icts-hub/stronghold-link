@@ -184,56 +184,250 @@ Item {
             Layout.preferredWidth: 5
             spacing: 14
 
-            PaperPlate {
+            // ══ 左列顶部：设置档案图版（沿用会话页/好友页那套刊头构图）═══════
+            // 参考项目每个页面都有一张自己的主图版：设置页是 recordPlate —— 一张
+            // 工程图纸：字距网格、尺寸标注、记录行、大号空心编号、裁切角标。
+            // 原来这里只是 118px 高的通用 PaperPlate，跟参考不是同一种东西。
+            Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 118
-                seed: 31415
+                Layout.preferredHeight: 430
+                Layout.minimumHeight: 300
 
+                // 三栏并排：刊头（左，226px）· 图版（中，正方形）· 运行读数（右，176px）。
+                // 宽高比锁正方形，Canvas 的宽高比与作图空间一致，图上的圆与方不会被拉变形。
+                RecordPlate {
+                    id: settingPlate
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.horizontalCenterOffset: 30
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(parent.height, parent.width - 2 * 260)
+                    height: width
+                    active: page.active !== false
+                    seed: 131
+                    mark: "03"
+                    legend: "SETTING · DOSSIER · DIAGNOSTICS · STRONGHOLD LINK · "
+                }
+
+                // ── 左半：刊头 ─────────────────────────────────────────────
                 Column {
                     anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    spacing: 3
+                    anchors.leftMargin: 26
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: 6
+                    width: 226
+                    spacing: 0
+
+                    Item {
+                        width: badgeBarS.width + 6 + badgeTailS.width
+                        height: 30
+
+                        Rectangle {
+                            id: badgeBarS
+                            width: badgeTextS.width + 22
+                            height: parent.height
+                            color: T.INK
+                        }
+
+                        Text {
+                            id: badgeTextS
+                            anchors.left: parent.left
+                            anchors.leftMargin: 11
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "SETTING DOSSIER / 03"
+                            font.family: T.FONT_MONO
+                            font.pixelSize: 12
+                            font.letterSpacing: 2.4
+                            color: T.PAPER
+                        }
+
+                        Rectangle {
+                            id: badgeTailS
+                            anchors.left: badgeBarS.right
+                            anchors.leftMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 24
+                            height: parent.height
+                            color: T.ACCENT
+                        }
+                    }
+
+                    Item { width: 1; height: 22 }
 
                     Text {
-                        text: "设置档案"
+                        text: "Setting"
                         font.family: T.FONT_DISPLAY
-                        font.pixelSize: 24
+                        font.pixelSize: 52
                         color: T.INK
                     }
 
                     Text {
-                        text: "SETTING DOSSIER  ·  线路档位、诊断入口、配置与版本。这里没有的开关，界面上也不会出现。"
-                        font.family: T.FONT_MONO
-                        font.pixelSize: 10
+                        text: "Dossier"
+                        font.family: T.FONT_DISPLAY
+                        font.pixelSize: 52
+                        color: T.INK
+                        leftPadding: 78
+                        topPadding: -10
+                    }
+
+                    Item { width: 1; height: 14 }
+
+                    Row {
+                        spacing: 14
+
+                        Rectangle {
+                            width: 52
+                            height: 1
+                            color: T.INK
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Text {
+                            text: "设置档案"
+                            font.family: T.FONT_SERIF_CN
+                            font.pixelSize: 21
+                            color: T.INK
+                        }
+
+                        Text {
+                            text: "◆"
+                            font.pixelSize: 9
+                            color: T.INK
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Item { width: 1; height: 16 }
+
+                    Text {
+                        text: "线路档位、诊断入口、配置与版本。"
+                        font.family: T.FONT_SERIF_CN
+                        font.pixelSize: 14
                         color: T.MUTED
+                    }
+
+                    Text {
+                        text: "这里没有的开关，界面上也不会出现。"
+                        font.family: T.FONT_SERIF_CN
+                        font.pixelSize: 14
+                        color: T.MUTED
+                    }
+
+                    Item { width: 1; height: 20 }
+
+                    // 深色行动条：动作就是"线路自检"（端口 / 线路 / Relay）
+                    Item {
                         width: parent.width
-                        wrapMode: Text.WordWrap
+                        height: 44
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: T.INK
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                page.runPorts()
+                                page.runRoutes()
+                                page.runRelay()
+                            }
+                        }
+
+                        Row {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 12
+
+                            Text {
+                                text: "线路自检"
+                                font.family: T.FONT_SANS
+                                font.pixelSize: 17
+                                color: T.PAPER
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                                text: "PORTS · ROUTES · RELAY"
+                                font.family: T.FONT_MONO
+                                font.pixelSize: 10
+                                font.letterSpacing: 1.6
+                                color: T.PAPER
+                                opacity: 0.72
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        Text {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "→"
+                            font.pixelSize: 18
+                            color: T.PAPER
+                        }
                     }
                 }
 
-                Row {
+                // ── 右缘：运行读数 ────────────────────────────────────────
+                Column {
                     anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    anchors.top: parent.top
+                    anchors.topMargin: 20
+                    spacing: 6
+                    width: 176
+
+                    Rectangle {
+                        width: parent.width
+                        height: 16
+                        color: T.INK
+                    }
+
+                    Text {
+                        text: "RUNTIME · " + (bridge.version.length ? bridge.version : "—")
+                        font.family: T.FONT_MONO
+                        font.pixelSize: 10
+                        color: T.COBALT
+                    }
+
+                    StatusReadout {
+                        width: parent.width
+                        label: "版本"
+                        value: bridge.version.length ? bridge.version : "—"
+                    }
+
+                    StatusReadout {
+                        width: parent.width
+                        label: "后端 RSS"
+                        value: page.metrics.rssBytes !== undefined ? T.fmtBytes(page.metrics.rssBytes) : "—"
+                        valueColor: page.metrics.rssBytes > 104857600 ? T.WARN : T.INK
+                    }
+
+                    StatusReadout {
+                        width: parent.width
+                        label: "后端运行"
+                        value: page.metrics.uptimeMs !== undefined ? T.fmtDuration(page.metrics.uptimeMs) : "—"
+                    }
+
+                    StatusReadout {
+                        width: parent.width
+                        label: "实际线路"
+                        value: page.effectiveLabel
+                    }
+                }
+
+                // ── 左下角：环境变量摘要 ──────────────────────────────────
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 26
                     anchors.bottom: parent.bottom
-                    spacing: 22
-
-                    Column {
-                        spacing: 1
-                        Text { text: "版本"; font.family: T.FONT_MONO; font.pixelSize: 10; color: T.MUTED }
-                        Text { text: bridge.version.length ? bridge.version : "—"; font.family: T.FONT_DISPLAY; font.pixelSize: 20; color: T.INK }
-                    }
-
-                    Column {
-                        spacing: 1
-                        Text { text: "后端 RSS"; font.family: T.FONT_MONO; font.pixelSize: 10; color: T.MUTED }
-                        Text { text: page.metrics.rssBytes !== undefined ? T.fmtBytes(page.metrics.rssBytes) : "—"; font.family: T.FONT_DISPLAY; font.pixelSize: 20; color: page.metrics.rssBytes > 104857600 ? T.WARN : T.INK }
-                    }
-
-                    Column {
-                        spacing: 1
-                        Text { text: "后端运行"; font.family: T.FONT_MONO; font.pixelSize: 10; color: T.MUTED }
-                        Text { text: page.metrics.uptimeMs !== undefined ? T.fmtDuration(page.metrics.uptimeMs) : "—"; font.family: T.FONT_DISPLAY; font.pixelSize: 20; color: T.INK }
-                    }
+                    anchors.bottomMargin: 10
+                    text: page.envKey + " = " + page.envValue
+                    font.family: T.FONT_MONO
+                    font.pixelSize: 10
+                    color: T.MUTED
                 }
             }
 

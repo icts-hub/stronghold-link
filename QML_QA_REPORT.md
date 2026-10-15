@@ -180,10 +180,11 @@ Canvas 画布尺寸（4 个变体差 ≤ 1.7 MiB）、页面差异（三页各�
 | stdout 只走协议 | ✅ | `test/backend-protocol.test.cjs` 的 stdout 纯净性用例 |
 | 1440×900 / 1280×720 / 1024×768 三页截图 | ✅ | 9 张全出：`app_qml/shots/{session,friends,setting}-{1440x900,1280x720,1024x768}.png`；生成脚本 `tools/make-shots.cjs` |
 | 小窗口不裁切（版面等比缩放） | ✅ | 1024×768 下 `fitScale≈0.71`，右侧栏目完整可见（对照修复前 `session-1024x768.png` 的裁切） |
-| 界面确定性（固定种子、无逐帧抖动） | ✅ | `SketchRing.qml` / `SketchRule.qml` 内确定性伪随机 |
+| 三页各有自己的主图版，按参考项目逐层复刻 | ✅ | 会话页 `HeroPlate`（`plate/hero.js`）、好友页 `ConstellationPlate`（`plate/people.js`）、设置页 `RecordPlate`（`plate/record.js`）；三页均为几何绘制，不引入位图 |
+| 界面确定性（固定种子、无逐帧抖动） | ✅ | 三个图版都用 `sketch.js` 的 `rng(seed)`（xorshift32）取随机数，同一 seed 每次出图一致 |
 | 最小化/隐藏时停动画与定时器 | ⏳ | 间接证据齐（场景⑥：恢复后 Qt 水位低于最小化前）；**缺一次 CPU 采样** |
 | 内存门槛 ≤ 100 MiB | ❌ | 场景①~⑥，约 300~358 MiB（详见第三节） |
-| 全量单测 | ✅ | `npm test` = tests 823 / pass 822 / fail 0 / skipped 1 |
+| 全量单测 | ✅ | `npm test` = tests 824 / pass 823 / fail 0 / skipped 1 |
 | 素材台账守卫 | ✅ | `node tools/verify-asset-provenance.cjs` 通过（12 条登记，扫描 2 个分发目录） |
 | 许可证随包（`LICENSES/` 等） | ⏳ | 文件已就绪；**待阶段 5 打包时复制进分发目录内部** |
 | 真机双机双 Steam 账号 P2P | ❌ **未做** | 现有测试全部基于 `test/steam-mock.cjs` 这个假 SDK；**单测全绿不等于真机验收通过** |
