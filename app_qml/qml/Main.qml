@@ -28,6 +28,15 @@ Window {
     property var metrics: ({})
     property int pendingMetrics: 0
 
+    // ══ 画布缩放 ═══════════════════════════════════════════════════════
+    // 界面按 1440x900 的版面设计，网格布局在小窗口里会被裁掉右侧（1024x768 验收截图暴露过）。
+    // 这里不做"重排"而是整体等比缩小：版面不变，只换缩放，宽高都不越界。窗口比设计尺寸大时
+    // 不放大（scale 上限 1），保持 1:1 的清晰度。
+    readonly property int designWidth: 1440
+    readonly property int designHeight: 900
+    readonly property real fitScale: Math.min(1, width / designWidth, height / designHeight)
+    readonly property bool scaled: fitScale < 0.999
+
     readonly property var navItems: [
         { key: "session", index: "01", label: "会话", caption: "SESSION · 房主与加入者" },
         { key: "friends", index: "02", label: "好友", caption: "FRIENDS · Steam 大厅" },
@@ -47,14 +56,23 @@ Window {
     Shortcut { sequence: "Ctrl+2"; onActivated: root.currentPage = "friends" }
     Shortcut { sequence: "Ctrl+3"; onActivated: root.currentPage = "setting" }
 
-    // ══ 顶栏 ═══════════════════════════════════════════════════════════
+    // ══ 画布：所有版面都在这里面，整体缩放 ═════════════════════════════
     Item {
-        id: top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: 18
-        height: 78
+        id: canvas
+
+        width: root.designWidth
+        height: root.designHeight
+        scale: root.fitScale
+        transformOrigin: Item.TopLeft
+
+        // ══ 顶栏 ═══════════════════════════════════════════════════════
+        Item {
+            id: top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 18
+            height: 78
 
         Column {
             anchors.left: parent.left
@@ -253,10 +271,26 @@ Window {
             anchors.verticalCenter: parent.verticalCenter
             text: navItems[root.pageIndex].index + " / " + navItems[root.pageIndex].label
                   + "   ·   动效档位 " + (root.motionTier === 2 ? "完整" : (root.motionTier === 1 ? "标准" : "最低"))
+                  + (root.scaled ? ("   ·   版面缩放 " + Math.round(root.fitScale * 100) + "%") : "")
                   + (root.awake ? "" : "   ·   窗口已最小化：装饰动画已停")
             font.family: T.FONT_MONO
             font.pixelSize: 10
             color: root.awake ? T.MUTED : T.WARN
+        }
+
+        // 内存验收/截图工装用的轮换定时器，放在画布内，随画布一起销毁。
+        Timer {
+            id: cycleTimer
+            interval: (typeof cycleIntervalMs !== "undefined" && cycleIntervalMs > 0) ? cycleIntervalMs : 0
+            repeat: true
+            running: interval > 0 && (typeof cycleLimit === "undefined" || cycleLimit <= 0
+                                      || root.cycleDone < cycleLimit)
+            onTriggered: {
+                var order = ["session", "friends", "setting"]
+                var next = (order.indexOf(root.currentPage) + 1) % order.length
+                root.currentPage = order[next]
+                root.cycleDone += 1
+            }
         }
     }
 
@@ -293,20 +327,6 @@ Window {
     // 内存验收用：--cycle <ms> 定期在三页之间轮换，--cycles <n> 轮换 n 次后停下。
     // 正常启动时这两个上下文属性为 0，定时器不运行，对产品行为零影响。
     property int cycleDone: 0
-
-    Timer {
-        id: cycleTimer
-        interval: (typeof cycleIntervalMs !== "undefined" && cycleIntervalMs > 0) ? cycleIntervalMs : 0
-        repeat: true
-        running: interval > 0 && (typeof cycleLimit === "undefined" || cycleLimit <= 0
-                                  || root.cycleDone < cycleLimit)
-        onTriggered: {
-            var order = ["session", "friends", "setting"]
-            var next = (order.indexOf(root.currentPage) + 1) % order.length
-            root.currentPage = order[next]
-            root.cycleDone += 1
-        }
-    }
 
     Component.onCompleted: root.pollMetrics()
 }

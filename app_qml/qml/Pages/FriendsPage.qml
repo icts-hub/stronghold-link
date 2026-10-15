@@ -386,7 +386,7 @@ Item {
                                     required property int index
                                     readonly property int rowIndex: index
                                     width: cards.width
-                                    index: T.pad2(rowIndex + 1)
+                                    indexLabel: T.pad2(rowIndex + 1)
                                     name: modelData.name || "未知好友"
                                     steamId: String(modelData.steamId || "")
                                     stateText: modelData.stateName || (modelData.online ? "在线" : "离线")

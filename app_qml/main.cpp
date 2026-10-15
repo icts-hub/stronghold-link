@@ -4,6 +4,7 @@
 #include <QImage>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QStringList>
 #include <QTextStream>
@@ -160,6 +161,21 @@ int main(int argc, char *argv[])
                   window->width(),
                   window->height(),
                   window->devicePixelRatio());
+            // 布局体检：窗口内容项的尺寸与"建议最小尺寸"。网格布局在小窗口里会被裁掉右侧
+            // （1024x768 验收截图暴露过这个问题），把两个尺寸都记下来便于按需缩放。
+            if (QQuickItem *content = window->contentItem()) {
+                qInfo("grab: content item=%dx%d implicit=%dx%d  overflowW=%d overflowH=%d",
+                      int(content->width()), int(content->height()),
+                      int(content->implicitWidth()), int(content->implicitHeight()),
+                      int(content->implicitWidth() - window->width()),
+                      int(content->implicitHeight() - window->height()));
+                for (QQuickItem *child : content->childItems()) {
+                    qInfo("grab:   child %s  %dx%d  implicit=%dx%d",
+                          child->metaObject()->className(),
+                          int(child->width()), int(child->height()),
+                          int(child->implicitWidth()), int(child->implicitHeight()));
+                }
+            }
             window->requestUpdate();
             const QImage shot = window->grabWindow();
             const bool ok = !shot.isNull() && shot.save(grabPath, "PNG");

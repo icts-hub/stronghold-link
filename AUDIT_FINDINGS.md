@@ -26,14 +26,14 @@
 
 | ID | 级别 | 标题 | 状态 |
 | --- | --- | --- | --- |
-| A-01 | **P1** | MUX 干道迁移吞掉"尚未交给 Steam"的字节 → 对端可靠字节流出现空洞 | 待修（Phase 1） |
-| A-02 | **P1** | "已交给 Steam 但未被对端确认"的字节没有任何确认/补发协议 | 待修（Phase 1） |
+| A-01 | **P1** | MUX 干道迁移吞掉"尚未交给 Steam"的字节 → 对端可靠字节流出现空洞 | ✅ 已修（Phase 1，房主/加入者两侧对称 + 两条 fail-first 回归用例） |
+| A-02 | **P1** | "已交给 Steam 但未被对端确认"的字节没有任何确认/补发协议 | 未修。0.14.5/0.14.6 的实现已随基线回滚，另存 `D:\shl\_ref\` 仅备查 |
 | A-03 | P2 | 关闭日志口径不可信：kind/reason 硬编码，不区分关闭发起方 | 待修（Phase 1） |
 | A-04 | P2 | 两套 MUX 实现并存（适配器内联 vs `mux-session.cjs`/`mux-stream.cjs`） | 文档化，禁止误切 |
-| A-05 | P2 | 版本号三处不一致（`preload.cjs` 仍是 `0.11.0`） | 待修（Phase 2/5） |
-| A-06 | P2 | `electron/main.cjs` 自动注入 Chromium `--no-sandbox` | 待删除（Phase 5） |
-| A-07 | P2 | `backgroundThrottling: false`：窗口不可见时装饰动画照跑 | 待改（Phase 3/4） |
-| A-08 | P3 | README 徽章与数字过期（0.13.3 / 518 用例 / 42 文件） | 待更新（Phase 5） |
+| A-05 | P2 | 版本号三处不一致（`preload.cjs` 仍是 `0.11.0`） | ✅ 已修（`--shl-version=` 单一来源 + `test/version-consistency.test.cjs` 锁死） |
+| A-06 | P2 | `electron/main.cjs` 自动注入 Chromium `--no-sandbox` | 待删除（Phase 5）。现状：`main.cjs:149/153/161`，已在 `build-guard.test.cjs` 覆盖打包侧守卫 |
+| A-07 | P2 | `backgroundThrottling: false`：窗口不可见时装饰动画照跑 | 待改（Phase 3/4）。现状：`main.cjs:1713`、`:2260`。QML 版由场景⑥ 验收（最小化停动画、网络不卡） |
+| A-08 | P3 | README 徽章与数字过期（0.13.3 / 518 用例 / 42 文件） | ✅ 已修（`tests-819 passing` / `version-0.14.4`；`test/version-consistency.test.cjs` 第 5 条把徽章钉在 package.json 上） |
 | A-09 | P3 | 一级导航 7 个，与新信息架构冲突 | 待改（Phase 3/4/5） |
 | A-10 | P3 | `docs/多通道选路设计.md` 描述的能力**未实现** | 待标注（Phase 4） |
 | A-11 | P3 | 跨机 Steam P2P 缺真实验收证据（单测用的是假 SDK） | 待补（Phase 6） |
@@ -74,7 +74,8 @@
 
 **修复计划（Phase 1，最小范围）**：把三分法写进代码并用测试钉死 —— ① 还没交给 Steam（egress 队列）；② 交给 Steam 但未被确认；③ 对端确认已交付。① 在寄存时随流带走（`takePending`）、复活时按新世代重发（`retagFrame`）；② 用 `Resume(offset)` + `Ack(delivered)` 协议补发并去重；③ 绝不重发。
 
-**状态**：待 Phase 1 修复并附回归测试。
+**状态**：✅ **① 已修**（0.14.4 基线上重新实现）。断开时先 `egress.takePending(peer, peer.streams.keys())` 把"还没交给 Steam"的帧认领出来挂到流对象上（房主侧 `parkPeerStreams`、加入者侧 `parkTrunkStreams`），复活后用 `retagFrame(frame, streamId, generation)` 换新世代号补发（房主侧 `adoptOrphanStreams`、加入者侧 `resumeOrphanStreams`），次序在 `OPEN` 之后、`parkQueue` 之前；`egress-queue.cjs` 新增 `takePending`。房主/加入者两条回归用例都做过 fail-first（撤掉修复立刻红）。**② 未做**：0.14.6 的 `Resume/Ack` + 流级字节账本随基线回滚，另存 `D:\shl\_ref\`，不恢复（它是在缺少真机双机验收的前提下叠上去的）。
+**回归用例**：`test/steam-adapter.test.cjs` 的「★ 干道断开时还压在出站队列里的下行字节，重挂后必须接着送（审计 A-01）」与「★ 加入者：干道断开时还压在出站队列里的上行字节，复活后必须接着送（审计 A-01，与房主侧同一套语义）」。
 
 ### A-02（P1）"已交给 Steam 但未被对端确认"没有确认协议
 
@@ -108,7 +109,8 @@
 
 **证据**：`electron/preload.cjs:12` `version: '0.11.0'`；`package.json:3` `0.14.4`；`electron/main.cjs:43` `APP_VERSION = '0.14.4'`。
 
-**修复计划**：迁移后版本号单一来源（`package.json` 或生成的头文件）+ 一致性测试；QML 版 Setting 页显示真实版本。**状态**：待 Phase 2/5。
+**修复计划**：迁移后版本号单一来源（`package.json` 或生成的头文件）+ 一致性测试；QML 版 Setting 页显示真实版本。**状态**：✅ 已修（0.14.4 基线重建时一起做掉）。`electron/preload.cjs` 不再写死版本，改为读主进程通过 `additionalArguments` 传入的 `--shl-version=`（兜底 `'0.0.0-unknown'`）；`test/version-consistency.test.cjs` 锁住 package.json / `APP_VERSION` 字面量 / preload 接线 / README 徽章四处一致。
+**编号提示**：本项在 `CHANGELOG.md` 里曾被误记为「A-09」（当时压缩了编号）；**A-09 在本文档里是"一级导航 7 个"**，两者不是同一件事。
 
 ### A-06（P2）自动注入 `--no-sandbox`
 
@@ -124,7 +126,7 @@
 
 ### A-08（P3）README 数字过期
 
-**证据**：`README.md:8` `tests-518 passing`、`:9` `version-0.13.3`、`:37` "518 个测试用例"、`:139` "42 个文件 518 个用例"、`:181` "覆盖 518 个用例，42 个测试文件"。实际：58 个测试文件、796 个用例、版本 0.14.4。**状态**：待 Phase 5 更新。
+**证据**：`README.md:8` `tests-518 passing`、`:9` `version-0.13.3`、`:37` "518 个测试用例"、`:139` "42 个文件 518 个用例"、`:181` "覆盖 518 个用例，42 个测试文件"。实际（审计当时）：58 个测试文件、796 个用例、版本 0.14.4。**状态**：✅ 已修 —— 徽章改为 `tests-819 passing` 与 `version-0.14.4`；`test/version-consistency.test.cjs` 第 5 条把版本徽章钉死在 `package.json` 上，版本号再漂移会直接红。注意徽章的用例数是当时值，追加用例时应同步（该条一致性检查只校验版本号，不校验用例数）。
 
 ### A-09（P3）一级导航 7 个
 

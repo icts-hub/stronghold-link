@@ -6,7 +6,10 @@ import "../theme.js" as T
 Item {
     id: card
 
-    property string index: "01"
+    // 注意：这个序号标签**不能**叫 index。Repeater 委托里 `index` 是必填的模型属性，
+    // 组件再声明同名的 index 就会和 FriendsPage 里的 `rowIndex: index` 构成绑定环
+    // （Qt 会刷 "Binding loop detected for property rowIndex"）。故改名 indexLabel。
+    property string indexLabel: "01"
     property string name: ""
     property string steamId: ""
     property string stateText: ""
@@ -32,7 +35,7 @@ Item {
 
     Text {
         id: num
-        text: card.index
+        text: card.indexLabel
         font.family: T.FONT_MONO
         font.pixelSize: 10
         color: T.MUTED
