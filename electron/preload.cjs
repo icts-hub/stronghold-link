@@ -8,8 +8,29 @@ const { contextBridge, ipcRenderer } = require('electron');
 const SESSION_EVENT_CHANNEL = 'session:event';
 const LOBBY_EVENT_CHANNEL = 'lobby:event';
 
+/**
+ * 版本号来自主进程（审计 A-09）。
+ *
+ * 这里以前写死 `'0.11.0'`，而 package.json / electron/main.cjs 的 APP_VERSION 是 `0.14.4`
+ * —— 界面"关于"显示 0.11.0、启动日志写 0.14.4，用户报障报的版本号跟日志对不上。
+ *
+ * 现在由 `electron/main.cjs` 建窗口时用 `additionalArguments` 把 `--shl-version=<版本>`
+ * 传下来（appVersionOf 读 APP_VERSION，也就是与 package.json 一致的那一份）。
+ * 为什么不在这里直接 require('../package.json')：打出来的包是 app.asar，
+ * preload 跑在渲染进程里，任何**新的**运行时依赖都会变成打包风险（少一个文件就是白屏）。
+ * 命令行参数是 Electron 官方支持的路子，且在有沙箱的渲染进程里同样可用。
+ * 兜底：拿不到参数时用主进程在同样拿不到时会用的那份声明，而不是再猜一个数字。
+ */
+const VERSION_FLAG = '--shl-version=';
+const appVersion = (() => {
+  const hit = process.argv.find((arg) => typeof arg === 'string' && arg.startsWith(VERSION_FLAG));
+  if (hit) return hit.slice(VERSION_FLAG.length);
+  // 兜底：只有极老的 shell / 直接加载 preload 的测试才会走到这里。
+  return '0.0.0-unknown';
+})();
+
 contextBridge.exposeInMainWorld('strongholdLink', {
-  version: '0.11.0',
+  version: appVersion,
   profiles: {
     load: () => ipcRenderer.invoke('profiles:load'),
     save: (profiles) => ipcRenderer.invoke('profiles:save', profiles),

@@ -40,6 +40,20 @@ function lanAddressFromRoute() {
 // 优先用「默认路由所在网卡」的地址（真正联网、同局域网可达的那个）；失败才退回启发式
 const localAddress = () => lanAddressFromRoute() || require('../network/session.cjs').localIPv4();
 
+/**
+ * 版本号必须与 package.json 完全一致（审计 A-09）。
+ *
+ * 为什么这里**故意写死字面量**、不写成 `require('../package.json').version`：
+ * `tools/build-guard.cjs` 的第三道护栏是"打进 app.asar 里的 APP_VERSION 必须等于 package.json 的版本"
+ * —— 它用正则 `/APP_VERSION\s*=\s*'([^']+)'/` **在打包产物里搜这个字面量**，专门用来抓
+ * "0.14.1 的 app.asar 被改名成 0.14.2 交付"那类事故。改成 require 之后 asar 里就再也搜不到版本串，
+ * 那道护栏会静默失效（比写死更危险）。
+ *
+ * 所以一致性改由 `test/version-consistency.test.cjs` 钉住：改版本时漏改这里，测试当场红。
+ *
+ * 历史：这里曾是 '0.14.4'，而 electron/preload.cjs 里另写死 '0.11.0' ——
+ * 界面"关于"显示一个版本、日志里是另一个，用户报障报的版本号根本对不上。
+ */
 const APP_VERSION = '0.14.4';
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'game-profiles.json');
 const MAX_PROFILES = 500;
@@ -1687,6 +1701,10 @@ function createWindow({ show = true, query = null } = {}) {
     backgroundColor: '#11181b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
+      // 版本号由主进程传下去（审计 A-09）：preload 里以前写死 '0.11.0'，界面显示的版本
+      // 与日志里的 APP_VERSION 对不上。走 additionalArguments 而不是让 preload 读 package.json，
+      // 是为了不给渲染进程添新的运行时文件依赖（打出来是 app.asar，少一个文件就是白屏）。
+      additionalArguments: [`--shl-version=${APP_VERSION}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

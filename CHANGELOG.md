@@ -1,5 +1,55 @@
 # 更新日志
 
+## 0.14.4 基线重建（在 v0.14.4 标签之上重新实现 A-01 / A-09）
+
+**决定：严格回滚到 v0.14.4 标签。** 已发布的 0.14.5 与 0.14.6 一律不恢复 —— 代码回到
+`v0.14.4` 那一点，然后**只把审计确认的缺陷重新修在 0.14.4 上**。下面 v0.14.5 / v0.14.6 两节
+保留为历史记录（说明当时改了什么、为什么被撤），不代表当前版本包含它们的内容。
+
+回滚的原因：0.14.5 与 0.14.6 是在没有真机双机 P2P 验收的前提下连续叠上去的两批传输层改动，
+其中 0.14.6 的可靠确认 / Resume / Ack 又引入了新的状态（流级字节账本、重传队列），
+而现有的测试全靠 `test/steam-mock.cjs` 这个假 Steam SDK —— 单测全绿并不能证明真机不再丢字节。
+先把基线收回一个可确知的点，再把修法逐个按"能被测试钉住"的方式重做一遍。
+
+### 在 0.14.4 基线上重新实现的修复
+
+**审计 A-01：干道（Steam P2P 连接）断开重挂时，出站队列里"还没交给 Steam"的字节被整段丢掉**
+
+- 现场：对端 Minecraft 收到残缺的 TCP 字节流，`DataFormatException: unknown compression method`
+  后掉线（Netty 解码器在包边界上错位）。旧代码在断开时只把**流对象**搬去寄存，
+  而 `network/egress-queue.cjs` 里每条流自己的 FIFO 还压着字节 —— 那些帧随旧干道的队列一起消失，
+  流却被新干道原地复活，于是对端看到的是一条中间少了一截的可靠字节流。
+- 修法（房主侧 `parkPeerStreams` 与加入者侧 `parkTrunkStreams` 两侧对称）：
+  断开时先 `egress.takePending(peer, peer.streams.keys())` 把该对端还压在队列里的帧**认领出来**，
+  按流挂到流对象自己的 `pendingFrames` 上带着走；干道重挂后由 `resumeOrphanStreams` /
+  `adoptOrphan` 用 `retagFrame(frame, streamId, generation)` 换成新世代号补发，
+  **次序在 OPEN 之后、`parkQueue` 之前**（它们比 parkQueue 里的帧更早）。
+- 回归测试：`test/steam-adapter.test.cjs` 新增两条 —— 房主侧「★ 房主：干道断开时还压在出站队列里的
+  下行字节，重挂后必须接着送（审计 A-01）」与加入者侧「★ 加入者：干道断开时还压在出站队列里的
+  上行字节，复活后必须接着送（审计 A-01，与房主侧同一套语义）」。
+  两条都做过 fail-first：把修复 `git stash` 掉，用例红；恢复后绿。
+- 未做（明确留白）：没有恢复 0.14.6 的 Ack / Resume 与流级字节账本；真机双机 P2P 验收仍未完成。
+
+**审计 A-09：版本号三处分叉**
+
+- 现场：`electron/preload.cjs` 写死 `version: '0.11.0'`，而 `package.json` 与
+  `electron/main.cjs` 的 `APP_VERSION` 是 `0.14.4` —— 界面"关于"显示的版本与启动日志对不上，
+  用户报障时报的版本号是错的。
+- 修法：`electron/main.cjs` 建窗口时用 `webPreferences.additionalArguments`
+  把 `--shl-version=${APP_VERSION}` 传给渲染进程；`preload.cjs` 解析该参数并暴露
+  `version: appVersion`（拿不到时兜底 `'0.0.0-unknown'`）。
+  不走 `require('../package.json')` 是刻意的：打包产物是 `app.asar`，
+  preload 跑在渲染进程里，给渲染进程添任何**新的**运行时文件依赖都是白屏风险。
+  `electron/main.cjs` 里的 `APP_VERSION` 仍保留字面量 —— `tools/build-guard.cjs` 的第三道护栏
+  靠正则搜这个字面量，用来抓"0.14.1 的 app.asar 被改名成 0.14.2 交付"那类事故。
+- 顺带修正：`README.md` 徽章 `tests-518 passing` → `tests-815 passing`、
+  `version-0.13.3` → `version-0.14.4`。
+- 回归测试：新增 `test/version-consistency.test.cjs` 五条 —— ① package.json 是合法 semver；
+  ② main.cjs 的 `APP_VERSION` 字面量 == package.json；③ preload 用 `--shl-version=` +
+  `version: appVersion`，且 main.cjs 有对应的 `additionalArguments`（两端接线）；
+  ④ 剥掉注释后，`electron`/`network`/`shared` 里不许有第二份写死的版本号；
+  ⑤ README 版本徽章 == package.json。测试文件数 59 → 60。
+
 ## v0.14.5
 
 修：**干道（Steam P2P 连接）断开重挂时，出站队列里"还没交给 Steam"的字节被整段丢掉 —— 对端 Minecraft 收到残缺的 TCP 字节流，报 `DataFormatException: unknown compression method` 后掉线**

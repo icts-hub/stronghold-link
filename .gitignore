@@ -49,3 +49,17 @@ bench-*.json
 
 # 打包时临时合并出来的 electron-builder 配置（tools/build-edition.cjs 生成）
 electron-builder.edition.json
+
+# Qt / qmake 构建产物（app_qml）：源码进仓库，编译中间物不进
+app_qml/build/
+app_qml/debug/
+app_qml/release/
+app_qml/release-*/
+app_qml/Makefile
+app_qml/Makefile.*
+app_qml/.qmake.stash
+*.o
+moc_*.cpp
+qrc_*.cpp
+moc_predefs.happ_qml/shots/*.log
+app_qml/shots/_*

@@ -5,8 +5,8 @@
 
 [![CI](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml/badge.svg)](https://github.com/icts-hub/stronghold-link/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-![tests](https://img.shields.io/badge/tests-518%20passing-brightgreen)
-![version](https://img.shields.io/badge/version-0.13.3-informational)
+![tests](https://img.shields.io/badge/tests-815%20passing-brightgreen)
+![version](https://img.shields.io/badge/version-0.14.4-informational)
 
 - 本地 **TCP / UDP 中继**，多端口批量启动，会话级端到端加密，算法 X25519 + AES-256-GCM
 - **Steam P2P 隧道**：基于 Steam Networking Sockets，跨网络无需端口转发，需自备 Steamworks SDK
