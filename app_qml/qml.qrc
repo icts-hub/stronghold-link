@@ -1,0 +1,22 @@
+<RCC>
+    <qresource prefix="/">
+        <file>qml/Main.qml</file>
+        <file>qml/theme.js</file>
+        <file>qml/logic.js</file>
+        <file>qml/Components/PaperPlate.qml</file>
+        <file>qml/Components/SketchRing.qml</file>
+        <file>qml/Components/SketchRule.qml</file>
+        <file>qml/Components/Plate.qml</file>
+        <file>qml/Components/StatusReadout.qml</file>
+        <file>qml/Components/PlateButton.qml</file>
+        <file>qml/Components/FieldInput.qml</file>
+        <file>qml/Components/ChoiceRow.qml</file>
+        <file>qml/Components/NavBar.qml</file>
+        <file>qml/Components/Constellation.qml</file>
+        <file>qml/Components/PersonPlate.qml</file>
+        <file>qml/Components/Meter.qml</file>
+        <file>qml/Pages/SessionPage.qml</file>
+        <file>qml/Pages/FriendsPage.qml</file>
+        <file>qml/Pages/SettingPage.qml</file>
+    </qresource>
+</RCC>
