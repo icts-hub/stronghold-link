@@ -313,6 +313,69 @@ function frameOutKey(frame) {
 }
 
 /**
+ * 0.14.5：把一帧的世代号改成新干道的世代（原地改写，帧头 `| len:4 | type:1 | streamId:4 | generation:4 |`）。
+ *
+ * 干道断开时压在出站队列里的帧是**按旧世代编好的**；规格 §十七要求换干道后旧世代的字节一律丢弃
+ * （防串台）。所以流原地复活之后要接着送这段字节，就必须先把世代改成新的 —— 否则对端把它们当
+ * 迟到帧整段丢掉，等于又丢一次。
+ */
+function retagFrame(frame, streamId, generation) {
+  if (!Buffer.isBuffer(frame) || frame.length < mux.FRAME_HEADER) return frame;
+  if (frame.readUInt32BE(5) !== streamId) return frame;   // 不是这条流的帧：不动它
+  frame.writeUInt32BE(generation >>> 0, 9);
+  return frame;
+}
+
+/**
+ * 0.14.5：流结束时"关闭发起方"那张表 —— 值直接进日志那一行（`发起方=`）。
+ *
+ * 为什么需要它：kind/reason 以前有几处是写死的（"本机服务端口把这条件接关了"、
+ * "浏览器/游戏自己关掉了这条本机连接"），于是"我们自己因为协议错乱 / 积压超上限 / 会话停止
+ * 收掉一条流"和"游戏侧真的把连接关了"在日志里长得一模一样，排查方向会被带反
+ * （m02239 现场：主机日志里 24 条流全写着"本机游戏服务关的"，真正原因却是干道迁移把待发字节吞了）。
+ * 规则很简单：**谁动手谁留名** —— 我们自己 destroy/end 之前先 noteLocalClose()，
+ * close 回调只负责把它读出来；没有留名的才是真的对端关的。
+ */
+const STREAM_CLOSE_KINDS = Object.freeze({
+  LocalServiceClosed: '游戏侧',
+  LocalClientClosed: '本机应用',
+  PeerStreamClosed: '对端MUX',
+  PeerStreamReset: '对端MUX',
+  TunnelAbort: '干道',
+  LocalTunnelAbort: '干道',
+  TunnelClosed: '清理',
+  BadFraming: '清理',
+  MigrateExpired: '清理',
+  OverflowAborted: '清理',
+  BackpressureAborted: '清理',
+  SessionStopped: '清理',
+  ProtocolViolation: '清理',
+});
+
+/** 我们自己要收掉一条流时先留名（kind+原因），close 回调据此报出真实发起方。 */
+function noteLocalClose(target, kind, reason) {
+  if (!target) return;
+  target.closeBy = kind;
+  target.closeWhy = reason || '';
+}
+
+/** 给一批流统一留名（按流的 socket 收口时用）。 */
+function noteLocalCloseFor(peer, kind, reason) {
+  if (!peer || !peer.streams || typeof peer.streams.values !== 'function') return;
+  for (const stream of peer.streams.values()) noteLocalClose(stream, kind, reason);
+}
+
+/** 流结束事件里的 kind/reason/by：本机留过名就用留的名，否则就是对端（游戏/浏览器）关的。 */
+function streamCloseInfo(target, fallbackKind, fallbackReason) {
+  const kind = (target && target.closeBy) || fallbackKind;
+  return {
+    kind,
+    reason: (target && target.closeWhy) || fallbackReason,
+    by: STREAM_CLOSE_KINDS[kind] || '未知',
+  };
+}
+
+/**
  * 送进 queueOut 的最终 key：把"要不要按流分开"这个开关合进来。
  *
  * `SHL_STEAM_FAIR_QUEUE=0` 时一律返回 null ⇒ 所有帧进同一条干道队列、先到先发，
@@ -618,6 +681,7 @@ function applyBackpressure(peer, tuning = null) {
     // 主动断开，让浏览器/游戏看到一次干净的复位并自己重连 —— 比让它永远挂着强。
     peer.stalled = true;
     peer.dropWhy = `本机积压 ${Math.round(backlog / 1024)} KiB 超过硬上限，Steam 一直不接收`;
+    noteLocalCloseFor(peer, 'BackpressureAborted', peer.dropWhy);
     for (const socket of collectSourceSockets(peer)) {
       try { socket.destroy(); } catch { /* 断开失败不影响其它连接 */ }
     }
@@ -663,6 +727,7 @@ function resumeOrAbort(peer, written, tuning = null) {
   if (idleSince && Date.now() - idleSince > PEER_PAUSE_ABORT_MS) {
     peer.stalled = true;
     peer.dropWhy = `暂停后 ${Math.round((Date.now() - idleSince) / 1000)} 秒一个字节都没送出去`;
+    noteLocalCloseFor(peer, 'BackpressureAborted', peer.dropWhy);
     for (const socket of collectSourceSockets(peer)) {
       try { socket.destroy(); } catch { /* 断开失败会在 socket 的 close 里收尾 */ }
     }
@@ -950,6 +1015,13 @@ function createSteamHost(options = {}) {
 
   const emit = (type, payload) => {
     if (typeof onEvent !== 'function') return;
+    // 0.14.5：流结束这一行必须带得出"关闭发起方 / 暂停状态 / 本机待发量"，缺了就等于没有证据。
+    if (type === 'stream-left' && payload && typeof payload === 'object') {
+      payload = {
+        ...payload,
+        by: payload.by || STREAM_CLOSE_KINDS[payload.kind] || '未知',
+      };
+    }
     try { onEvent(type, payload); } catch { /* 事件回调不允许影响转发 */ }
   };
 
@@ -1114,6 +1186,8 @@ function createSteamHost(options = {}) {
         // 这一段往往是"响应的后半截"，丢掉就等于把一个 HTTP 响应砍断。
         if (stream.parkBytes + chunk.length > STREAM_PARK_MAX_BYTES) {
           stats.dropped += 1;
+          noteLocalClose(stream, 'OverflowAborted',
+            `没有干道可挂，寄存积压超过 ${Math.round(STREAM_PARK_MAX_BYTES / 1024)} KiB 上限，只能收掉这条流`);
           try { stream.socket.destroy(); } catch { /* 断一条流不影响别的流 */ }
           return;
         }
@@ -1144,14 +1218,34 @@ function createSteamHost(options = {}) {
       stats.streams = owner.streams.size;
       // 游戏侧正常收尾时也要把 CLOSE 送出去 —— 但**不能**在干道已经废掉时硬发。
       if (!owner.dropped && owner.framed === true) pushFrames(owner, [mux.encodeClose(streamId, stream.generation)]);
+      // 0.14.5：同一条流只报一行"结束"。清理器（closeTrunkStreams / scrubAll 等）已经报过时，
+      // 这里只结账、不再刷第二行 —— 旧日志里同一件事出现两次，看着像"流被反复拆了两次"。
+      // 与加入者侧 bindStream 的 socket close 保持同一套语义。
+      if (!firstGone(stream)) return;
+      // 0.14.5：这一行的"关闭发起方"必须是真的。留过名（我们自己收的）就用留的名；
+      // 干道已经废了就说干道；两者都没有，才是游戏侧真的把这条连接关了。
+      // 以前这里 kind/reason 写死成"游戏服务关的"，把排查方向带反过（见 STREAM_CLOSE_KINDS 的注释）。
+      let endInfo = streamCloseInfo(stream, 'LocalServiceClosed',
+        '游戏服务端关闭了这条连接（正常收尾，或游戏侧自己超时）');
+      if (!stream.closeBy && owner.dropped) {
+        endInfo = {
+          kind: 'TunnelAbort',
+          reason: owner.dropWhy || 'Steam 干道断了，这条流的尾字节没能送达',
+          by: STREAM_CLOSE_KINDS.TunnelAbort,
+        };
+      }
       emit('stream-left', {
         peer: owner.steamId || String(owner.connection),
         stream: streamId,
-        kind: 'LocalServiceClosed',
-        reason: '本机服务端口把这条件接关了（响应正常收尾，或游戏侧自己超时）',
+        kind: endInfo.kind,
+        reason: endInfo.reason,
+        by: endInfo.by,
         ageMs,
         bytesToPeer: stream.bytesToPeer,
         bytesFromPeer: stream.bytesFromPeer,
+        paused: !!owner.paused,
+        backlogBytes: peerOutBytes(owner),
+        steamBacklogBytes: Number.isFinite(owner.steamBacklog) ? owner.steamBacklog : null,
       });
     });
     return stream;
@@ -1168,6 +1262,13 @@ function createSteamHost(options = {}) {
     peer.streams.set(stream.id, stream);
     stats.streams = peer.streams.size;
     stats.streamsMigrated = (stats.streamsMigrated || 0) + 1;
+    // 0.14.5：再补发"断开那一刻还压在出站队列里"的字节 —— 它们比 parkQueue 里的更早，
+    // 而且带的是旧世代号，必须改成新世代，否则对端按"迟到帧"整段丢掉（那等于又丢一次）。
+    if (stream.pendingFrames && stream.pendingFrames.length) {
+      const frames = stream.pendingFrames;
+      stream.pendingFrames = null;
+      for (const frame of frames) pushFrames(peer, [retagFrame(frame, stream.id, stream.generation)]);
+    }
     // 补发寄存期间游戏服务吐出来的字节：**必须在重新登记之后**，否则 owner 还是空的。
     if (stream.parkBytes) {
       const parked = stream.parkQueue.splice(0);
@@ -1190,10 +1291,17 @@ function createSteamHost(options = {}) {
   const parkPeerStreams = (peer, reason) => {
     if (!peer.streams.size) return 0;
     const now = Date.now();
+    // 0.14.5：先把自己这侧"还压在出站队列里、根本没交给 Steam"的帧按流取出来，交给流本身带着走。
+    // 不取的话这段字节会随旧 peer 的出站队列一起消失，而流会被新干道原地复活 —— 对端收到的
+    // 可靠字节流中间就少一截（现场：Minecraft 的 netty 解码器在包边界上错位，unknown compression method）。
+    const pending = egress.takePending(peer, peer.streams.keys());
     let parked = 0;
     for (const stream of [...peer.streams.values()]) {
       peer.streams.delete(stream.id);
       if (stream.socket.destroyed) continue;
+      // 断开瞬间还没发出去的帧挂到流上，复活时按新世代补发（次序在 parkQueue 之前：它们更早）。
+      const keep = pending.streams.get(stream.id);
+      if (keep && keep.length) stream.pendingFrames = (stream.pendingFrames || []).concat(keep);
       stream.owner = null;
       stream.parkedAt = now;
       // ★ 键里必须带对端身份：两个加入者的流号是各自从 2 开始重号的，
@@ -1222,12 +1330,14 @@ function createSteamHost(options = {}) {
       orphanStreams.delete(key);
       gone += 1;
       stats.streamsMigrateExpired = (stats.streamsMigrateExpired || 0) + 1;
+      noteLocalClose(stream, 'MigrateExpired', `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`);
       try { stream.socket.destroy(); } catch { /* ignore */ }
       emit('stream-left', {
         peer: '（无干道）',
         stream: stream.id,
         kind: 'TunnelClosed',
         reason: `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`,
+        by: STREAM_CLOSE_KINDS.TunnelClosed,
         ageMs: now - stream.bornAt,
         bytesToPeer: stream.bytesToPeer,
         bytesFromPeer: stream.bytesFromPeer,
@@ -1237,16 +1347,18 @@ function createSteamHost(options = {}) {
   };
 
   /** 真正销毁一条干道上的所有流（协议违规、会话停止 —— 这两种情况不该迁移）。 */
-  const destroyPeerStreams = (peer, reason) => {
+  const destroyPeerStreams = (peer, reason, kind = 'TunnelClosed') => {
     for (const stream of [...peer.streams.values()]) {
       peer.streams.delete(stream.id);
       stream.owner = null;
+      noteLocalClose(stream, kind, reason);
       try { if (!stream.socket.destroyed) stream.socket.destroy(); } catch { /* ignore */ }
       emit('stream-left', {
         peer: peer.steamId || String(peer.connection),
         stream: stream.id,
-        kind: 'TunnelClosed',
+        kind,
         reason,
+        by: STREAM_CLOSE_KINDS[kind] || '清理',
         ageMs: Date.now() - stream.bornAt,
         bytesToPeer: stream.bytesToPeer,
         bytesFromPeer: stream.bytesFromPeer,
@@ -1276,7 +1388,11 @@ function createSteamHost(options = {}) {
     const stream = peer.streams.get(streamId);
     if (!stream) {
       // 对端已经收到过我们的 Reset/Close，后面的零星帧直接忽略。
-      if (type !== mux.TYPE.Reset) stats.dropped += 1;
+      // 0.14.5：只有**带数据的帧**才算真丢了东西。迟到的 Close/Reset/Window 是收尾的正常顺序
+      //（最常见的一种：本机游戏侧先关，我们发 CLOSE，对端的 CLOSE 紧跟着回来），
+      // 把它们记成 dropped 会让这个"有没有丢字节"的指标失真 —— 现场排查时它正是被当成
+      // "可靠流上有数据被丢"的证据，方向被带偏。
+      if (type === mux.TYPE.Data) stats.dropped += 1;
       return;
     }
 
@@ -1305,9 +1421,14 @@ function createSteamHost(options = {}) {
       return;
     }
     if (type === mux.TYPE.Window) { stream.remoteCredit = mux.decodeWindowCredit(frame.payload); return; }
-    if (type === mux.TYPE.Close) { if (!stream.socket.destroyed) stream.socket.end(); return; }
+    if (type === mux.TYPE.Close) {
+      noteLocalClose(stream, 'PeerStreamClosed', '对端用 MUX CLOSE 关掉了这条流（数据帧已排在它前面）');
+      if (!stream.socket.destroyed) stream.socket.end();
+      return;
+    }
     if (type === mux.TYPE.Reset) {
       stats.streamsReset = (stats.streamsReset || 0) + 1;
+      noteLocalClose(stream, 'PeerStreamReset', '对端用 MUX RESET 重置了这条流');
       if (!stream.socket.destroyed) stream.socket.destroy();
     }
   };
@@ -1416,7 +1537,8 @@ function createSteamHost(options = {}) {
         emit('peer-left', {
           peer: steamId || String(connection),
           kind: peer.dropWhy ? 'LocalTunnelAbort' : 'LocalServiceClosed',
-          reason: peer.dropWhy || '本机服务端口把这条件接关了（响应正常收尾，或游戏侧自己超时）',
+          reason: peer.dropWhy || '游戏服务端关闭了这条连接（正常收尾，或游戏侧自己超时）',
+          by: peer.dropWhy ? STREAM_CLOSE_KINDS.LocalTunnelAbort : STREAM_CLOSE_KINDS.LocalServiceClosed,
           ...info,
         });
       }
@@ -1492,7 +1614,9 @@ function createSteamHost(options = {}) {
       stats.connections = peers.size;
       // 协议错乱是另一回事：这条干道上的字节已经不可信，**不许寄存**（否则错的字节
       // 会被搬到新干道上接着错）。直接收摊，让客户端重来。
-      destroyPeerStreams(peer, '数据流格式不对');
+      // 0.14.5：这一条要报 BadFraming（协议错），与加入者侧 dropPeer 的默认 closeKind 一致 ——
+      // 报成笼统的 TunnelClosed 就看不出"是我们判的协议错"，日志里又变成一团模糊。
+      destroyPeerStreams(peer, '数据流格式不对', 'BadFraming');
       if (peer.socket) { try { peer.socket.destroy(); } catch { /* ignore */ } }
       if (firstGone(peer)) emit('peer-left', { ...peerCloseInfo(peer, null, null, Date.now()), peer: peer.steamId || String(peer.connection), kind: 'BadFraming', reason: err.message });
       try { steam.networkingSockets.closeConnection(peer.connection, 0, '数据格式不对', false); } catch { /* ignore */ }
@@ -1802,11 +1926,16 @@ function createSteamJoiner(options = {}) {
   const parkTrunkStreams = (peer, reason) => {
     if (!peer.streams || !peer.streams.size) return 0;
     const now = Date.now();
+    // 0.14.5：先把"还压在出站队列里、根本没交给 Steam"的帧按流取出来，交给流本身带着走。
+    // 理由同房主侧 parkPeerStreams：丢掉它们 = 对端的可靠字节流中间出现空洞。
+    const pending = egress.takePending(peer, peer.streams.keys());
     let n = 0;
     for (const stream of [...peer.streams.values()]) {
       peer.streams.delete(stream.id);
       const sock = stream.localSocket || stream.socket;
       if (!sock || sock.destroyed) continue;
+      const keep = pending.streams.get(stream.id);
+      if (keep && keep.length) stream.pendingFrames = (stream.pendingFrames || []).concat(keep);
       stream.trunk = null;          // 没有归属干道：socket 上的 data 会攒进 parkQueue
       stream.parkedAt = now;
       const prev = orphanStreams.get(stream.id);
@@ -1841,6 +1970,13 @@ function createSteamJoiner(options = {}) {
       stream.migrations = (stream.migrations || 0) + 1;
       peer.streams.set(id, stream);
       pushFrames(peer, [mux.encodeOpen(id, stream.generation)]);
+      // 0.14.5：紧接着补发"断开那一刻还压在出站队列里"的字节（比 parkQueue 里那些更早），
+      // 世代改成新的，否则房主按"迟到帧"整段丢掉 —— 那等于又丢一次。
+      if (stream.pendingFrames && stream.pendingFrames.length) {
+        const frames = stream.pendingFrames;
+        stream.pendingFrames = null;
+        for (const frame of frames) pushFrames(peer, [retagFrame(frame, id, stream.generation)]);
+      }
       // 寄存期间浏览器/游戏继续发过来的字节，跟在 OPEN 后面按原顺序补发。
       if (stream.parkBytes) {
         const parked = stream.parkQueue.splice(0);
@@ -1866,12 +2002,14 @@ function createSteamJoiner(options = {}) {
       orphanStreams.delete(id);
       gone += 1;
       stats.streamsMigrateExpired = (stats.streamsMigrateExpired || 0) + 1;
+      noteLocalClose(stream, 'MigrateExpired', `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`);
       try { sock.destroy(); } catch { /* ignore */ }
       if (firstGone(stream)) {
         emit('stream-left', {
           peer: '（无干道）',
           kind: 'TunnelClosed',
           reason: `干道断了以后 ${STREAM_MIGRATE_GRACE_MS}ms 内没能重新挂上`,
+          by: STREAM_CLOSE_KINDS.TunnelClosed,
           ageMs: now - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
@@ -1948,9 +2086,13 @@ function createSteamJoiner(options = {}) {
       peer.replay = [];
       peer.replayBytes = 0;
     }
-    // 新连接上还没有任何数据发出去 —— 旧连接队列里剩下的字节（若还有）没有任何意义：
-    // 它们属于那条已经关掉的 P2P 连接，重发只会让对端收到重复字节。
-    egress.clear(peer);
+    // 新连接上还没有任何数据发出去 —— 但队列里剩下的这些字节**从来没交给 Steam**（交给 Steam 的
+    // 前缀在 flushPeerOut 里就被 commit 出队了），对端一定没收到，必须留在队里接着发。
+    // 0.14.5 修：原来这里直接 egress.clear()，把"还没发出去"的字节也一起丢了，对端的可靠字节流
+    // 中间就少一截（现场：Minecraft netty 解码器错位，报 unknown compression method）。
+    const leftover = egress.takePending(peer, null);
+    if (leftover.trunk.length) peer.queue = leftover.trunk.concat(peer.queue);
+    egress.resync(peer);
     peer.paused = false;
     peer.pausedAt = 0;
     peer.stalled = false;
@@ -1977,6 +2119,13 @@ function createSteamJoiner(options = {}) {
 
   const emit = (type, payload) => {
     if (typeof onEvent !== 'function') return;
+    // 0.14.5：流结束这一行必须带得出"关闭发起方 / 暂停状态 / 本机待发量"，缺了就等于没有证据。
+    if (type === 'stream-left' && payload && typeof payload === 'object') {
+      payload = {
+        ...payload,
+        by: payload.by || STREAM_CLOSE_KINDS[payload.kind] || '未知',
+      };
+    }
     try { onEvent(type, payload); } catch { /* 事件回调不允许影响转发 */ }
   };
 
@@ -2003,7 +2152,7 @@ function createSteamJoiner(options = {}) {
     const n = pendingSockets.length;
     for (const socket of pendingSockets.splice(0)) {
       stats.dropped += 1;
-      emit('stream-left', { peer: `本机客户端 :${socket.remotePort || '?'}`, kind: 'TunnelClosed', reason: why });
+      emit('stream-left', { peer: `本机客户端 :${socket.remotePort || '?'}`, kind: 'TunnelClosed', reason: why, by: STREAM_CLOSE_KINDS.TunnelClosed });
       try { if (!socket.destroyed) socket.destroy(); } catch { /* 断开失败不影响其它连接 */ }
     }
     return n;
@@ -2061,6 +2210,7 @@ function createSteamJoiner(options = {}) {
           trunk.streams.delete(streamId);
           stats.streams = countStreams();
           const sock = stream.localSocket || stream.socket;
+          noteLocalClose(stream, 'OverflowAborted', '定帧前扣住的帧超过 1 MiB 上限，只能掐掉这条流');
           try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* 断开失败不影响其它流 */ }
         }
         continue;
@@ -2112,7 +2262,11 @@ function createSteamJoiner(options = {}) {
       stats.dropped += 1;
       return;
     }
-    if (!stream) { if (type !== mux.TYPE.Reset) stats.dropped += 1; return; }
+    if (!stream) {
+      // 同房主侧：只有带数据的迟到帧才算真丢了东西（理由见那边的注释）。
+      if (type === mux.TYPE.Data) stats.dropped += 1;
+      return;
+    }
 
     const verdict = mux.checkGeneration(frame, stream.generation);
     if (verdict === 'stale') { stats.staleFrames = (stats.staleFrames || 0) + 1; return; }
@@ -2139,12 +2293,14 @@ function createSteamJoiner(options = {}) {
       // 所以这里把最后那段响应写完再 end 就行 —— 0.13.3 那个"最后一段字节丢掉"的坑
       // 在多路复用里从结构上就不存在了。
       const sock = stream.localSocket || stream.socket;
+      noteLocalClose(stream, 'PeerStreamClosed', '对端用 MUX CLOSE 关掉了这条流（数据帧已排在它前面）');
       if (sock && !sock.destroyed) sock.end();
       return;
     }
     if (type === mux.TYPE.Reset) {
       stats.streamsReset = (stats.streamsReset || 0) + 1;
       const sock = stream.localSocket || stream.socket;
+      noteLocalClose(stream, 'PeerStreamReset', '对端用 MUX RESET 重置了这条流');
       if (sock && !sock.destroyed) sock.destroy();
     }
   };
@@ -2169,12 +2325,14 @@ function createSteamJoiner(options = {}) {
     for (const stream of [...peer.streams.values()]) {
       peer.streams.delete(stream.id);
       const sock = stream.localSocket || stream.socket;
+      noteLocalClose(stream, kind, reason);
       try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* ignore */ }
       if (firstGone(stream)) {
         emit('stream-left', {
           peer: `流 ${stream.id}`,
           kind,
           reason,
+          by: STREAM_CLOSE_KINDS[kind] || '清理',
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
@@ -2292,12 +2450,14 @@ function createSteamJoiner(options = {}) {
     for (const stream of expired) {
       stats.dropped += 1;
       const sock = stream.localSocket || stream.socket;
+      noteLocalClose(stream, 'OverflowAborted', reason);
       try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* 断开失败不影响其它流 */ }
       if (firstGone(stream)) {
         emit('stream-left', {
           peer: `流 ${stream.id}`,
           kind: 'TunnelClosed',
           reason,
+          by: STREAM_CLOSE_KINDS.OverflowAborted,
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
@@ -2486,6 +2646,8 @@ function createSteamJoiner(options = {}) {
         // 这条流真没救了，断开让客户端自己重来。
         if (stream.parkBytes + chunk.length > STREAM_PARK_MAX_BYTES) {
           stats.dropped += 1;
+          noteLocalClose(stream, 'OverflowAborted',
+            `没有干道可挂，寄存积压超过 ${Math.round(STREAM_PARK_MAX_BYTES / 1024)} KiB 上限，只能收掉这条流`);
           try { socket.destroy(); } catch { /* 断一条流不影响别的流 */ }
           if (latencyDiag) latencyDiag.recordServe({ ms: hrNow() - serveStartedAt, bytes: chunk.length });
           return;
@@ -2526,13 +2688,20 @@ function createSteamJoiner(options = {}) {
       stats.streams = countStreams();
       if (owner && !owner.dropped && owner.framed === true) pushFrames(owner, [mux.encodeClose(streamId, stream.generation)]);
       if (firstGone(stream)) {
+        // 0.14.5：说清是谁关的 —— 我们自己收的（积压上限/清理/干道）用留的名，
+        // 只有真没留名才算"浏览器/游戏客户端自己关的"。
+        const endInfo = streamCloseInfo(stream, 'LocalClientClosed', '浏览器/游戏客户端关闭了这条本机连接（正常收尾）');
         emit('stream-left', {
           peer: `本机客户端 :${socket.remotePort || '?'}`,
-          kind: 'LocalClientClosed',
-          reason: '浏览器/游戏自己关掉了这条本机连接',
+          kind: endInfo.kind,
+          reason: endInfo.reason,
+          by: endInfo.by,
           ageMs: Date.now() - stream.bornAt,
           bytesToPeer: stream.bytesToPeer,
           bytesFromPeer: stream.bytesFromPeer,
+          paused: !!(owner && owner.paused),
+          backlogBytes: owner ? peerOutBytes(owner) : null,
+          steamBacklogBytes: owner && Number.isFinite(owner.steamBacklog) ? owner.steamBacklog : null,
         });
       }
     });
@@ -2789,7 +2958,8 @@ function createSteamJoiner(options = {}) {
         emit('peer-left', {
           peer: `本机客户端 :${info.port}`,
           kind: peer.dropWhy ? 'LocalTunnelAbort' : 'LocalClientClosed',
-          reason: peer.dropWhy || '浏览器/游戏自己关掉了这条本机连接',
+          reason: peer.dropWhy || '浏览器/游戏客户端关闭了这条本机连接（正常收尾）',
+          by: peer.dropWhy ? STREAM_CLOSE_KINDS.LocalTunnelAbort : STREAM_CLOSE_KINDS.LocalClientClosed,
           ...info,
         });
       }
@@ -2970,6 +3140,7 @@ function createSteamJoiner(options = {}) {
     // 更早之前断掉的那条干道寄存下来的流（还在等新干道）也要一起收掉。
     for (const stream of [...orphanStreams.values()]) {
       const sock = stream.localSocket || stream.socket;
+      noteLocalClose(stream, 'SessionStopped', '会话正常停止');
       try { if (sock && !sock.destroyed) sock.destroy(); } catch { /* ignore */ }
     }
     orphanStreams.clear();
@@ -3221,6 +3392,8 @@ module.exports = {
   createSteamHost,
   createSteamJoiner,
   createRouteReporter,
+  retagFrame,
+  STREAM_CLOSE_KINDS,
   queueOut,
   flushPeerOut,
   flushPeerOutSoon,

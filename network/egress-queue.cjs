@@ -310,6 +310,43 @@ function queueRows(peer, now = Date.now()) {
   return rows;
 }
 
+/**
+ * 0.14.5：把"还压在出站队列里、根本没交给 Steam"的帧整段取出来（各队列按自己的 FIFO 顺序）。
+ *
+ * 为什么需要它：干道断开时我们会把本机连接**寄存**起来等新干道来接（规格 §十六）。可寄存只搬
+ * 流对象，出站队列里这段字节既没送达对端、也不会再有人发它 —— 流被新干道原地复活之后，对端
+ * 收到的可靠字节流中间就少了一截。现场现象就是 Minecraft 的 netty 解码器在包边界上错位，抛
+ * `unknown compression method` / `DataFormatException`，然后玩家被踢。
+ * （回归用例：test/steam-adapter.test.cjs「干道断开时还压在出站队列里的字节，复活后必须接着送」。）
+ *
+ * 语义边界：只取**确认前缀之外**的字节 —— 已经被 Steam 接受的字节早就被 commit 出队了，
+ * 所以取出来的这段一定没送达，补发不会产生重复。
+ *
+ * @param {object} peer
+ * @param {Iterable<number|string>|null} ids  要取的流号；null = 连干道队列一起取
+ * @returns {{trunk: Buffer[], streams: Map<number|string, Buffer[]>}}
+ */
+function takePending(peer, ids = null) {
+  const p = ensure(peer);
+  const taken = { trunk: [], streams: new Map() };
+  if (!p) return taken;
+  if (ids == null) {
+    taken.trunk = p.out.splice(0);
+    p.outTrunkAt = 0;
+  }
+  const want = ids == null ? null : (ids instanceof Set ? ids : new Set(ids));
+  for (const [key, q] of [...p.outStreams]) {
+    if (want && !want.has(key)) continue;
+    const frames = q.queue.splice(0);
+    if (frames.length) taken.streams.set(key, frames);
+    q.bytes = 0;
+    q.at = 0;
+    p.outStreams.delete(key);
+  }
+  resync(p);
+  return taken;
+}
+
 module.exports = {
   DEFAULT_FAIR_QUANTUM,
   TRUNK_KEY,
@@ -319,6 +356,7 @@ module.exports = {
   oldestAt,
   resync,
   dropTrunk,
+  takePending,
   planOut,
   commit,
   clear,

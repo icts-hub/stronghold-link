@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const {
   createSteamHost, createSteamJoiner, STEAM_ID_PATTERN,
   CALLBACK_INTERVAL_MS, DRAIN_BURST, startCallbackLoop, initSteamSdk, createRouteReporter,
+  retagFrame,
 } = require('../network/steam-adapter.cjs');
 const { createMockSdk, HOST_STEAM_ID, STATE } = require('./steam-mock.cjs');
 const h = require('./helpers.cjs');
@@ -424,6 +425,379 @@ test('★ 房主：对端的干道断了 —— 游戏端口那条连接不拆�
     const leftKinds = events.filter((e) => e.type === 'stream-left').map((e) => e.payload?.kind);
     assert.ok(!leftKinds.includes('TunnelClosed'),
       `干道断链不该产生 TunnelClosed 的流事件（实际 ${JSON.stringify(leftKinds)}）`);
+  } finally {
+    await host.stop();
+    await new Promise((resolve) => game.close(resolve));
+  }
+});
+
+test('★ 房主：干道断开时还压在出站队列里的字节，复活后必须接着送 —— 可靠字节流不许出现空洞（现场 unknown compression method）', async () => {
+  // 现场（startup.log 2026-10-12T14:57:11Z）：一条已经下行 19 MB 的干道被 Steam 判为 5010 断开，
+  // 上面 2 条本机连接被"寄存 60 秒等新干道来接"。寄存只搬流对象（本机 socket 留着），可出站队列
+  // 里"已经交给 Steam 缓冲、还没送达对端"的那段字节既不转移也不标记，随旧 peer 一起消失；
+  // 那条流被新干道 OPEN(同流号, 世代+1) 原地复活后继续收发，于是对端这条可靠字节流中间少了一段 ——
+  // Minecraft 的 netty 解码器会立刻在包边界上错位（unknown compression method / DataFormatException）。
+  const net = require('node:net');
+  const gameSockets = new Set();
+  const game = net.createServer((socket) => {
+    gameSockets.add(socket);
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const realSend = mock.sdk.networkingSockets.sendMessage;
+  let blocked = false;
+  mock.sdk.networkingSockets.sendMessage = (connection, data, flags) => {
+    // k_EResultLimitExceeded：Steam 暂时不接收，这段字节只能留在出站队列里
+    if (blocked) return { success: false, result: 2 };
+    return realSend(connection, data, flags);
+  };
+
+  const events = [];
+  const host = createSteamHost({ gamePort, sdk: mock.sdk, onEvent: (type, payload) => events.push({ type, payload }) });
+  const dataBytes = (connection) => Buffer.concat(framesFrom(mock, connection, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data).map((f) => f.payload));
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    mock.state.pushToHost(CONN, Buffer.concat([mux.encodeHello(), mux.encodeOpen(2, 1)]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), 'OPEN 之后游戏端口应有一条连接');
+    const gameSocket = [...gameSockets][0];
+
+    // 第一段：链路正常，先证明通路本身没问题
+    const first = Buffer.from('FIRST-SEGMENT-');
+    gameSocket.write(first);
+    assert.ok(await h.waitFor(() => dataBytes(CONN).length >= first.length, { timeoutMs: 3000 }),
+      '断链前的数据通路要先正常工作，否则后面的断言说明不了问题');
+
+    // 第二段：Steam 暂时不接收，这段字节只能压进出站队列
+    blocked = true;
+    const stuck = Buffer.alloc(30000, 0x42);
+    gameSocket.write(stuck);
+    await h.wait(300);
+    assert.ok(!dataBytes(CONN).includes(stuck), '这段字节此刻必须还没送到，否则没覆盖到要测的场景');
+
+    // ── 干道断（真机：Relay received unexpected noconnection packet / Steam 原因 5010）──
+    mock.state.emitState({
+      connection: CONN,
+      newState: STATE.ClosedByPeer,
+      info: { identityRemote: '76561198000000002', endDebugMessage: 'Relay received unexpected noconnection packet' },
+    });
+    await h.wait(120);
+    assert.equal(host.stats.streamsParked, 1, '那条流应被寄存，等新干道来接');
+    assert.equal(gameSocket.destroyed, false, '游戏侧 socket 必须还活着（它保存着这一局的会话状态）');
+
+    // Steam 恢复接收；新干道进来，用同一个流号 + 世代 2 重新 OPEN
+    blocked = false;
+    const second = CONN + 1;
+    mock.state.emitState({ connection: second, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: second, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    mock.state.pushToHost(second, Buffer.concat([mux.encodeHello(), mux.encodeOpen(2, 2)]));
+    assert.ok(await h.waitFor(() => (host.stats.streamsMigrated || 0) === 1, { timeoutMs: 3000 }),
+      '世代 +1 的 OPEN 应让房主把那条流认回来，而不是当成新流');
+
+    // 第三段：复活之后游戏继续吐字节
+    const last = Buffer.from('LAST-SEGMENT');
+    gameSocket.write(last);
+    await h.waitFor(() => dataBytes(second).length >= last.length, { timeoutMs: 3000 });
+    await h.wait(100);
+
+    const wire = Buffer.concat([dataBytes(CONN), dataBytes(second)]);
+    const expected = Buffer.concat([first, stuck, last]);
+    assert.equal(wire.length, expected.length,
+      `送到对端的字节数必须与游戏写进去的完全一致：少了 ${expected.length - wire.length} 字节 —— 这段就是干道断开时被吞掉的，对端的 netty 解码器会在这里错位（unknown compression method）`);
+    assert.ok(wire.equals(expected), '送到对端的字节流必须逐字节一致：不允许有空洞或重复');
+    assert.equal(host.stats.dropped, 0, '可靠流上不允许计任何 dropped');
+  } finally {
+    await host.stop();
+    await new Promise((resolve) => game.close(resolve));
+  }
+});
+
+test('retagFrame：只改"要跨世代重发的那条流"的世代，别的流一个字节都不动', () => {
+  // 干道断开时压在出站队列里的帧是按**旧世代**编好的；规格 §十七要求换干道后旧世代的帧一律
+  // 丢弃（防串台）。所以流原地复活之后要把这段字节接着送，就必须先把世代改成新的 —— 但只准
+  // 改这条流的帧：改错了就是把别人的字节串到这条流上，等于亲手制造错位。
+  const frame = mux.encodeData(2, 1, Buffer.from('PAYLOAD'));
+  const before = Buffer.from(frame);
+  const same = retagFrame(frame, 2, 5);
+  assert.equal(same, frame, '原地改写：调用点直接把返回值入队，不能换成另一个对象');
+  assert.equal(same.readUInt32BE(5), 2, '流号不许动');
+  assert.equal(same.readUInt32BE(9), 5, '世代必须改成新干道的世代（帧头偏移 9）');
+  assert.ok(same.subarray(mux.FRAME_HEADER).equals(before.subarray(mux.FRAME_HEADER)), '载荷逐字节不变');
+
+  const other = mux.encodeData(4, 1, Buffer.from('OTHER'));
+  const otherBefore = Buffer.from(other);
+  assert.equal(retagFrame(other, 2, 5), other, '不是这条流的帧：原样返回');
+  assert.ok(other.equals(otherBefore), '别的流的帧必须原封不动');
+
+  // 帧头都读不出来的输入：安全返回，不抛错（这条路径发生在干道断开的收尾里，
+  // 在这里抛异常会把清理流程打断，剩下的流就没人收摊了）。
+  assert.equal(retagFrame(null, 2, 5), null);
+  assert.equal(retagFrame(Buffer.alloc(3), 2, 5).length, 3);
+});
+
+test('★ TCP 分段与合并读取：半个帧、两帧粘在一起都不是协议边界 —— 两个方向都必须逐字节一致', async () => {
+  // 本机 TCP 是字节流，没有"包"这回事：一次 read 可能只到半个 MUX 帧，也可能好几帧粘在一起；
+  // 游戏那一侧同理（一次 write 会被拆成几次 read，几次 write 也可能合成一次 read）。
+  // 适配器绝不能把"一次读取"当成"一帧"或"一条业务消息"的边界 —— 现场任何一处这样假设，
+  // 对端都会在包边界上错位（Minecraft 的 netty 解码器直接抛 unknown compression method）。
+  const net = require('node:net');
+  const received = [];
+  const gameSockets = new Set();
+  const game = net.createServer((socket) => {
+    gameSockets.add(socket);
+    socket.on('data', (chunk) => received.push(chunk));
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const host = createSteamHost({ gamePort, sdk: mock.sdk });
+  const wireUp = () => Buffer.concat(framesFrom(mock, CONN, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data).map((f) => f.payload));
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connecting, info: { identityRemote: '76561198000000002' } });
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+
+    // ── ① 下行：帧被切成两段 ──
+    const open = mux.encodeOpen(2, 1);
+    const dAlpha = mux.encodeData(2, 1, Buffer.from('ALPHA'));
+    const head = Buffer.concat([mux.encodeHello(), open, dAlpha.subarray(0, dAlpha.length - 3)]);
+    mock.state.pushToHost(CONN, head);
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), 'OPEN 之后游戏端口应有一条连接');
+    await h.wait(120);
+    assert.equal(Buffer.concat(received).length, 0,
+      '只到了一帧的前半截：一个字节都不许写进游戏连接（写进去就是半个业务包）');
+
+    mock.state.pushToHost(CONN, dAlpha.subarray(dAlpha.length - 3));
+    assert.ok(await h.waitFor(() => Buffer.concat(received).toString() === 'ALPHA', { timeoutMs: 3000 }),
+      '补上后半截之后必须原样交给游戏：分帧不能改变字节内容');
+
+    // ── ② 下行：两条帧粘在同一次读取里 ──
+    mock.state.pushToHost(CONN, Buffer.concat([
+      mux.encodeData(2, 1, Buffer.from('BETA')), mux.encodeData(2, 1, Buffer.from('GAMMA')),
+    ]));
+    assert.ok(await h.waitFor(() => Buffer.concat(received).toString() === 'ALPHABETAGAMMA', { timeoutMs: 3000 }),
+      '粘在一起的帧必须逐帧切开按序写下去，不许把两段拼成一条业务数据');
+
+    // ── ③ 上行：游戏分三次写，wire 上必须还原成同一串字节 ──
+    const gameSocket = [...gameSockets][0];
+    for (const piece of ['one', 'two', 'three']) {
+      gameSocket.write(piece);
+      await h.wait(20);
+    }
+    assert.ok(await h.waitFor(() => wireUp().length >= 'onetwothree'.length, { timeoutMs: 3000 }),
+      '游戏侧分段写进来的字节要全部转出去');
+    assert.equal(wireUp().toString(), 'onetwothree',
+      '上行字节流必须与游戏写进去的逐字节一致、顺序不变（分帧/合并都不许改变内容）');
+    assert.equal(host.stats.dropped, 0, '这条可靠流上不允许计任何 dropped');
+  } finally {
+    await host.stop();
+    await new Promise((resolve) => game.close(resolve));
+  }
+});
+
+test('★ 背压暂停→恢复：暂停只是"先别生产"，绝不许把游戏连接当死连接掐掉（现场"暂停=掉线"的误判）', async () => {
+  // Steam 暂时不接收（k_EResultLimitExceeded）时我们只能暂停读本机 socket。暂停的语义是
+  // "缓一缓"，不是"这条连接完了"：游戏连接必须活着，恢复之后那段字节要按原顺序接着送。
+  // 反过来说，把"暂停"实现成"掐掉重来"，用户看到的正是"进游戏几秒就掉线"。
+  const net = require('node:net');
+  const gameSockets = new Set();
+  const game = net.createServer((socket) => {
+    gameSockets.add(socket);
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const realSend = mock.sdk.networkingSockets.sendMessage;
+  let blocked = false;
+  let failures = 0;
+  mock.sdk.networkingSockets.sendMessage = (connection, data, flags) => {
+    if (blocked) { failures += 1; return { success: false, result: 2 }; }
+    return realSend(connection, data, flags);
+  };
+
+  const events = [];
+  const host = createSteamHost({ gamePort, sdk: mock.sdk, onEvent: (type, payload) => events.push({ type, payload }) });
+  const wireUp = () => Buffer.concat(framesFrom(mock, CONN, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data).map((f) => f.payload));
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    mock.state.pushToHost(CONN, Buffer.concat([mux.encodeHello(), mux.encodeOpen(2, 1)]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }));
+    const gameSocket = [...gameSockets][0];
+
+    const head = Buffer.from('HEAD-');
+    gameSocket.write(head);
+    assert.ok(await h.waitFor(() => wireUp().length >= head.length, { timeoutMs: 3000 }), '先证明通路本身是好的');
+
+    // Steam 关门：超过高水位（PEER_OUT_HIGH_WATER = 1 MiB）的字节只能压在我们自己的队列里。
+    blocked = true;
+    const big = Buffer.alloc(1300 * 1024);
+    for (let i = 0; i < big.length; i += 1) big[i] = (i * 13 + 7) % 251;
+    gameSocket.write(big);
+    assert.ok(await h.waitFor(() => failures > 0, { timeoutMs: 3000 }), '本次必须真的撞上 Steam 拒绝接收');
+    await h.wait(300);
+    assert.ok(wireUp().length <= head.length + 4096,
+      '被拒绝的那段字节必须留在我们自己的队列里等重试，不能"发失败就当发过了"');
+
+    // 暂停期间：游戏连接必须活着，而且不许报"流结束"。
+    assert.equal(gameSocket.destroyed, false, '背压暂停不是死连接：游戏连接必须还活着');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(gameSocket.destroyed, false, '暂停持续期间也不许悄悄掐掉它');
+    assert.equal(events.filter((e) => e.type === 'stream-left').length, 0,
+      '暂停期间不许出现任何 stream-left：那在用户那里就是"掉线了"');
+
+    // Steam 恢复接收：积压必须按原顺序排空，一个字节都不许少、不许重。
+    blocked = false;
+    assert.ok(await h.waitFor(() => wireUp().length >= head.length + big.length, { timeoutMs: 20000 }),
+      `恢复后必须把全部 ${big.length} 字节接着送完，实际只到了 ${wireUp().length - head.length}`);
+    const wire = wireUp();
+    const expected = Buffer.concat([head, big]);
+    assert.equal(wire.length, expected.length, '恢复后送达的字节数必须与写进去的完全一致');
+    assert.ok(wire.equals(expected), '恢复后字节流必须逐字节一致且顺序不变');
+    assert.equal(host.stats.dropped, 0, '可靠流上不允许计任何 dropped');
+    assert.equal(gameSocket.destroyed, false, '整段背压往复之后游戏连接依然要活着');
+  } finally {
+    await host.stop();
+    await new Promise((resolve) => game.close(resolve));
+  }
+});
+
+test('★ 重复清理：Close 之后再 Reset、再断干道，同一条流只能出一条 stream-left，且不抛错、不误记账', async () => {
+  // 真机上这三件事经常前后脚到：对端先 CLOSE（游戏侧关了），迟到的 RESET 跟着来，
+  // 紧接着整条干道也被 Steam 判死。清理路径必须幂等 —— 多收一次就多出一条"用户掉线"的日志，
+  // 或者把计数（dropped / streams）带病记下去，后面所有诊断全跟着失真。
+  const net = require('node:net');
+  const gameSockets = new Set();
+  const game = net.createServer((socket) => {
+    gameSockets.add(socket);
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const events = [];
+  const errors = [];
+  const host = createSteamHost({
+    gamePort, sdk: mock.sdk,
+    onEvent: (type, payload) => { events.push({ type, payload }); if (type === 'error') errors.push(payload); },
+  });
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+    mock.state.pushToHost(CONN, Buffer.concat([mux.encodeHello(), mux.encodeOpen(2, 1)]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }));
+    const gameSocket = [...gameSockets][0];
+
+    // ① 对端 CLOSE：游戏侧那条连接跟着收尾，出一条 stream-left。
+    mock.state.pushToHost(CONN, mux.encodeClose(2, 1));
+    assert.ok(await h.waitFor(() => events.filter((e) => e.type === 'stream-left').length === 1, { timeoutMs: 3000 }),
+      'CLOSE 之后应当且只应当出一条 stream-left');
+    await h.wait(80);
+
+    // ② 迟到的 RESET：这条流已经没了，只能被安静地忽略。
+    mock.state.pushToHost(CONN, mux.encodeReset(2, 1, mux.RESET_REASON.Protocol));
+    await h.wait(80);
+
+    // ③ 同一帧再来一遍（真机上就是队列里重复投递的那一份）：同样必须幂等。
+    mock.state.pushToHost(CONN, mux.encodeClose(2, 1));
+    await h.wait(80);
+
+    // ④ 干道整体断开：这条流已经收过摊了，不许再出一条。
+    mock.state.emitState({
+      connection: CONN, newState: STATE.ClosedByPeer,
+      info: { identityRemote: '76561198000000002', endDebugMessage: 'Relay received unexpected noconnection packet' },
+    });
+    await h.wait(150);
+
+    const left = events.filter((e) => e.type === 'stream-left');
+    assert.equal(left.length, 1,
+      `同一条流的清理必须幂等：实际出了 ${left.length} 条 stream-left（${JSON.stringify(left.map((e) => e.payload?.kind))}）`);
+    assert.equal(left[0].payload.stream, 2, '事件要指向那条流');
+    assert.equal(host.stats.streams, 0, '流表要干净');
+    assert.equal(host.stats.dropped, 0, 'RESET/重复 CLOSE 不算丢字节：不许误记账');
+    assert.equal(errors.length, 0, `重复清理不许抛错：${JSON.stringify(errors)}`);
+    assert.equal(gameSocket.destroyed, true, '流收摊之后游戏连接也该收掉（它已经没人用了）');
+  } finally {
+    await host.stop();
+    await new Promise((resolve) => game.close(resolve));
+  }
+});
+
+test('★ 关闭日志：谁关的必须报谁 —— 游戏侧自己关 / 对端 MUX 关 / 我们清理，三种关法三种发起方', async () => {
+  // m02560 第 1 条。旧代码里这两处 kind/reason 是写死的"本机游戏服务把这条件接关了"，
+  // 于是"我们自己 destroy（背压/迁移/清理）"和"游戏侧真的关了"在日志里长得一模一样 ——
+  // 真机排查时我们就是顺着这行错误结论一路查错方向的。
+  const net = require('node:net');
+  const gameSockets = new Set();
+  const game = net.createServer((socket) => {
+    gameSockets.add(socket);
+    socket.on('error', () => { /* 测试里不关心 */ });
+    socket.on('close', () => gameSockets.delete(socket));
+  });
+  const gamePort = await h.freePort();
+  await new Promise((resolve) => game.listen(gamePort, '127.0.0.1', resolve));
+
+  const mock = createMockSdk();
+  const events = [];
+  const host = createSteamHost({
+    gamePort, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  const leftFor = (id) => events.filter((e) => e.type === 'stream-left' && e.payload && e.payload.stream === id);
+  try {
+    await host.ready;
+    mock.state.emitState({ connection: CONN, newState: STATE.Connected, info: { identityRemote: '76561198000000002' } });
+
+    // ① 游戏服务端自己把连接关了：发起方是"游戏侧"。
+    mock.state.pushToHost(CONN, Buffer.concat([mux.encodeHello(), mux.encodeOpen(2, 1)]));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), '游戏端口要收到连接');
+    [...gameSockets][0].destroy();
+    assert.ok(await h.waitFor(() => leftFor(2).length === 1, { timeoutMs: 3000 }), '游戏侧关了要出一行');
+    assert.equal(leftFor(2)[0].payload.kind, 'LocalServiceClosed');
+    assert.equal(leftFor(2)[0].payload.by, '游戏侧', '游戏侧自己关的就得说游戏侧');
+    assert.equal(typeof leftFor(2)[0].payload.backlogBytes, 'number', '这一行要带上"本机待发"的量');
+
+    // ② 对端用 MUX CLOSE 关：发起方是"对端MUX"，哪怕随后本机 socket 也走一遍 close。
+    mock.state.pushToHost(CONN, mux.encodeOpen(4, 1));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), '第二条流要连上游戏端口');
+    const s4 = [...gameSockets][0];
+    mock.state.pushToHost(CONN, mux.encodeClose(4, 1));
+    await h.wait(200); // 等 CLOSE 真的被处理掉（我们的 socket 已经被 end），再模拟游戏侧收尾
+    s4.destroy();
+    assert.ok(await h.waitFor(() => leftFor(4).length === 1, { timeoutMs: 3000 }), 'CLOSE 之后要出一行');
+    await h.wait(150);
+    assert.equal(leftFor(4).length, 1, '同一条流只许报一行，不许 socket 收尾再刷一行');
+    assert.equal(leftFor(4)[0].payload.kind, 'PeerStreamClosed');
+    assert.equal(leftFor(4)[0].payload.by, '对端MUX', '对端用 MUX 关的不能记成游戏侧关的');
+
+    // ③ 协议错乱触发我们自己清理：发起方是"清理"，理由是帧格式，绝不是"游戏侧关的"。
+    mock.state.pushToHost(CONN, mux.encodeOpen(6, 1));
+    assert.ok(await h.waitFor(() => gameSockets.size === 1, { timeoutMs: 3000 }), '第三条流要连上游戏端口');
+    const bad = Buffer.alloc(mux.FRAME_HEADER);
+    bad.writeUInt32BE(5, 0); // len=5 < 9：解帧器直接判格式错
+    mock.state.pushToHost(CONN, bad);
+    assert.ok(await h.waitFor(() => leftFor(6).length === 1, { timeoutMs: 3000 }), '清理要出一行');
+    await h.wait(150);
+    assert.equal(leftFor(6).length, 1, '同一条流只许报一行');
+    assert.equal(leftFor(6)[0].payload.kind, 'BadFraming');
+    assert.equal(leftFor(6)[0].payload.by, '清理', '我们自己收掉的不许说成游戏侧关的');
+    assert.ok(!/游戏/.test(String(leftFor(6)[0].payload.reason)), `理由不许再甩锅给游戏侧：${leftFor(6)[0].payload.reason}`);
   } finally {
     await host.stop();
     await new Promise((resolve) => game.close(resolve));
@@ -1316,6 +1690,80 @@ test('★ 加入者：干道断了不等于这半局作废 —— 本机连接�
       `干道断链不该产生任何 TunnelClosed 的流事件（实际 ${JSON.stringify(leftKinds)}）：那正是"用户掉线了"的信号`);
   } finally {
     for (const client of clients) client.destroy();
+    await joiner.stop();
+  }
+});
+
+test('★ 加入者：干道断开时压在出站队列里的字节，复活后必须接着送（与房主侧同一套语义）', async () => {
+  // 房主侧那条用例（本文件「★ 房主：干道断开时还压在出站队列里的字节…」）钉的是同一件事的
+  // 另一半：**两侧都要**把"还没交给 Steam"的字节跟着寄存的流带走并按新世代补发。
+  // 只修一侧的话，掉线会看方向挑着发作 —— 上行丢了，房主那边看到的就是客户端请求被截断。
+  const mock = createMockSdk();
+  const realSend = mock.sdk.networkingSockets.sendMessage;
+  let blocked = false;
+  mock.sdk.networkingSockets.sendMessage = (connection, data, flags) => {
+    if (blocked) return { success: false, result: 2 };   // k_EResultLimitExceeded
+    return realSend(connection, data, flags);
+  };
+  const localPort = await h.freePort();
+  const events = [];
+  const joiner = createSteamJoiner({
+    localPort, hostSteamId: HOST_STEAM_ID, sdk: mock.sdk,
+    onEvent: (type, payload) => events.push({ type, payload }),
+  });
+  const dataOn = (connection) => framesFrom(mock, connection, { skipHello: true })
+    .filter((f) => f.type === mux.TYPE.Data).map((f) => f.payload);
+  let client;
+  try {
+    await joiner.ready;
+    client = await h.connect(localPort);
+    const trunkA = await answerHello(mock, joiner);
+
+    const first = Buffer.from('FIRST-');
+    client.write(first);
+    assert.ok(await h.waitFor(() => Buffer.concat(dataOn(trunkA)).length >= first.length, { timeoutMs: 3000 }),
+      '干道上的数据通路要先正常工作');
+
+    blocked = true;
+    const stuck = Buffer.alloc(30000, 0x42);
+    client.write(stuck);
+    await h.wait(300);
+    assert.ok(!Buffer.concat(dataOn(trunkA)).includes(stuck), '这段字节此刻必须还没送到，否则没覆盖到要测的场景');
+
+    // ── 干道 A 断（真机：I/O Operation Failed / Steam 5003）──
+    mock.state.emitState({
+      connection: trunkA, newState: STATE.ClosedByPeer,
+      info: { identityRemote: HOST_STEAM_ID, endDebugMessage: 'I/O Operation Failed' },
+    });
+    await h.wait(120);
+    assert.equal(joiner.stats.streamsParked, 1, '那条流应被寄存，等新干道来接');
+    assert.equal(client.destroyed, false, '本机客户端连接必须还活着：半局不能作废');
+
+    // Steam 恢复接收；新干道谈妥，用同一个流号 + 世代 2 重新 OPEN
+    blocked = false;
+    assert.ok(await h.waitFor(() => mock.state.connectedTo.length >= 2, { timeoutMs: 3000 }), '断链后应立刻拉新干道');
+    const trunkB = mock.state.connectedTo[1].handle;
+    mock.state.emitState({ connection: trunkB, newState: STATE.Connected, info: { identityRemote: HOST_STEAM_ID } });
+    mock.state.pushToClient(trunkB, mux.encodeHello());
+    assert.ok(await h.waitFor(
+      () => framesFrom(mock, trunkB, { skipHello: true }).some((f) => f.type === mux.TYPE.Open && f.generation === 2),
+      { timeoutMs: 3000 },
+    ), '新干道上要用同一个流号、世代 +1 重新 OPEN');
+
+    client.write('LAST-SEGMENT');
+    await h.waitFor(() => Buffer.concat(dataOn(trunkB)).length >= 'LAST-SEGMENT'.length, { timeoutMs: 3000 });
+    await h.wait(120);
+
+    const wire = Buffer.concat([...dataOn(trunkA), ...dataOn(trunkB)]);
+    const expected = Buffer.concat([first, stuck, Buffer.from('LAST-SEGMENT')]);
+    assert.equal(wire.length, expected.length,
+      `送到对端的字节数必须与写进去的完全一致：少了 ${expected.length - wire.length} 字节 —— 这段就是干道断开时被吞掉的`);
+    assert.ok(wire.equals(expected), '送到对端的字节流必须逐字节一致：不允许有空洞或重复');
+    assert.equal(joiner.stats.dropped, 0, '可靠流上不允许计任何 dropped');
+    assert.ok(!events.some((e) => e.type === 'stream-left' && e.payload?.kind === 'TunnelClosed'),
+      '干道断链不该产生 TunnelClosed 的流事件：流从来没断过');
+  } finally {
+    client?.destroy();
     await joiner.stop();
   }
 });
