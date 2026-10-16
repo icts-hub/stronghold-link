@@ -80,7 +80,7 @@
             "copyright_holder": "本项目作者（见 git 历史）",
             "license": "GPL-3.0-only",
             "license_evidence": "新增文件属于本项目源码，受根目录 LICENSE（GPL-3.0）覆盖；文件中不含任何来自第三方的代码片段",
-            "sha256": "711c88da3a7d39083eb2c2e041aa9aec2a6299cdaf896d918acf4f1b4e140e99",
+            "sha256": "a51eb20232235d52858f1689677e985a92d9511b979cac229a9a1254c8f2654e",
             "modified": true,
             "included_in_release": true,
             "redistribution_status": "OK",
@@ -240,7 +240,7 @@
             },
             {
                 "path": "app_qml/main.cpp",
-                "sha256": "711c88da3a7d39083eb2c2e041aa9aec2a6299cdaf896d918acf4f1b4e140e99"
+                "sha256": "a51eb20232235d52858f1689677e985a92d9511b979cac229a9a1254c8f2654e"
             },
             {
                 "path": "app_qml/backendbridge.h",
@@ -252,15 +252,15 @@
             },
             {
                 "path": "app_qml/qml.qrc",
-                "sha256": "16ec6d0155f30e942f7c88b412e7f86d6c3f3918e40cca5e344df0eb26085e2f"
+                "sha256": "4071b7920c3d3dfd1626cc25a1334619aa22e484b90d2cdc0dbc64198566d918"
             },
             {
                 "path": "app_qml/qml/Main.qml",
-                "sha256": "1ced2ba10c6627d434f68ea78902f4e70f5b0805fdbaa3617029bfd8b6802f9e"
+                "sha256": "3920f5ebafcf38f163e0ffc8e7c93b1363eec685d5711c11df8c2427100d40d8"
             },
             {
                 "path": "app_qml/qml/theme.js",
-                "sha256": "0b40b078bc4e8c042a26e9b1be38ee1fd8c584dad6cec638978743a196afddb3"
+                "sha256": "731bcb3b9117a8746adf0e67d77a3d79f2355f99ec90534c375a69818ba45b50"
             },
             {
                 "path": "app_qml/qml/logic.js",
@@ -268,19 +268,19 @@
             },
             {
                 "path": "app_qml/qml/Pages/SessionPage.qml",
-                "sha256": "d5a8386e020d10b436e962cdc340197ea63c8954c0442faeaad682da94b003f6"
+                "sha256": "3cba4cdd6f3ed6f84ebf84ac874887f5e702b99ace08e29d8d97dcdb03717772"
             },
             {
                 "path": "app_qml/qml/Pages/FriendsPage.qml",
-                "sha256": "756c8c64ad135b0a4b6b27955f43101378aa97b59b9efb6ea86f4955b0b0bca0"
+                "sha256": "5e11aac9276eb198835073b5c1f0767c18a8a303bce89b7a10e3f469cccde773"
             },
             {
                 "path": "app_qml/qml/Pages/SettingPage.qml",
-                "sha256": "f7f815bbba905ddc12119d5f9ad9ef9b40b75171b201e362c7d86f303eda99c3"
+                "sha256": "be89ba77c30963e41c4574b64191768faaea347c29c2474bddd720a005b7e886"
             },
             {
                 "path": "app_qml/qml/Components/HeroPlate.qml",
-                "sha256": "0d37016e07c8793dc89e3ecd3b7f11ec88fe7e6592f706fd6205f0b1f2c760c0"
+                "sha256": "e460d86a7e0b00b550e9d7dbf3c942085e54e208c05e149f279220aad2b62f3f"
             },
             {
                 "path": "app_qml/qml/plate/sketch.js",
@@ -298,7 +298,7 @@
             },
             {
                 "path": "backend/business.cjs",
-                "sha256": "cd26e630e6359d162458ce4d266d650826d7eee1b2cd260d328d8e7ce5661a06"
+                "sha256": "f4c3f1e5dd94984e85472770c38ee2a3bc2fc99f86bccc16d64bf087ecbb6ed8"
             }
         ],
         "qa-screenshots": [

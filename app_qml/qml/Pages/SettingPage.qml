@@ -10,6 +10,9 @@ Item {
 
     property bool active: true
     property int motionTier: 2
+    // 切页入场：外壳（Main.qml 的 revealPage）会把这两个属性一起写下去。
+    property bool revealed: true
+    property bool ambient: true
 
     signal notice(string text, bool bad)
     signal motionTierPicked(int tier)
@@ -195,17 +198,22 @@ Item {
 
                 // 三栏并排：刊头（左，226px）· 图版（中，正方形）· 运行读数（右，176px）。
                 // 宽高比锁正方形，Canvas 的宽高比与作图空间一致，图上的圆与方不会被拉变形。
-                RecordPlate {
+                // 主纹样系统 = 模板 C（鸟群 + 坐标轴 + 几何轨迹）：这一页是诊断与参数，
+                // 用坐标网、角度刻度、分区编号与一条轨迹上的鸟群，把"技术"与"象征"接在一起。
+                MotifPlate {
                     id: settingPlate
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.horizontalCenterOffset: 30
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.height, parent.width - 2 * 260)
                     height: width
+                    template: "C"
                     active: page.active !== false
+                    revealed: page.revealed !== false
+                    ambient: page.ambient !== false
                     seed: 131
                     mark: "03"
-                    legend: "SETTING · DOSSIER · DIAGNOSTICS · STRONGHOLD LINK · "
+                    caption: "TRAJECTORY"
                 }
 
                 // ── 左半：刊头 ─────────────────────────────────────────────

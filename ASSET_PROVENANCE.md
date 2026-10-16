@@ -86,17 +86,17 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | 文件 | sha256 |
 | --- | --- |
 | `app_qml/app_qml.pro` | `72c2ddc91388367e3222c37f52bfbec8c3146c2ed43e5d16483ecfe79f294b20` |
-| `app_qml/main.cpp` | `711c88da3a7d39083eb2c2e041aa9aec2a6299cdaf896d918acf4f1b4e140e99` |
+| `app_qml/main.cpp` | `a51eb20232235d52858f1689677e985a92d9511b979cac229a9a1254c8f2654e` |
 | `app_qml/backendbridge.h` | `c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd` |
 | `app_qml/backendbridge.cpp` | `59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb` |
-| `app_qml/qml.qrc` | `16ec6d0155f30e942f7c88b412e7f86d6c3f3918e40cca5e344df0eb26085e2f` |
-| `app_qml/qml/Main.qml` | `1ced2ba10c6627d434f68ea78902f4e70f5b0805fdbaa3617029bfd8b6802f9e` |
-| `app_qml/qml/theme.js` | `0b40b078bc4e8c042a26e9b1be38ee1fd8c584dad6cec638978743a196afddb3` |
+| `app_qml/qml.qrc` | `4071b7920c3d3dfd1626cc25a1334619aa22e484b90d2cdc0dbc64198566d918` |
+| `app_qml/qml/Main.qml` | `3920f5ebafcf38f163e0ffc8e7c93b1363eec685d5711c11df8c2427100d40d8` |
+| `app_qml/qml/theme.js` | `731bcb3b9117a8746adf0e67d77a3d79f2355f99ec90534c375a69818ba45b50` |
 | `app_qml/qml/logic.js` | `afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77` |
-| `app_qml/qml/Pages/SessionPage.qml` | `d5a8386e020d10b436e962cdc340197ea63c8954c0442faeaad682da94b003f6` |
-| `app_qml/qml/Pages/FriendsPage.qml` | `756c8c64ad135b0a4b6b27955f43101378aa97b59b9efb6ea86f4955b0b0bca0` |
-| `app_qml/qml/Pages/SettingPage.qml` | `f7f815bbba905ddc12119d5f9ad9ef9b40b75171b201e362c7d86f303eda99c3` |
-| `app_qml/qml/Components/HeroPlate.qml` | `0d37016e07c8793dc89e3ecd3b7f11ec88fe7e6592f706fd6205f0b1f2c760c0` |
+| `app_qml/qml/Pages/SessionPage.qml` | `3cba4cdd6f3ed6f84ebf84ac874887f5e702b99ace08e29d8d97dcdb03717772` |
+| `app_qml/qml/Pages/FriendsPage.qml` | `5e11aac9276eb198835073b5c1f0767c18a8a303bce89b7a10e3f469cccde773` |
+| `app_qml/qml/Pages/SettingPage.qml` | `be89ba77c30963e41c4574b64191768faaea347c29c2474bddd720a005b7e886` |
+| `app_qml/qml/Components/HeroPlate.qml` | `e460d86a7e0b00b550e9d7dbf3c942085e54e208c05e149f279220aad2b62f3f` |
 | `app_qml/qml/plate/sketch.js` | `289ed1c68622af87825244952f60d707c3c181f48fb2f531a6a21066e2b65f67` |
 | `app_qml/qml/plate/hero.js` | `cb7cadd4b4c925b6aa7bd4e40bb97f0ff2464d529cadebcbed56c88f7b84699a` |
 | `app_qml/qml/Pages/SettingPage.qml` | `d286af92487deb29281046fe1a770d7d541b95117a37e670b9669d65ffb63342` |
@@ -111,7 +111,7 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | 文件 | sha256 |
 | --- | --- |
 | `backend/stronghold-backend.cjs` | `4f0768101db4d3df6e5ab2262a35f853288617fa7f429ad365a0f5961b20f79b` |
-| `backend/business.cjs` | `cd26e630e6359d162458ce4d266d650826d7eee1b2cd260d328d8e7ce5661a06` |
+| `backend/business.cjs` | `f4c3f1e5dd94984e85472770c38ee2a3bc2fc99f86bccc16d64bf087ecbb6ed8` |
 
 `network/` 下 33 个 `.cjs` 未改动，仍是同一份 GPL-3.0 源码。
 

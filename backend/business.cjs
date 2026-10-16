@@ -71,6 +71,8 @@ function createBusiness({
     || path.join(env.APPDATA || baseDir, 'stronghold-link'));
   const profilesPath = path.join(dataDir, 'game-profiles.json');
   const settingsPath = path.join(dataDir, 'settings.json');
+  // 引语模块的收藏与上次看到哪一条：和其它配置一样放在数据目录里，重启后还在。
+  const quotesPath = path.join(dataDir, 'quotes.json');
   const logPath = path.join(dataDir, 'startup.log');
 
   let sessionNetConfig = null;      // 线路档位覆盖（null = 不覆盖，跟随环境变量）
@@ -150,6 +152,138 @@ function createBusiness({
       applySettingToSession({ ...DEFAULT_SETTINGS });
       return { ...DEFAULT_SETTINGS };
     }
+  }
+
+  // ------------------------------------------------------------ 引语模块
+  // 只存"哪些收藏了"和"上次停在第几条"，引语正文在前端 quotes.js 里（改文案不用动存储）。
+  const MAX_FAVORITES = 800;
+
+  async function readQuotes() {
+    try {
+      const raw = JSON.parse(await fs.readFile(quotesPath, 'utf8'));
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { favorites: [], last: 0 };
+      const favorites = Array.isArray(raw.favorites)
+        ? raw.favorites.filter((k) => typeof k === 'string' && k.length <= 120).slice(0, MAX_FAVORITES)
+        : [];
+      const last = Number.isInteger(raw.last) && raw.last >= 0 ? raw.last : 0;
+      return { favorites, last };
+    } catch { return { favorites: [], last: 0 }; }
+  }
+
+  async function writeQuotes(raw) {
+    const favorites = raw && Array.isArray(raw.favorites)
+      ? raw.favorites.filter((k) => typeof k === 'string' && k.length <= 120).slice(0, MAX_FAVORITES)
+      : [];
+    const last = raw && Number.isInteger(raw.last) && raw.last >= 0 ? raw.last : 0;
+    await fs.mkdir(dataDir, { recursive: true });
+    const temp = `${quotesPath}.tmp`;
+    await fs.writeFile(temp, JSON.stringify({ favorites, last }, null, 2), 'utf8');
+    await fs.rename(temp, quotesPath);
+    return { favorites, last };
+  }
+
+  // ------------------------------------------------ 引语模块：联网自动补齐
+  // 前端 quotes.js 里那 39 条是"离线兜底"，这里从公开接口抓真正来自各种著作的句子：
+  //   一言（hitokoto.cn）的 k=哲学 / d=文学 / i=诗词；今日诗词（jinrishici.com）的古诗文。
+  // 抓到的东西落在 quotes-cache.json，key 直接沿用接口给的 uuid（今日诗词用内容哈希）——
+  // 收藏存的是 key，所以缓存被裁掉之后收藏也不会指错条目。
+  const quotesCachePath = path.join(dataDir, 'quotes-cache.json');
+  const MAX_QUOTE_CACHE = 600;
+  const QUOTE_TIMEOUT = 7000;
+  const KIND_BY_HITOKOTO = { k: '哲学', d: '文学', i: '诗歌' };
+
+  async function fetchJson(url) {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(QUOTE_TIMEOUT),
+      headers: { 'user-agent': 'StrongholdLink/0.14.5 (QML console; quote module)' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }
+
+  function tidyQuoteText(text) {
+    return String(text === undefined || text === null ? '' : text).replace(/\s+/g, ' ').trim().slice(0, 240);
+  }
+
+  function quoteFromHitokoto(raw) {
+    const text = tidyQuoteText(raw && raw.hitokoto);
+    if (!text) return null;
+    return {
+      key: `hk-${tidyQuoteText(raw.uuid) || text.slice(0, 24)}`,
+      kind: KIND_BY_HITOKOTO[raw.type] || '文学',
+      who: tidyQuoteText(raw.from_who) || '佚名',
+      work: tidyQuoteText(raw.from) || '未详',
+      text,
+      src: '一言',
+    };
+  }
+
+  function quoteFromJinrishici(raw) {
+    const text = tidyQuoteText(raw && raw.content);
+    if (!text) return null;
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    return {
+      key: `jr-${hash.toString(16)}`,
+      kind: '诗歌',
+      who: tidyQuoteText(raw.author) || '佚名',
+      work: tidyQuoteText(raw.origin) || '未详',
+      text,
+      src: '今日诗词',
+    };
+  }
+
+  async function readQuoteCache() {
+    try {
+      const raw = JSON.parse(await fs.readFile(quotesCachePath, 'utf8'));
+      const items = Array.isArray(raw && raw.items) ? raw.items : [];
+      return items.filter((it) => it && typeof it.key === 'string' && typeof it.text === 'string')
+        .slice(-MAX_QUOTE_CACHE);
+    } catch { return []; }
+  }
+
+  async function writeQuoteCache(items) {
+    const trimmed = items.slice(-MAX_QUOTE_CACHE);
+    await fs.mkdir(dataDir, { recursive: true });
+    const temp = `${quotesCachePath}.tmp`;
+    await fs.writeFile(temp, JSON.stringify({ items: trimmed }, null, 2), 'utf8');
+    await fs.rename(temp, quotesCachePath);
+    return trimmed;
+  }
+
+  // 抓一批：一轮四个来源并行（三类各一条 + 一首古诗文），谁挂了都不影响别人；
+  // 全都失败就返回空 items —— 前端继续用本地那批，界面上不会空掉。
+  async function fetchQuotes(params) {
+    const want = Math.max(1, Math.min(30, Number.isInteger(params && params.count) ? params.count : 8));
+    const cache = await readQuoteCache();
+    const seenKey = new Set(cache.map((it) => it.key));
+    const seenText = new Set(cache.map((it) => it.text));
+    const fresh = [];
+    const errors = [];
+    const rounds = Math.max(1, Math.ceil(want / 4));
+    for (let round = 0; round < rounds && fresh.length < want; round += 1) {
+      const jobs = [
+        fetchJson('https://v1.hitokoto.cn/?c=k&encode=json').then(quoteFromHitokoto),
+        fetchJson('https://v1.hitokoto.cn/?c=d&encode=json').then(quoteFromHitokoto),
+        fetchJson('https://v1.hitokoto.cn/?c=i&encode=json').then(quoteFromHitokoto),
+        fetchJson('https://v1.jinrishici.com/all.json').then(quoteFromJinrishici),
+      ];
+      const settled = await Promise.allSettled(jobs);
+      for (const one of settled) {
+        if (one.status !== 'fulfilled') {
+          const why = one.reason && (one.reason.message || one.reason.name);
+          if (errors.length < 3 && why) errors.push(String(why).slice(0, 80));
+          continue;
+        }
+        const item = one.value;
+        if (!item || seenKey.has(item.key) || seenText.has(item.text)) continue;
+        seenKey.add(item.key);
+        seenText.add(item.text);
+        fresh.push(item);
+      }
+    }
+    const merged = fresh.length > 0 ? await writeQuoteCache(cache.concat(fresh)) : cache;
+    return { items: fresh, cached: merged.length, errors };
   }
 
   async function readProfiles() {
@@ -437,6 +571,9 @@ function createBusiness({
     },
     'profiles.load': async () => readProfiles(),
     'profiles.save': async (params) => writeProfiles(params),
+    'quotes.load': async () => readQuotes(),
+    'quotes.save': async (params) => writeQuotes(params),
+    'quotes.fetch': async (params) => fetchQuotes(params),
 
     'adapters.list': async () => {
       const running = session.state === 'running';

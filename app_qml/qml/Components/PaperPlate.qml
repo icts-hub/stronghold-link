@@ -6,6 +6,12 @@ import "../theme.js" as T
 Item {
     id: plate
 
+    // 切页入场标记：外壳（Main.qml 的 revealPage）依次把 revealed 置 false → true
+    property bool revealed: true
+
+    opacity: revealed ? 1 : 0
+    Behavior on opacity { NumberAnimation { duration: T.DUR_ENTER; easing.type: Easing.OutCubic } }
+
     property color paperColor: T.PAPER
     property bool showGrid: true
     property bool showRulers: true

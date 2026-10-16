@@ -11,6 +11,16 @@ import "../plate/record.js" as RECORD
 Item {
     id: root
 
+    // 切页入场标记：外壳（Main.qml 的 revealPage）依次把 revealed 置 false → true
+    property bool revealed: true
+
+    opacity: revealed ? 1 : 0
+    Behavior on opacity { NumberAnimation { duration: T.DUR_ENTER; easing.type: Easing.OutCubic } }
+    transform: Translate {
+        x: revealed ? 0 : -T.LIFT
+        Behavior on x { NumberAnimation { duration: T.DUR_ENTER + 60; easing.type: Easing.OutQuint } }
+    }
+
     property int seed: 131
     property string legend: "SETTING · DOSSIER · DIAGNOSTICS · STRONGHOLD LINK · "
     property string mark: "03"

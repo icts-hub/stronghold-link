@@ -10,6 +10,10 @@ Item {
 
     property bool active: true
     property int motionTier: 2
+    // 切页入场：外壳（Main.qml 的 revealPage）会把这两个属性一起写下去，
+    // 页面里的版画与纹样图版据此错峰显现 / 关掉常驻动效。
+    property bool revealed: true
+    property bool ambient: true
 
     // ── 表单状态 ───────────────────────────────────────────────────────
     property string role: "host"
@@ -259,12 +263,18 @@ Item {
                 Layout.preferredHeight: 486
                 Layout.minimumHeight: 380
 
-                HeroPlate {
+                // 主纹样系统 = 模板 A（鸟群 + 圣徽 + 留白）：整页由这一套纹样主导，
+                // 左半的刊头正好落在它留出的负空间里。旧的 HeroPlate 构图已被取代。
+                MotifPlate {
                     anchors.fill: parent
-                    active: page.active !== false
+                    template: "A"
                     seed: 61
+                    cxRatio: 0.635
                     mark: "S"
-                    legend: "SESSION · FRIENDS · SETTING · STRONGHOLD LINK · "
+                    sealText: "STRONGHOLD LINK · TUNNEL CONSOLE · "
+                    active: page.active !== false
+                    revealed: page.revealed !== false
+                    ambient: page.ambient !== false
                 }
 
                 // ── 左半：刊头 ────────────────────────────────────────────

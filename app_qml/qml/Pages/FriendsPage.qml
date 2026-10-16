@@ -11,6 +11,9 @@ Item {
 
     property bool active: true
     property int motionTier: 2
+    // 切页入场：外壳（Main.qml 的 revealPage）会把这两个属性一起写下去。
+    property bool revealed: true
+    property bool ambient: true
 
     signal notice(string text, bool bad)
 
@@ -242,16 +245,21 @@ Item {
                 // 现在把它当一个正方形版心摆在中间：作图区 1000x1000 的映射关系不变，
                 // 盘心落在版心正中，两边各让出各自的地盘，谁也不压谁。
                 // 宽高比锁正方形，所以 Canvas 的宽高比与作图空间一致 —— 圆盘不会被拉成椭圆。
-                ConstellationPlate {
+                // 主纹样系统 = 模板 B（羽翼 + 圣堂拱框）：对称的拱形结构居中，
+                // 两侧羽片由短到长、留空隙；刊头与实时读数分列左右，互不遮挡。
+                MotifPlate {
                     id: friendPlate
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.height, parent.width - 2 * 220)
                     height: width
+                    template: "B"
                     active: page.active !== false
+                    revealed: page.revealed !== false
+                    ambient: page.ambient !== false
                     seed: 97
                     mark: "F"
-                    legend: "FRIENDS · STEAM LOBBY · PRESENCE · STRONGHOLD LINK · "
+                    caption: "STEAM LOBBY"
                 }
 
                 // ── 左半：刊头 ─────────────────────────────────────────────

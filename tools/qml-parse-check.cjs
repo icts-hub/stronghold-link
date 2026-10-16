@@ -39,8 +39,13 @@ if (fs.existsSync(qtGuess)) candidates.push(qtGuess)
 const run = (bin, file) => {
   const r = spawnSync(bin, [file], { encoding: 'utf8', windowsHide: true })
   if (r.error) return { missing: true }
-  const out = `${r.stdout || ''}${r.stderr || ''}`
-  return { bad: /Parsed invalid file|Expected token|Unexpected token/i.test(out), out }
+  const err = r.stderr || ''
+  // 判定只看两件事：退出码，以及 **stderr** 上的解析错误字样。
+  // 为什么不能连 stdout 一起 grep：qmlformat 会把格式化后的全文打到 stdout，
+  // 而源码注释里完全可能出现 "Expected token" 这类字样（这个坑真踩过：一句解释
+  // 解析器报错的注释，让 qml-parse-check 永久误报 Main.qml 语法不过）。
+  const parsed = /Parsed invalid file|Expected token|Unexpected token/i.test(err)
+  return { bad: r.status !== 0 || parsed, out: `${r.stdout || ''}${err}` }
 }
 
 let bin = null

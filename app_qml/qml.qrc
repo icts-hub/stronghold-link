@@ -7,7 +7,9 @@
         <file>qml/plate/hero.js</file>
         <file>qml/plate/people.js</file>
         <file>qml/plate/record.js</file>
+        <file>qml/plate/motifs.js</file>
         <file>qml/Components/HeroPlate.qml</file>
+        <file>qml/Components/MotifPlate.qml</file>
     <file>qml/Components/WingMark.qml</file>
     <file>qml/Components/FlowField.qml</file>
         <file>qml/Components/ConstellationPlate.qml</file>
@@ -21,6 +23,11 @@
         <file>qml/Components/FieldInput.qml</file>
         <file>qml/Components/ChoiceRow.qml</file>
         <file>qml/Components/NavBar.qml</file>
+        <file>qml/Components/WindowBar.qml</file>
+        <file>qml/Components/EdgeGrip.qml</file>
+        <file>qml/Components/Sweep.qml</file>
+        <file>qml/Components/QuoteLine.qml</file>
+        <file>qml/quotes.js</file>
         <file>qml/Components/Constellation.qml</file>
         <file>qml/Components/PersonPlate.qml</file>
         <file>qml/Components/Meter.qml</file>

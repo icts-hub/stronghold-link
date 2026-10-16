@@ -1,10 +1,10 @@
 .pragma library
 
 // ══════════════════════════════════════════════════════════════════════════
-// Stronghold Link — QML 设计令牌与确定性手绘几何
-// 设计语言按参考项目 the-masses-travels 的公开描述重新实现（纸张/墨色/钴蓝、
-// 手绘圆环与直尺线、过冲收笔、半调网点）。这里全部是自写代码，不复制上游源码。
-// 所有随机量都由固定种子驱动：界面静止时不会抖动。
+// Stronghold Link — QML 设计令牌与确定性手绘几
+// 设计语言按参考项目 the-masses-travels 的公开描述重新实现（纸张/墨色/钴蓝
+// 手绘圆环与直尺线、过冲收笔、半调网点）。这里全部是自写代码，不复制上游源码
+// 所有随机量都由固定种子驱动：界面静止时不会抖动
 // ══════════════════════════════════════════════════════════════════════════
 
 var PAPER = "#e9ecec"
@@ -15,7 +15,7 @@ var COBALT = "#3a5bc2"
 var HIGHLIGHT = "#2a3fff"
 var AZURE = "#4c92d4"
 // 参考界面里那个高饱和的亮蓝（圆盘上的笔触、小方块与标条尾块）用的就是 HIGHLIGHT
-// 的色值；ACCENT 是它在图版里的语义别名，别改成一个新颜色，否则图版会跟参考跑偏。
+// 的色值；ACCENT 是它在图版里的语义别名，别改成一个新颜色，否则图版会跟参考跑偏
 var ACCENT = HIGHLIGHT
 var LINE = "#9aa1a5"
 var LINE_SOFT = "#c2c8ca"
@@ -27,13 +27,54 @@ var FONT_DISPLAY = "Georgia"
 var FONT_MONO = "Consolas"
 var FONT_SANS = "Segoe UI"
 // 中文衬线：参考界面的中文标题用的是思源宋体一系的衬线字。本机没有字体文件，
-// 所以按可用性依次回退（都是 Windows 自带字体族，不需要随包分发字体）。
+// 所以按可用性依次回退（都是 Windows 自带字体族，不需要随包分发字体）
 var FONT_SERIF_CN = "Noto Serif SC, Source Han Serif SC, SimSun, NSimSun, serif"
 
 var PAD = 26
 var HAIR = 1
 var CUT = 12
 var RADIUS = 2
+
+// ── 动效令牌 ──────────────────────────────────────────────────────────────
+// 参考项目的按钮过渡 0.22s、位移动效 0.3s，入场用 cubic-bezier(.19,1,.22,1)
+// （一条很陡的 ease-out，QML 侧用 OutQuint/OutExpo 近似）。这里统一成毫秒
+var DUR_PRESS = 120      // 按下
+var DUR_HOVER = 180      // 悬停
+var DUR = 240            // 颜色 / 透明
+var DUR_ENTER = 420      // 切页与部件入
+var STAGGER = 48         // 同页部件的错峰间
+var LIFT = 16            // 入场时的横向位移（像素，设计坐标）
+// ── 斜切与擦除（《明日方舟》那套界面语汇）────────────────────────────────
+// 那块界面最认得出的三件事：① 一切色块都是平行四边形（斜切），没有纯矩形"高亮"；
+// ② 内容不是淡入的，是被一条硬边"擦"出来的，擦除前沿压一道比底色更亮的细线；
+// ③ 快出缓收 —— 0.15~0.35 秒，OutExpo/OutQuint，偶尔带一点点过冲。
+// SKEW 是斜切量：每 1 单位高度在 x 方向偏移多少（负数是向右下斜）
+var SKEW = -0.20
+var DUR_WIPE = 320       // 面板被擦出来的时
+var DUR_SWEEP = 560      // 全屏扫过（切页时
+var DUR_MOVE = 340       // 高亮条滑
+var STAGGER_WIPE = 55    // 面板之间的擦除错峰
+// ── 间距 / 骨架 ────────────────────────────────────────────────────────────
+var GAP_S = 8
+var GAP = 14
+var GAP_L = 22
+var CHROME_H = 40         // 自绘标题栏高度（不参与版面缩放）
+var TOPBAR_H = 84         // 版面内的品牌顶栏
+var BOTTOM_H = 78         // 版面内的底部导航
+var MAX_SCALE = 1.8       // 版面缩放上限：2560x1440 屏上把 1440x900 放大铺满。
+// ── 层次：阴影三层叠加（软件渲染也画得出来，不用着色器）──────────────────
+var SHADOW_1 = 0.10
+var SHADOW_2 = 0.055
+var SHADOW_3 = 0.03
+// 面板底色：自上而下极轻微的渐变，让"纸"有厚度而不是一块纯色
+var PANEL_TOP = "#f4f6f4"
+var PANEL_BOTTOM = "#e7eae9"
+// 顶栏 / 底栏这类"浮在版面上的框架"，比纸略亮一
+var FRAME_TOP = "#f6f8f6"
+var FRAME_BOTTOM = "#e4e8e7"
+// 悬停时压在按钮上的那层极淡的雾（参考项目 .line-button:hover）
+var HOVER_VEIL = "#14738c8b"
+var PRESS_VEIL = "#1a22282b"
 
 function rng(seed) {
     var s = (seed | 0) || 1
@@ -55,7 +96,7 @@ function hashSeed(text) {
     return (h >>> 0) || 1
 }
 
-// 手绘圆环：半径叠两层正弦扰动，收口处略过冲；固定种子 → 每次一样
+// 手绘圆环：半径叠两层正弦扰动，收口处略过冲；固定种子 → 每次一
 function ringPoints(cx, cy, r, seed, opts) {
     opts = opts || {}
     var n = opts.steps || 220
@@ -118,7 +159,7 @@ function dots(w, h, step, seed) {
     return out
 }
 
-// 节点星图：确定性布点 + 就近连线（好友页的星座图）
+// 节点星图：确定性布点 + 就近连线（好友页的星座图
 function constellation(items, w, h, seed) {
     var rand = rng(seed)
     var nodes = []

@@ -1,3 +1,4 @@
+#include <QDir>
 #include <QFile>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -6,6 +7,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QStringList>
 #include <QTextStream>
 #include <QTimer>
@@ -74,6 +76,10 @@ int main(int argc, char *argv[])
     if (scanArg(argc, argv, "--text") == QLatin1String("native"))
         QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
 
+    // 高 DPI：不做取整（125% / 150% 缩放时按真实比例走）。默认策略会把缩放因子
+    // 四舍五入到整数，2560x1440@125% 这类屏幕上窗口尺寸与字号都会跳一下。
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Stronghold Link"));
     app.setApplicationDisplayName(QStringLiteral("Stronghold Link"));
@@ -98,6 +104,21 @@ int main(int argc, char *argv[])
     // 流动背景的组成部分开关（位掩码 1=网点带 2=细流 4=扫光 8=星点，默认 15 全开）。
     // 这是排查用的：整层一起上会让进程崩，需要把四组元素分别关掉定位是哪一组。
     int flowParts = 15;
+    // 强制"窗口模式"（1440x900 居中窗口，带自绘标题栏）。不给这个开关时，没有 --size
+    // 的启动会铺满主屏可用区 —— 2560x1440 这类屏上原来只开 1440x900 一块，看起来就是
+    // "分辨率不对"。
+    bool forceWindowed = false;
+    // 动效验收：把窗口连续截成一串帧（默认 40ms 一帧），用来拼 GIF / 逐帧核对动画。
+    // 配合 --cycle <ms> 使用：切页那一刻的擦除、转场带、导航条橡皮筋都能被逐帧抓住。
+    QString framesDir;
+    int framesCount = 0;
+    int framesIntervalMs = 40;
+    // 引语卡片：验收截图时直接开着窗口起（命令行开关，正常运行不走这条路）
+    bool openQuotes = false;
+    // 性能实测：--perf <秒> 打开逐帧探针，结束时在日志里打印
+    // 帧数 / 平均帧时间 / p95 / 最差一帧 / 等效 FPS（用于"性能可控"这条验收）。
+    double perfSeconds = 0.0;
+    bool sheetMode = false;
 
     for (int i = 1; i < args.size(); ++i) {
         const QString a = args.at(i);
@@ -110,6 +131,12 @@ int main(int argc, char *argv[])
             grabPath = takeNext();
         } else if (a == QLatin1String("--delay")) {
             delayMs = takeNext().toInt();
+        } else if (a == QLatin1String("--frames")) {
+            framesDir = takeNext();
+        } else if (a == QLatin1String("--frames-count")) {
+            framesCount = takeNext().toInt();
+        } else if (a == QLatin1String("--frames-interval")) {
+            framesIntervalMs = takeNext().toInt();
         } else if (a == QLatin1String("--gpu")) {
             allowGpu = true;
         } else if (a == QLatin1String("--cycle")) {
@@ -126,6 +153,15 @@ int main(int argc, char *argv[])
             flowLevel = takeNext();
         } else if (a == QLatin1String("--flow-parts")) {
             flowParts = takeNext().toInt();
+        } else if (a == QLatin1String("--windowed")) {
+            forceWindowed = true;
+        } else if (a == QLatin1String("--open-quotes")) {
+            openQuotes = true;
+        } else if (a == QLatin1String("--perf")) {
+            perfSeconds = takeNext().toDouble();
+        } else if (a == QLatin1String("--sheet")) {
+            // 纹样样张模式：窗口里并排铺开四种组合模板，配合 --grab 出设计验收图
+            sheetMode = true;
         }
     }
 
@@ -135,6 +171,26 @@ int main(int argc, char *argv[])
             width = qMax(640, parts.at(0).trimmed().toInt());
             height = qMax(480, parts.at(1).trimmed().toInt());
         }
+    }
+
+    // 初始几何：给了 --size（验收截图）或 --windowed 就是居中窗口；否则铺满主屏可用区
+    // （win 上"可用区"已经排除了任务栏 —— 无边框窗口不能靠 showMaximized 铺满，那样会
+    // 盖住任务栏）。QML 侧 x/y/width/height 直接读这几个上下文属性。
+    const QScreen *screen = QGuiApplication::primaryScreen();
+    const QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1440, 900);
+    const bool windowed = forceWindowed || !sizeSpec.isEmpty();
+    int posX = 0;
+    int posY = 0;
+    bool startMaximized = false;
+    if (windowed) {
+        posX = avail.x() + qMax(0, (avail.width() - width) / 2);
+        posY = avail.y() + qMax(0, (avail.height() - height) / 2);
+    } else {
+        width = avail.width();
+        height = avail.height();
+        posX = avail.x();
+        posY = avail.y();
+        startMaximized = true;
     }
 
     if (!grabPath.isEmpty() && !allowGpu) {
@@ -149,6 +205,11 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("initialPage"), pageKey);
     engine.rootContext()->setContextProperty(QStringLiteral("initialWidth"), width);
     engine.rootContext()->setContextProperty(QStringLiteral("initialHeight"), height);
+    engine.rootContext()->setContextProperty(QStringLiteral("initialX"), posX);
+    engine.rootContext()->setContextProperty(QStringLiteral("initialY"), posY);
+    engine.rootContext()->setContextProperty(QStringLiteral("initialMaximized"), startMaximized);
+    engine.rootContext()->setContextProperty(QStringLiteral("screenAvailableWidth"), avail.width());
+    engine.rootContext()->setContextProperty(QStringLiteral("screenAvailableHeight"), avail.height());
     engine.rootContext()->setContextProperty(QStringLiteral("cycleIntervalMs"), cycleMs);
     engine.rootContext()->setContextProperty(QStringLiteral("cycleLimit"), cycleCount);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionStartDelayMs"), sessionStartMs);
@@ -159,13 +220,24 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("flowPhaseLocked"), flowPhase >= 0.0);
     engine.rootContext()->setContextProperty(QStringLiteral("flowLevelOverride"), flowLevel);
     engine.rootContext()->setContextProperty(QStringLiteral("flowPartsMask"), flowParts);
+    engine.rootContext()->setContextProperty(QStringLiteral("initialQuoteOpen"), openQuotes);
+    engine.rootContext()->setContextProperty(QStringLiteral("perfSeconds"), perfSeconds);
+    engine.rootContext()->setContextProperty(QStringLiteral("sheetMode"), sheetMode);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
-    qInfo("startup: platform=%s qmlWarnings=%d page=%s size=%dx%d",
+    qInfo("startup: platform=%s qmlWarnings=%d page=%s size=%dx%d windowed=%d",
           qPrintable(QGuiApplication::platformName()),
           int(engine.rootObjects().isEmpty()),
           qPrintable(pageKey.isEmpty() ? QStringLiteral("session") : pageKey),
           width,
-          height);
+          height,
+          int(windowed));
+    qInfo("startup: screen=%s available=%dx%d at %d,%d dpr=%.2f",
+          qPrintable(screen ? screen->name() : QStringLiteral("(none)")),
+          avail.width(),
+          avail.height(),
+          avail.x(),
+          avail.y(),
+          screen ? screen->devicePixelRatio() : 0.0);
     if (engine.rootObjects().isEmpty())
         return 1;
 
@@ -210,8 +282,35 @@ int main(int argc, char *argv[])
         });
     }
 
-    const int rc = app.exec();
-    qInfo("exit: rc=%d", rc);
+    // 动效逐帧验收：等 delayMs 之后开始连续截帧，每 framesIntervalMs 一帧，共 framesCount 帧。
+    // 帧文件是 frame-0000.png 这样的定宽序号，按名字排序就是播放顺序。
+    if (!framesDir.isEmpty() && framesCount > 0 && window) {
+        QTimer::singleShot(delayMs, &app, [window, framesDir, framesCount, framesIntervalMs, &app]() {
+            QDir().mkpath(framesDir);
+            auto *ticker = new QTimer(&app);
+            auto *taken = new int(0);
+            QObject::connect(ticker, &QTimer::timeout, &app, [window, framesDir, framesCount, taken, ticker, &app]() {
+                if (*taken >= framesCount) {
+                    ticker->stop();
+                    qInfo("frames: 共写出 %d 帧到 %s", *taken, qPrintable(framesDir));
+                    app.exit(0);
+                    return;
+                }
+                window->requestUpdate();
+                const QImage shot = window->grabWindow();
+                const QString path = QStringLiteral("%1/frame-%2.png")
+                                         .arg(framesDir)
+                                         .arg(*taken, 4, 10, QLatin1Char('0'));
+                if (!shot.isNull() && shot.save(path, "PNG"))
+                    *taken += 1;
+                else
+                    qWarning("frames: 第 %d 帧写失败", *taken);
+            });
+            ticker->start(framesIntervalMs);
+        });
+    }
+
+    const int rc = app.exec();    qInfo("exit: rc=%d", rc);
     bridge.stop();
     return rc;
 }
