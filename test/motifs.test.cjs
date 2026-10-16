@@ -166,6 +166,86 @@ test('★ 转场纹样（模板 D）必须压在最上层，且不被进场缓�
   assert.match(plate, /renderStrategy:\s*root\.renderMode/, 'MotifPlate 的 renderStrategy 没接到 renderMode');
 });
 
+test('★ 鸟群要"浩浩荡荡"：鸟够多、铺得开、而且是多股不是一列', () => {
+  // 用户口径原话："鸟多一点，繁杂一点，不要只有一列，要浩浩荡荡的，那种鸟群"。
+  // 这类要求只能量出来：用一个"假 canvas"跑 motifs.js，数 bird() 里那次 destination-out
+  // （每只鸟恰好一次），就能拿到每张图的真实鸟数与它们的落点分布。
+  const vm = require('node:vm');
+  const src = read('app_qml/qml/plate/motifs.js').replace(/^\s*\.pragma\s+library\s*$/m, '');
+
+  const makeCtx = () => {
+    const st = { birds: [], a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    const stack = [];
+    const mul = (m) => {
+      const { a, b, c, d, e, f } = st;
+      st.a = a * m.a + c * m.b; st.b = b * m.a + d * m.b;
+      st.c = a * m.c + c * m.d; st.d = b * m.c + d * m.d;
+      st.e = a * m.e + c * m.f + e; st.f = b * m.e + d * m.f + f;
+    };
+    const noop = () => {};
+    const ctx = {
+      canvas: { width: 980, height: 520 },
+      save() { stack.push({ ...st }); },
+      restore() { const s = stack.pop(); if (s) Object.assign(st, s); },
+      translate(x, y) { mul({ a: 1, b: 0, c: 0, d: 1, e: x, f: y }); },
+      rotate(r) { const co = Math.cos(r), si = Math.sin(r); mul({ a: co, b: si, c: -si, d: co, e: 0, f: 0 }); },
+      scale(x, y) { mul({ a: x, b: 0, c: 0, d: y, e: 0, f: 0 }); },
+      setTransform: noop, resetTransform: noop, transform: noop,
+      beginPath: noop, closePath: noop, moveTo: noop, lineTo: noop, arc: noop, arcTo: noop, ellipse: noop,
+      rect: noop, quadraticCurveTo: noop, bezierCurveTo: noop, stroke: noop, fill: noop, clip: noop,
+      fillRect: noop, strokeRect: noop, clearRect: noop, setLineDash: noop, reset: noop,
+      measureText: () => ({ width: 8 }), fillText: noop, strokeText: noop,
+      createLinearGradient: () => ({ addColorStop: noop }),
+      createRadialGradient: () => ({ addColorStop: noop }),
+      createPattern: () => null, drawImage: noop, getLineDash: () => [],
+    };
+    Object.defineProperty(ctx, 'globalCompositeOperation', {
+      get: () => st.gco || 'source-over',
+      set: (v) => { st.gco = v; if (v === 'destination-out') st.birds.push({ x: st.e, y: st.f }); },
+    });
+    Object.defineProperty(ctx, 'globalAlpha', { get: () => 1, set: noop });
+    ctx.__birds = () => st.birds;
+    return ctx;
+  };
+
+  const sandbox = { Math, console };
+  vm.createContext(sandbox);
+  vm.runInContext(src + '\n;globalThis.__api = { templateA: templateA, templateB: templateB, templateC: templateC, flock: flock };',
+    sandbox);
+  const api = sandbox.__api;
+
+  const draw = (fn, w = 980, h = 520, opt = { seed: 61, t: 1, phase: 0 }) => {
+    const ctx = makeCtx();
+    fn(ctx, w, h, opt);
+    return ctx.__birds();
+  };
+
+  const a = draw(api.templateA);
+  // 现在的量级：模板 A 79 只（原版 33）、C 64 只（原版 14）、B 22 只（原版 7）。
+  // 门槛压在实测值之下留出调整余量，但明显高于"一列小鸟"的旧版 —— 掉回去就会被拦住。
+  assert.ok(a.length >= 60, `模板 A 的鸟太少（${a.length} 只），用户要的是"浩浩荡荡的鸟群"`);
+  const aSpanX = (Math.max(...a.map((b) => b.x)) - Math.min(...a.map((b) => b.x))) / 980;
+  const aSpanY = (Math.max(...a.map((b) => b.y)) - Math.min(...a.map((b) => b.y))) / 520;
+  assert.ok(aSpanX >= 0.6, `模板 A 的鸟横向只铺开 ${(aSpanX * 100).toFixed(0)}%，不够"浩荡"`);
+  assert.ok(aSpanY >= 0.6, `模板 A 的鸟纵向只铺开 ${(aSpanY * 100).toFixed(0)}%，不够"浩荡"`);
+
+  const c = draw(api.templateC, 980, 520, { seed: 131, t: 1, phase: 0 });
+  assert.ok(c.length >= 45, `模板 C 的鸟太少（${c.length} 只）`);
+  assert.ok(draw(api.templateB, 980, 520, { seed: 97, t: 1, phase: 0 }).length >= 14, '模板 B 的穿拱鸟群太少');
+
+  // "不要只有一列"：同一条水平航线、同样的总鸟数，多股编队的法向（y）铺开必须明显更大
+  const spreadY = (streams) => {
+    const birds = draw((ctx, w, h, o) => api.flock(ctx, o), 980, 120,
+      { path: 'line', x0: 20, y0: 60, x1: 960, y1: 60, streams, count: 24, lateral: 120,
+        wander: 6, minGap: 0.24, size: 22, seed: 5, t: 1 });
+    const ys = birds.map((b) => b.y);
+    return Math.max(...ys) - Math.min(...ys);
+  };
+  const one = spreadY(1);
+  const three = spreadY(3);
+  assert.ok(three > one * 2.5, `三股编队的法向铺开（${three.toFixed(0)}px）没有明显大于单列（${one.toFixed(0)}px）—— 又做成一列了`);
+});
+
 test('★ 引语模块：数据集、落盘接口与标题栏一行都在', () => {
   const quotes = read('app_qml/qml/quotes.js');
   const keys = [...quotes.matchAll(/key:\s*["']([^"']+)["']/g)].map((m) => m[1]);

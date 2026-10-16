@@ -582,7 +582,19 @@ function bird(ctx, cx, cy, s, poseKey, ang, r, opt) {
     var sw = s * p.sweep;           // 后掠
     var tl = s * p.tail;            // 尾羽长
     var asym = p.asym || 0;         // 转向：两侧翼展不等
-    var N = 18;
+    // 廉价档：远景鸟与很小的鸟不画"柔光体 + bloom"（这两道是全路径的大面积填充/宽描边，
+    // 一只鸟一半以上的开销在它们身上，而小尺寸下根本看不出差别），曲线采样也从 18 降到 10。
+    // 用户要"浩浩荡荡"就得几十上百只鸟，这一档是把密度做出来又不掉帧的关键。
+    var cheap = far || s <= 30 || !!opt.cheap;
+    if (cheap) {
+        massA = 0;
+        bloomA = 0;
+    }
+    // bloom 是全路径的宽描边，单价最高；只有近景大鸟才吃得到（那里的"柔光边"才看得出来），
+    // 中小尺寸的鸟省掉它 —— 这也是把鸟群做密以后还能保持帧时间的关键之一。
+    if (s < 56 && !opt.forceBloom)
+        bloomA = 0;
+    var N = cheap ? 10 : 18;
     var i, k;
 
     // 身体：胸尖 → 背线 → 尾基 → 腹线 的透镜形
@@ -771,9 +783,74 @@ function cls(k) {
 //   · 同一群里不允许"同姿态 + 同缩放 + 同角度"的机械复制（姿态按下标轮换、大小与朝向带抖动）；
 //   · 鸟与鸟之间强制留间距（叠住了就沿路径方向推开重试，最多 6 次），失败就跳过这一只；
 //   · 路径只是引导线，永远画在鸟下面。
+// 鸟群编队入口。
+//
+// 用户口径（原话）："鸟多一点，繁杂一点，不要只有一列，要浩浩荡荡的，那种鸟群"。
+// 所以这里支持**多股**（streams）：一条主路径上横向错开若干股，每股自己一条弧/一条斜线，
+// 外侧的股更小更淡（深度），每股内部还有上下浮动，合起来才是一片"有厚度的鸟潮"，
+// 而不是一列排开的糖葫芦。仍然是**有意图的路径**（弧线 / 斜线 / 汇聚），不是随机撒点。
+//
+// spec 常用字段：
+//   path: "arc" | "line" | "radial" | "converge" | "scatter"
+//   streams 股数（默认 1）· count 单股鸟数 · lateral 股与股的横向间距
+//   size / sizeMin 单只尺寸与最小比例 · alpha 透明度 · depthFall 外侧股变小的程度
+//   minGap 防重叠系数（默认 0.38，远景层可以给更小值让它叠起来当"雾"）
+// 返回真正画出来的鸟数（防重叠失败的不算）。
 function flock(ctx, spec) {
     var s = spec || {};
+    var streams = Math.max(1, Math.round(s.streams || 1));
+    var placed = [];
     var r = rng(s.seed === undefined ? 7 : s.seed);
+
+    if (streams === 1) {
+        flockBand(ctx, s, r, placed);
+        return placed.length;
+    }
+
+    var total = Math.max(streams, Math.round(s.count || 12));
+    for (var k = 0; k < streams; k++) {
+        var f = k / (streams - 1);                       // 0..1 股序
+        var off = (f - 0.5) * 2;                         // -1..1（两侧对称）
+        var band = {};
+        for (var key in s)
+            band[key] = s[key];
+        band.streams = 1;
+        // 中间股密、外侧股疏：鸟群不是均匀铺开的色块
+        band.count = Math.max(2, Math.round(total * (0.66 + 0.34 * Math.sin(Math.PI * (0.30 + 0.70 * f)))));
+        // 外侧股更远：更小、更淡
+        var depthK = 1 - Math.abs(off) * (s.depthFall === undefined ? 0.42 : s.depthFall);
+        band.size = (s.size || 26) * depthK;
+        band.alpha = (s.alpha === undefined ? 0.56 : s.alpha) * (0.52 + 0.48 * depthK);
+        band.seed = (s.seed === undefined ? 7 : s.seed) + k * 97;
+        band.poseShift = (s.poseShift || 0) + k * 2;
+
+        if (s.path === "line") {
+            // 沿路径法向错开（垂直方向才是"股"）
+            var dx = s.x1 - s.x0;
+            var dy = s.y1 - s.y0;
+            var len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+            var nx = -dy / len;
+            var ny = dx / len;
+            var shift = off * (s.lateral === undefined ? (s.size || 26) * 2.0 : s.lateral);
+            band.x0 = s.x0 + nx * shift;
+            band.y0 = s.y0 + ny * shift;
+            band.x1 = s.x1 + nx * shift;
+            band.y1 = s.y1 + ny * shift;
+            band.bow = (s.bow || 0) * (1 + off * 0.34);
+        } else {
+            // 弧形：半径与起止角都错开
+            band.rad = (s.rad || 200) * (1 + off * (s.radFan === undefined ? 0.11 : s.radFan));
+            band.a0 = (s.a0 === undefined ? Math.PI * 1.05 : s.a0) + off * (s.aFan === undefined ? 0.12 : s.aFan);
+            band.a1 = (s.a1 === undefined ? Math.PI * 1.95 : s.a1) + off * (s.aFan === undefined ? 0.12 : s.aFan);
+        }
+        flockBand(ctx, band, r, placed);
+    }
+    return placed.length;
+}
+
+// 单股：沿一条路径按顺序编排鸟的位置、姿态、大小与透明，并做防重叠。
+// r（随机源）与 placed（已放置表）由 flock 传进来，所以多股之间也互不重叠。
+function flockBand(ctx, s, r, placed) {
     var count = Math.max(1, s.count || 12);
     var poses = s.poses || ["A", "B", "C", "D", "E"];
     var size = s.size || 26;
@@ -783,7 +860,8 @@ function flock(ctx, spec) {
     var rad = s.rad || 200;
     var a0 = (s.a0 === undefined ? Math.PI * 1.05 : s.a0);
     var a1 = (s.a1 === undefined ? Math.PI * 1.95 : s.a1);
-    var placed = [];
+    var gap = s.minGap === undefined ? 0.38 : s.minGap;
+    var drawn = 0;
 
     for (var i = 0; i < count; i++) {
         var t = count === 1 ? 0 : i / (count - 1);
@@ -817,6 +895,12 @@ function flock(ctx, spec) {
             depth = 0.5 + 0.5 * Math.sin(t * Math.PI * 1.3);
         }
 
+        // 单股之内的上下浮动：让每股本身也是一条"有厚度的带"，不是一根线
+        if (s.wander) {
+            x += wob(r, s.wander);
+            y += wob(r, s.wander);
+        }
+
         var scale = size * lerp(s.sizeMin === undefined ? 0.62 : s.sizeMin, 1, 1 - depth) * (1 + wob(r, 0.09));
         var pose = (depth > 0.76 && s.farPose !== false) ? "F" : poses[(i + (s.poseShift || 0)) % poses.length];
         var a = (s.alpha === undefined ? 0.56 : s.alpha) * lerp(0.36, 1, depth);
@@ -826,9 +910,9 @@ function flock(ctx, spec) {
         for (var tries = 0; tries < 6 && !ok; tries++) {
             ok = true;
             for (var j = 0; j < placed.length; j++) {
-                var dx = placed[j].x - x;
-                var dy = placed[j].y - y;
-                if (Math.sqrt(dx * dx + dy * dy) < (placed[j].s + scale) * 0.38) {
+                var ddx = placed[j].x - x;
+                var ddy = placed[j].y - y;
+                if (Math.sqrt(ddx * ddx + ddy * ddy) < (placed[j].s + scale) * gap) {
                     ok = false;
                     break;
                 }
@@ -841,6 +925,7 @@ function flock(ctx, spec) {
         if (!ok)
             continue;
         placed.push({ x: x, y: y, s: scale });
+        drawn++;
 
         bird(ctx, x, y, scale, pose, heading + wob(r, 0.05), r, {
                  line: s.line || (depth > 0.55 ? C.navy : C.iceDeep),
@@ -851,6 +936,7 @@ function flock(ctx, spec) {
                  flap: flap
              });
     }
+    return drawn;
 }
 
 // ══ 子系统二：光环与圣徽 ══════════════════════════════════════════════
@@ -1603,21 +1689,26 @@ function templateA(ctx, w, h, opt) {
     bird(ctx, w * 0.04, h * 1.02, Math.min(w, h) * 0.52, "C", -Math.PI * 0.12, r,
          { alpha: 0.26, lw: 0.8, flap: (o.flap || 0) * 0.6, massAlpha: 0.36, bloomAlpha: 0.18, bloomW: 7 });
 
-    // 主：两群鸟。
-    //   ① 一条对角航线：从画面左下穿到右上，鸟由疏到密（读得出"往哪儿飞"），允许横过圣徽
-    //      —— 鸟是主体，穿环时靠 destination-out 在环上留下干净的剪影；
-    //   ② 贴着圣徽外环的一小队：绕环飞行，起"环绕"的作用。
-    // 尺寸按"整只鸟的翼展"给：主角群 0.165×min(w,h)，环上那一队 0.125，远景群 0.075，靠 depth 再缩放。
-    flock(ctx, { path: "line", x0: w * 0.30, y0: h * 0.96, x1: w * 1.06, y1: h * 0.06, bow: -h * 0.08,
-                 count: 11, size: Math.min(w, h) * 0.170, sizeMin: 0.48, seed: (o.seed || 21) + 3,
+    // 主：浩浩荡荡的一潮鸟（用户口径："鸟多一点，繁杂一点，不要只有一列"）。
+    //   ① 对角主线：三股并行，从画面左下穿到右上，外侧股更小更淡 → 读得出"往哪儿飞"又有厚度；
+    //      鸟是主体，穿环时靠 destination-out 在环上留下干净的剪影；
+    //   ② 贴着圣徽外环的两股：绕环飞行，起"环绕"作用；
+    //   ③ 远景一片：极小、极淡、允许重叠（minGap 调小），当作鸟潮的"雾"，密度靠它撑起来。
+    // 尺寸按"整只鸟的翼展"给：主角群 0.170×min(w,h)，环上 0.125，远景 0.072，靠 depth 再缩放。
+    flock(ctx, { path: "line", x0: w * 0.28, y0: h * 0.99, x1: w * 1.08, y1: h * 0.02, bow: -h * 0.09,
+                 streams: 3, count: 14, lateral: Math.min(w, h) * 0.30, depthFall: 0.46, wander: 10,
+                 size: Math.min(w, h) * 0.170, sizeMin: 0.44, seed: (o.seed || 21) + 3,
                  alpha: 0.82, poses: ["A", "B", "C", "D", "E"], phase: o.phase || 0, flap: o.flap || 0 });
-    flock(ctx, { path: "arc", cx: cx, cy: cy, rad: rad * 1.62, count: 13, size: Math.min(w, h) * 0.125,
-                 a0: Math.PI * 0.90, a1: Math.PI * 1.86, seed: (o.seed || 21) + 9, alpha: 0.68,
-                 sizeMin: 0.50, poses: ["B", "D", "E"], phase: (o.phase || 0) + 0.3 });
-    // 远景小队：贴着画面右上角再压一层，密度上来了，但靠 alpha 与尺寸退到后面
-    flock(ctx, { path: "line", x0: w * 0.56, y0: h * 0.30, x1: w * 1.02, y1: h * 0.01, bow: h * 0.04,
-                 count: 9, size: Math.min(w, h) * 0.075, sizeMin: 0.62, seed: (o.seed || 21) + 17,
-                 alpha: 0.44, poses: ["F", "F", "B"], farPose: true, phase: (o.phase || 0) + 0.6 });
+    flock(ctx, { path: "arc", cx: cx, cy: cy, rad: rad * 1.62, streams: 2, count: 9,
+                 lateral: Math.min(w, h) * 0.16, depthFall: 0.38, wander: 7,
+                 size: Math.min(w, h) * 0.125,
+                 a0: Math.PI * 0.88, a1: Math.PI * 1.88, seed: (o.seed || 21) + 9, alpha: 0.68,
+                 sizeMin: 0.48, poses: ["B", "D", "E"], phase: (o.phase || 0) + 0.3 });
+    // 远景鸟潮：贴右上角那一片，密度上来了，但靠 alpha 与尺寸退到后面
+    flock(ctx, { path: "line", x0: w * 0.48, y0: h * 0.38, x1: w * 1.04, y1: -h * 0.02, bow: h * 0.05,
+                 streams: 3, count: 11, lateral: Math.min(w, h) * 0.13, depthFall: 0.34, wander: 5,
+                 minGap: 0.22, size: Math.min(w, h) * 0.072, sizeMin: 0.58, seed: (o.seed || 21) + 17,
+                 alpha: 0.46, poses: ["F", "F", "B"], farPose: true, phase: (o.phase || 0) + 0.6 });
 
     // 辅助：右下小圆徽（带分区标签）+ 左下一条细测量轴 + 一枚小印记与细规线
     medallion(ctx, w * 0.80, h * 0.74, Math.min(w, h) * 0.046, r,
@@ -1667,9 +1758,10 @@ function templateB(ctx, w, h, opt) {
                                                        len0: 0.26, fillAlpha: 0.26, lineAlpha: 0.42 });
     wing(ctx, wingX, wingY, span, 1, r, { t: t, count: 16, a0: -0.54, a1: 0.46,
                                           len0: 0.26, fillAlpha: 0.26, lineAlpha: 0.42 });
-    // 辅助：一队远景鸟从拱洞里穿过（"鸟群可以穿越拱形空间"），只留剪影，不抢双翼
-    flock(ctx, { path: "line", x0: cx - aw * 0.34, y0: baseY - ah * 0.46, x1: cx + aw * 0.34, y1: baseY - ah * 0.74,
-                 bow: -ah * 0.06, count: 7, size: Math.min(w, h) * 0.070, sizeMin: 0.66,
+    // 辅助：两股远景鸟从拱洞里穿过（"鸟群可以穿越拱形空间"），只留剪影，不抢双翼
+    flock(ctx, { path: "line", x0: cx - aw * 0.40, y0: baseY - ah * 0.44, x1: cx + aw * 0.36, y1: baseY - ah * 0.76,
+                 bow: -ah * 0.07, streams: 2, count: 14, lateral: Math.min(w, h) * 0.075, depthFall: 0.32,
+                 wander: 5, minGap: 0.24, size: Math.min(w, h) * 0.068, sizeMin: 0.62,
                  seed: (o.seed || 33) + 21, alpha: 0.42, poses: ["B", "D", "F"], farPose: true });
 
     // 主：龛位（拱内的小框架）+ 中轴光带
@@ -1733,9 +1825,17 @@ function templateC(ctx, w, h, opt) {
     }
     ctx.stroke();
     ctx.restore();
-    flock(ctx, { path: "line", x0: x0, y0: yBot, x1: x1, y1: yTop, bow: -h * 0.16, count: 14,
-                 size: Math.min(w, h) * 0.115, sizeMin: 0.50, seed: (o.seed || 47) + 5, alpha: 0.70,
+    // 三股并行沿轨迹飞行（同一口径：多股 + 外侧更小更淡 + 股内上下浮动），
+    // 后面再压一层远景小鸟潮把密度撑起来
+    flock(ctx, { path: "line", x0: x0, y0: yBot, x1: x1, y1: yTop, bow: -h * 0.16,
+                 streams: 3, count: 15, lateral: Math.min(w, h) * 0.17, depthFall: 0.42, wander: 8,
+                 size: Math.min(w, h) * 0.115, sizeMin: 0.46, seed: (o.seed || 47) + 5, alpha: 0.70,
                  poses: ["A", "C", "D", "E"], phase: o.phase || 0, flap: o.flap || 0 });
+    flock(ctx, { path: "line", x0: x0 + w * 0.08, y0: yBot - h * 0.10, x1: x1, y1: yTop + h * 0.06,
+                 bow: -h * 0.20, streams: 2, count: 16, lateral: Math.min(w, h) * 0.10, depthFall: 0.30,
+                 wander: 4, minGap: 0.22, size: Math.min(w, h) * 0.062, sizeMin: 0.56,
+                 seed: (o.seed || 47) + 23, alpha: 0.42, poses: ["F", "F", "B"], farPose: true,
+                 phase: (o.phase || 0) + 0.5 });
     halo(ctx, gx, gy, Math.min(w, h) * 0.20, 6, r, { t: t, line: C.cobalt });
     goldenSpiral(ctx, w * 0.76, h * 0.80, Math.min(w, h) * 0.18, 1.4, r, { t: t * 0.7 });
     staffNotation(ctx, w * 0.60, h * 0.90, w * 0.30, r, { t: t * 0.8 });

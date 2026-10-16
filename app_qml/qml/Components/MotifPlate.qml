@@ -32,8 +32,10 @@ Item {
     property string sealText: ""
     property string mark: "S"
     property string caption: ""
-    // 常驻帧率：鸟群滑翔不需要 60fps
-    property int ambientFps: 12
+    // 常驻帧率：鸟群滑翔不需要 60fps。
+    // 鸟群改成"多股 + 远景鸟潮"（一张版心 ~80 只）以后单次重绘变贵，这里从 12 降到 10；
+    // 实测 8/10 两档帧时间一样（瓶颈在单次重绘的单价，不在次数），所以取更顺的 10。
+    property int ambientFps: 10
 
     // 显现进度（0..1）：入场时由 0 缓动到 1
     property real revealT: revealed ? 1 : 0
