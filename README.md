@@ -102,7 +102,9 @@ npm run dist:both   # 两版依次产出
 便携版已实测解压即用：解压到干净目录后运行 `--smoke` 返回 `ok: true`、界面正常、stderr 无输出。
 打包细节与 SDK 放置位置见 [docs/PHASE6-BUILD.md](docs/PHASE6-BUILD.md)。
 已经发布的便携版都在 [Releases](https://github.com/icts-hub/stronghold-link/releases/latest)，
-最新一版是 0.14.4（`Stronghold-Link-0.14.4-portable-win-x64.zip`）。
+最新一版是 **0.14.5**，两个包同版发布：`Stronghold-Link-0.14.5-portable-win-x64.zip`
+（Electron 版，main 这条线）与 `Stronghold-Link-0.14.5-qml-win-x64.zip`
+（QML 前端，来自 `qml-migration` 分支）。
 
 ### 发版（本机只推一个标签）
 
