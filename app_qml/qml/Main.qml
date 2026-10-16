@@ -199,11 +199,11 @@ property string timecode: "00:00:00.0"
     // 题词不再单独占一条：它是标题栏里的一行字，不参与版面缩放、也不占版面空间，
     // 所以这里没有"让位"逻辑（早期那版右侧小条需要 quoteGutter，已经撤掉）。
     //
-    // 缩放下限 MIN_SCALE：窗口再小也不把版面一直缩下去 —— 缩到 0.60 就打住，
-    // 多出来的部分由视口（Flickable）滚动查看（用户反馈"分辨率一小什么都看不清"）。
-    // 取 0.60 而不是更激进的值，是为了 1440x900（原本整页可见，0.608）不回归：
-    // 常规尺寸仍是"一屏看全"，只有更小的窗口才进入可滚动模式。
-    readonly property real minScale: 0.60
+    // 缩放下限 MIN_SCALE：窗口再小也不把版面一直缩下去 —— 缩到 0.72 就打住，
+    // 多出来的部分由视口（Flickable）滚动查看（用户反馈"分辨率一小什么都看不清"，
+    // 并在二选一里选了 b：宁可多滚动也要更大的字，所以从 0.60 抬到 0.72）。
+    // 1440x900 的原始适配是 0.671 < 0.72，会因此进入可滚动模式（比之前略放大、底部需滚）。
+    readonly property real minScale: 0.72
     property real fitScale: Math.max(minScale, Math.min(T.MAX_SCALE,
                                                         (stage.width - 2 * stagePad) / designWidth,
                                                         (stage.height - 2 * stagePad) / designHeight))
@@ -1193,7 +1193,9 @@ Item {
         id: transitionMotifPlate
 
         anchors.fill: parent
-        z: 945
+        // 玫瑰窗是"仪式性转场层"，规范里写的是压在最上层短促显一下再化掉；
+        // 因此必须高过百叶（950）与整窗斜切带（960），否则会被这两层转场遮掉（踩过的坑）。
+        z: 970
         enabled: false
         template: "D"
         seed: 59
@@ -1202,6 +1204,10 @@ Item {
         radScale: 0.34
         opacity: root.transitionMotif * 0.9
         revealT: root.transitionMotif
+        // 转场这一层自己就是 0→1→0 的进度动画，不要再叠 MotifPlate 的进场缓动（会把上升段拖平），
+        // 而且必须逐帧同步重绘，否则动画中间值会被 Canvas 的合并重绘吃掉。
+        animateReveal: false
+        renderMode: Canvas.Immediate
         // 只在转场那 0.9 秒里画：平时 active=false，画布既不重绘也不吃 12fps 心跳
         active: root.awake && root.transitionMotif > 0.001
         ambient: root.motionTier > 0

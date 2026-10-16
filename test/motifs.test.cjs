@@ -136,6 +136,36 @@ test('★ 题词那一行必须画在标题栏之上（z 小于标题栏就会�
     `题词的 z(${quoteZ}) 必须大于标题栏的 z(${chromeZ})：标题栏有不透光纸底，盖住就一个字都看不见`);
 });
 
+test('★ 转场纹样（模板 D）必须压在最上层，且不被进场缓动/合并重绘拖平', () => {
+  const src = read('app_qml/qml/Main.qml');
+  const plate = read('app_qml/qml/Components/MotifPlate.qml');
+
+  // 玫瑰窗是"仪式性转场层"，规范要求压在最上层：z 必须高过百叶(950)与整窗斜切带(960)，
+  // 否则这两层转场会在它上面，把短促闪现的玫瑰窗盖掉（踩过的坑）。
+  const zAfter = (id) => {
+    const at = new RegExp(`^[ \\t]*id:[ \\t]*${id}\\b`, 'm').exec(src);
+    if (!at) return null;
+    const m = /^[ \t]*z:[ \t]*(\d+)/m.exec(src.slice(at.index, at.index + 1200));
+    return m ? Number(m[1]) : null;
+  };
+  const dZ = zAfter('transitionMotifPlate');
+  const blindsZ = zAfter('blinds');
+  const sweepZ = zAfter('pageSweep');
+  assert.ok(dZ !== null && blindsZ !== null && sweepZ !== null, 'Main.qml 里找不到转场层的 z');
+  assert.ok(dZ > Math.max(blindsZ, sweepZ),
+    `转场玫瑰窗 z(${dZ}) 必须高过百叶(${blindsZ})与斜切带(${sweepZ})，否则会被盖掉`);
+
+  // 转场层是自己在 0→1→0 地跑，不能再叠 MotifPlate 的进场缓动（会把上升段拖平），
+  // 而且必须逐帧同步重绘（Immediate），否则 Canvas 的合并重绘会吞掉中间值 —— 两处都踩过坑。
+  const dBlock = src.slice(src.indexOf('id: transitionMotifPlate'), src.indexOf('id: pageSweep'));
+  assert.match(dBlock, /animateReveal:\s*false/, '转场层必须关闭进场缓动 animateReveal: false');
+  assert.match(dBlock, /renderMode:\s*Canvas\.Immediate/, '转场层必须逐帧同步重绘 renderMode: Canvas.Immediate');
+  assert.match(plate, /property bool animateReveal/, 'MotifPlate 缺 animateReveal 开关');
+  assert.match(plate, /property int renderMode/, 'MotifPlate 缺 renderMode 开关');
+  assert.match(plate, /enabled:\s*root\.animateReveal/, 'MotifPlate 的 Behavior 没接到 animateReveal 开关');
+  assert.match(plate, /renderStrategy:\s*root\.renderMode/, 'MotifPlate 的 renderStrategy 没接到 renderMode');
+});
+
 test('★ 引语模块：数据集、落盘接口与标题栏一行都在', () => {
   const quotes = read('app_qml/qml/quotes.js');
   const keys = [...quotes.matchAll(/key:\s*["']([^"']+)["']/g)].map((m) => m[1]);

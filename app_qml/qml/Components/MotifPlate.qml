@@ -38,9 +38,20 @@ Item {
     // 显现进度（0..1）：入场时由 0 缓动到 1
     property real revealT: revealed ? 1 : 0
 
+    // revealT 平时由外层"进场"驱动，这里补一段缓动；但转场纹样（模板 D）是切页那 0.9 秒里
+    // 自己 0→1→0 地跑，再叠一层 Behavior 就会把上升段拖平（实测 t 还没升起来就已经在回落），
+    // 于是那朵玫瑰窗几乎什么都没画出来 —— 所以给它一个开关。
+    property bool animateReveal: true
+
     Behavior on revealT {
+        enabled: root.animateReveal
+
         NumberAnimation { duration: T.DUR_ENTER + 420; easing.type: Easing.OutCubic }
     }
+
+    // 转场纹样要"每一帧都按当前进度画"：Cooperative 会把一串 requestPaint 合并成一次，
+    // 动画过程中的中间值就被吞掉了（实测只画到 t=1 和 t=0 两个端点）。
+    property int renderMode: Canvas.Cooperative
 
     // 滑翔相位：0..1 循环，只影响鸟的位置与展翼幅度
     property real phase: 0
@@ -60,7 +71,7 @@ Item {
         id: canvas
 
         anchors.fill: parent
-        renderStrategy: Canvas.Cooperative
+        renderStrategy: root.renderMode
         antialiasing: true
         // 背景透出纸色，由外层决定底色（Qt 6 的 Canvas 已经不吃 opaque 属性）
 
