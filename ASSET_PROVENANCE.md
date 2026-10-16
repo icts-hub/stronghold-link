@@ -90,7 +90,7 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | `app_qml/backendbridge.h` | `c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd` |
 | `app_qml/backendbridge.cpp` | `59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb` |
 | `app_qml/qml.qrc` | `4071b7920c3d3dfd1626cc25a1334619aa22e484b90d2cdc0dbc64198566d918` |
-| `app_qml/qml/Main.qml` | `3920f5ebafcf38f163e0ffc8e7c93b1363eec685d5711c11df8c2427100d40d8` |
+| `app_qml/qml/Main.qml` | `02d940edfd8b331849743c93787632c4ada40977093caa1c5a6e395dabacaf77` |
 | `app_qml/qml/theme.js` | `731bcb3b9117a8746adf0e67d77a3d79f2355f99ec90534c375a69818ba45b50` |
 | `app_qml/qml/logic.js` | `afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77` |
 | `app_qml/qml/Pages/SessionPage.qml` | `3cba4cdd6f3ed6f84ebf84ac874887f5e702b99ace08e29d8d97dcdb03717772` |

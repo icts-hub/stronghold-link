@@ -30,10 +30,7 @@ Item {
 
     Behavior on reveal { NumberAnimation { duration: T.DUR_HOVER; easing.type: Easing.OutCubic } }
 
-    Component.onCompleted: console.log("[qa-line] root w=" + width + " h=" + height
-                                       + " row=" + row.width + "x" + row.height + " @" + row.x + "," + row.y
-                                       + " ctrls=" + ctrls.width + " body=" + body.width
-                                       + " sign=" + signBox.width + " showT=" + showT + " op=" + opacity)
+    Component.onCompleted: line.reveal = 0
 
     HoverHandler {
         id: hover
@@ -168,16 +165,6 @@ Item {
         to: 1
         duration: 320
         easing.type: Easing.OutCubic
-    }
-
-    Timer {
-        interval: 2500
-        running: true
-        repeat: false
-        onTriggered: console.log("[qa-line2] showT=" + line.showT + " op=" + line.opacity
-                                 + " vis=" + line.visible + " bodyLen=" + body.text.length
-                                 + " bodyW=" + body.width + " bodyOp=" + body.opacity
-                                 + " signW=" + signBox.width)
     }
 
     Timer {

@@ -119,6 +119,23 @@ test('★ 新增的 QML/JS 都登记进 qml.qrc', () => {
   }
 });
 
+test('★ 题词那一行必须画在标题栏之上（z 小于标题栏就会整条被盖掉）', () => {
+  const src = read('app_qml/qml/Main.qml');
+  // 只认"整行就是 z: 数字"的写法：注释里提到的 z:1200 不能算（这个坑第一次写这条断言时就踩了）
+  const zAfter = (id) => {
+    const at = new RegExp(`^[ \\t]*id:[ \\t]*${id}\\b`, 'm').exec(src);
+    if (!at) return null;
+    const m = /^[ \t]*z:[ \t]*(\d+)/m.exec(src.slice(at.index, at.index + 1200));
+    return m ? Number(m[1]) : null;
+  };
+  const chromeZ = zAfter('chrome');
+  const quoteZ = zAfter('quoteLine');
+  assert.ok(chromeZ !== null, 'Main.qml 里找不到标题栏 chrome 的 z');
+  assert.ok(quoteZ !== null, 'Main.qml 里找不到题词 quoteLine 的 z');
+  assert.ok(quoteZ > chromeZ,
+    `题词的 z(${quoteZ}) 必须大于标题栏的 z(${chromeZ})：标题栏有不透光纸底，盖住就一个字都看不见`);
+});
+
 test('★ 引语模块：数据集、落盘接口与标题栏一行都在', () => {
   const quotes = read('app_qml/qml/quotes.js');
   const keys = [...quotes.matchAll(/key:\s*["']([^"']+)["']/g)].map((m) => m[1]);

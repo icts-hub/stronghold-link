@@ -406,18 +406,17 @@ for (var a = 0; a < out.length; ++a) {
     QuoteLine {
         id: quoteLine
 
-        Component.onCompleted: console.log("[qa-quote] pool=" + root.quotePool.length
-                                           + " idx=" + root.quoteIndex
-                                           + " item=" + (root.quotePool[root.quoteIndex] ? root.quotePool[root.quoteIndex].text.slice(0, 10) : "无")
-                                           + " w=" + width + " open=" + root.quoteOpen)
-
         anchors.left: parent.left
-        anchors.leftMargin: 186
+        // 左边让开品牌字与页面名（页面名到 x≈330 结束），右边让开「题词/状态/窗口按钮」
+        // 那一簇（宽度约 510，含外边距），中间这段才是题词能用的空白。
+        anchors.leftMargin: 352
         anchors.top: parent.top
         anchors.topMargin: 0
         height: T.CHROME_H
-        width: Math.max(0, root.width - 186 - 340)
-        z: 400
+        width: Math.max(0, root.width - 352 - 520)
+        // 必须高过标题栏自己（chrome 是 z:1200，它有一层不透光的纸底；题词若压在
+        // 它下面就会被整条盖掉 —— 这一条踩过坑），也高过流动背景与扫描带。
+        z: 1300
         visible: root.quoteOpen
 
         opacity: root.quoteOpen ? 1 : 0

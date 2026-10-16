@@ -256,7 +256,7 @@
             },
             {
                 "path": "app_qml/qml/Main.qml",
-                "sha256": "3920f5ebafcf38f163e0ffc8e7c93b1363eec685d5711c11df8c2427100d40d8"
+                "sha256": "02d940edfd8b331849743c93787632c4ada40977093caa1c5a6e395dabacaf77"
             },
             {
                 "path": "app_qml/qml/theme.js",
