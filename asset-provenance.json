@@ -152,7 +152,7 @@
             "copyright_holder": "本项目作者（见 git 历史）",
             "license": "GPL-3.0-only",
             "license_evidence": "由本项目的 QML 界面用 --grab 开关自行渲染并保存，画面内容全是本项目自己的界面元素；生成脚本 tools/make-shots.cjs",
-            "sha256": "dfa08dc2701794ab279e94171e461fd9f0a2bafc88522fd208c02b63540f2ccf",
+            "sha256": "cb632633c70d891e5d2c77621c77f611b5c95d66b23a31ef033d6901ea098801",
             "modified": false,
             "included_in_release": false,
             "redistribution_status": "OK",
@@ -304,39 +304,39 @@
         "qa-screenshots": [
             {
                 "path": "app_qml/shots/session-1440x900.png",
-                "sha256": "dfa08dc2701794ab279e94171e461fd9f0a2bafc88522fd208c02b63540f2ccf"
+                "sha256": "cb632633c70d891e5d2c77621c77f611b5c95d66b23a31ef033d6901ea098801"
             },
             {
                 "path": "app_qml/shots/friends-1440x900.png",
-                "sha256": "0ae8d6fbffe4e89c4fc944410f9d9d15e601b098c9c2abcfc9cd081dcccaa61e"
+                "sha256": "08862302deccbe75677264298794d986f48b3d503ee23f4c6813f69e8090bfb5"
             },
             {
                 "path": "app_qml/shots/setting-1440x900.png",
-                "sha256": "866e0f59d7db8c5e8d23a8ec7d2c5cbbb9b86442ad9b5ea11f0ccf4d349c57d6"
+                "sha256": "7215105fd554606934a0652a958ac557007d3a7986f6decd8a4238eb3109efaf"
             },
             {
                 "path": "app_qml/shots/session-1280x720.png",
-                "sha256": "8a37474f1603d01d90b6779de6bd23ed3c483c95c7c34e63f7a72beb10fb9890"
+                "sha256": "0579682f3dd0535b67a6bb48652559cb5eb908627dbe5eddb274367a40e308ea"
             },
             {
                 "path": "app_qml/shots/friends-1280x720.png",
-                "sha256": "0d01136604dbe6484d941718cf6950bf710edfd708208aaa9cc1ca61b30da225"
+                "sha256": "89310f347e12473810bfeb40cb9ced3ed76c2ee7964ec4a180d9c0c3ed58b8cf"
             },
             {
                 "path": "app_qml/shots/setting-1280x720.png",
-                "sha256": "d984ab43659484404fbd2e536f2af481a18d5d007d6b6ba8953502032d55602b"
+                "sha256": "bf1138de055b043c8585fbd454ad0bb404c2c5dd62e3ac2ed19eb97c1dabfefb"
             },
             {
                 "path": "app_qml/shots/session-1024x768.png",
-                "sha256": "d52ae86a93fb25a7be9e41f6474b4bede880ef60bae7ba9f3b719bc1db1d82af"
+                "sha256": "825237db9da6c7468754ac8c05e6afbe7d99b2a7786223957958d4c6120c1bb8"
             },
             {
                 "path": "app_qml/shots/friends-1024x768.png",
-                "sha256": "707d9adfee29d9ea86e1297252b5f8f04ee40a59ba6e94eaab36e5d56322b1d4"
+                "sha256": "cce3ac2986c7dc30939e49de8d1954c6ebd6b2e510fbb60eb9ab9c669d23f03f"
             },
             {
                 "path": "app_qml/shots/setting-1024x768.png",
-                "sha256": "215c59f5491f374f1260e14b2f0abce0a20ebc00673f82d61f33d7a51aa67fc7"
+                "sha256": "36fae022ef706b9bec8c40ba58205e87995bf341bc3f53ec74fcff40ec014415"
             }
         ],
         "shipped-third-party-notices": [
