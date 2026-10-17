@@ -2133,23 +2133,22 @@ function templateE(ctx, w, h, opt) {
     //    参考图是 2.32:1 的横幅，这里按铺满宽度、纵向居中放，超出的部分由画布裁掉 ——
     //    形态与参考图逐笔画一致，不是重画的相似款。
     //
-    //    用户要求"把鸟的轮廓描清晰"，做法是给同一批多边形叠三道由粗到细的描边：
-    //      ① 最外一道粗而极淡（宽度 4.2、α0.16）—— 相当于"外扩的软边"，把笔画从白底上托起来；
-    //      ② 中间一道中等（2.0、α0.55）—— 主体轮廓的重量；
-    //      ③ 最内一道细而实（1.05、α1.0、深色 #26374f）—— 真正的"清晰轮廓"。
-    //    三道都只画线（不填充），所以笔画形状一点没变，只是变厚变实了。
-    //    E 是静态模板（MotifPlate.hasMotion=false），多这一道只在显现时付一次代价。
+    //    用户先要求"把轮廓描清晰"，随后要求"轮廓弄细一点"，所以现在是细线三重叠加：
+    //      ① 外扩软边（宽 1.8、α0.12）—— 只用来压住白底、免得太飘；
+    //      ② 中调过渡（宽 1.0、α0.35）—— 抗锯齿过渡，别让细线起毛；
+    //      ③ 清晰轮廓（宽 0.45、α0.92、#2b3c55）—— 真正画出来的那道线，比上一版细一半。
+    //    笔画形状一点没动；E 是静态模板（hasMotion=false），这几道只在显现时付一次代价。
     var artH = w / 2.32;
     var artX = -w * 0.01;
     var artY = (h - artH) * 0.5;
     var artW = w * 1.02;
     var artHH = artH * 1.02;
     tracedArt(ctx, artX, artY, artW, artHH,
-              { t: 1, color: "#5b708c", alpha: 0.16, lineWidth: 4.2, fill: false });
+              { t: 1, color: "#7c8fa8", alpha: 0.12, lineWidth: 1.8, fill: false });
     tracedArt(ctx, artX, artY, artW, artHH,
-              { t: 1, color: "#3d516e", alpha: 0.55, lineWidth: 2.0, fill: false });
+              { t: 1, color: "#4a5f7d", alpha: 0.35, lineWidth: 1.0, fill: false });
     tracedArt(ctx, artX, artY, artW, artHH,
-              { t: 1, color: "#26374f", alpha: 1.0, lineWidth: 1.05 });
+              { t: 1, color: "#2b3c55", alpha: 0.92, lineWidth: 0.45 });
 
     // ⑥ 角落小注（真实文字，不是乱码）：右下两行极小的等宽标注
     ctx.save();
