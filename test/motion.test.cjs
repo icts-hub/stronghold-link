@@ -183,6 +183,9 @@ test('★ 飞鸟图谱背景：非交互、可暂停、已登记进 qrc', () => 
   for (const f of ['qml/Components/FlightAtlasBackground.qml', 'qml/Components/FlightBird.qml']) {
     assert.ok(qrc.includes(f), `qml.qrc 没登记 ${f}`);
   }
-  // 设计坐标系要写清楚（180x145）
-  assert.match(bird, /180/, 'FlightBird 的设计坐标系（180x145）没写进代码');
+  // v3 的鸟型不再有 180x145 设计坐标系（改用截图描摹的 SVG，按 PreserveAspectFit 缩放）——
+  // 改为要求"按比例缩放、不拉伸、异步加载、可缓存"，这才是这一版该守的东西。
+  assert.match(bird, /PreserveAspectFit/, 'FlightBird 没有按比例缩放（会拉伸鸟型）');
+  assert.match(bird, /asynchronous:\s*true/, 'FlightBird 没有异步加载 SVG（会卡首帧）');
+  assert.match(bird, /cache:\s*true/, 'FlightBird 没有开缓存（每帧重新解码 SVG）');
 });
