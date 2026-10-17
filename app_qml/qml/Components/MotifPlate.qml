@@ -58,6 +58,13 @@ Item {
     // 滑翔相位：0..1 循环，只影响鸟的位置与展翼幅度
     property real phase: 0
 
+    // 相位推进**按真实经过时间算**，不是"每个 tick 加一个固定值"。
+    // 旧写法 `phase += 0.0016` 让滑翔速度取决于 Timer 的实际触发频率（掉帧、系统繁忙、
+    // 后台限频都会改速度），同一个动画在不同机器上快慢不同 —— 这是典型的帧率相关动画。
+    // 现在改成：phase += 经过毫秒 / 1000 * phaseSpeed，phaseSpeed 的单位是「每秒走几个循环」。
+    property real phaseSpeed: 0.036        // ≈ 27 秒一个完整滑翔循环
+    property double lastTickMs: 0
+
     // 这张版有没有"常驻动效"。模板 E（白底 + 参考图笔画 + 环状花纹）画完之后是完全静止的，
     // 它单次重绘又特别贵（72 组多边形），所以不给它常驻心跳 —— 只在显现/尺寸变化时画一次。
     readonly property bool hasMotion: root.template !== "E"
@@ -68,8 +75,18 @@ Item {
                  && root.opacity > 0.01 && root.hasMotion
         repeat: true
         onTriggered: {
-            root.phase = (root.phase + 0.0016) % 1
+            var now = Date.now()
+            // 首帧、或从"暂停/最小化"回来（间隔异常大）时不确定起点：直接对齐，不补时间，
+            // 免得恢复瞬间相位突然跳一大段。
+            var dt = root.lastTickMs > 0 ? Math.min(400, now - root.lastTickMs) : 0
+            root.lastTickMs = now
+            if (dt > 0)
+                root.phase = (root.phase + dt / 1000 * root.phaseSpeed) % 1
             canvas.requestPaint()
+        }
+        onRunningChanged: {
+            if (!running)
+                root.lastTickMs = 0
         }
     }
 
@@ -128,7 +145,13 @@ Item {
         var a = mapToItem(null, 0, 0)
         var b = mapToItem(null, width, 0)
         var s = Math.abs(b.x - a.x) / width
-        if (s > 0.05 && Math.abs(s - uiScale) > 0.02) {
+        // 量化到 0.05 一档再比：版面的缩放比会随着"呼吸缩放 / 指针视差 / 切页顶动"连续变化，
+        // 逐帧比较会让每一帧都判定"变了"并 requestPaint —— 那等于把静态图版变成逐帧重绘，
+        // 又贵又会让画布背衬不停重新分配（实测会话页内存 24 秒里从 272 MiB 涨到 469 MiB）。
+        // 量化之后只有真正跨越一档（窗口缩放）才重绘。
+        var q = Math.round(s / 0.05) * 0.05
+        var qOld = Math.round(uiScale / 0.05) * 0.05
+        if (s > 0.05 && Math.abs(q - qOld) > 0.001) {
             uiScale = s
             canvas.requestPaint()
         }

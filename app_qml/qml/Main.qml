@@ -348,6 +348,10 @@ for (var a = 0; a < out.length; ++a) {
         interval: T.STAGGER
         repeat: true
         onTriggered: {
+            // 窗口不可见/最小化时挂起"错峰入场"（队列保留），恢复可见后接着把剩下的部件显出来。
+            // 这里不能用 running 绑定：revealPage() 会 start()/stop()，绑定会被命令式调用打断。
+            if (!root.awake)
+                return
             if (root.revealIndex >= root.revealQueue.length) {
                 stop()
                 return
