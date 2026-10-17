@@ -157,13 +157,16 @@ test('★ 飞鸟图谱背景：非交互、可暂停、已登记进 qrc', () => 
   const bird = read('app_qml/qml/Components/FlightBird.qml');
   const qrc = read('app_qml/qml.qrc');
   const page = read('app_qml/qml/Pages/SessionPage.qml');
+  // 主视觉装饰层现在是 AtlasDecorLayer（visual-layer-only 套件），旧的 FlightAtlasBackground 保留组件但不再入页。
+  const layerSrc = /AtlasDecorLayer\s*\{[\s\S]{0,700}?\n                \}/.exec(page);
+  assert.ok(layerSrc, 'SessionPage 里没有 AtlasDecorLayer 实例');
+  const layer = layerSrc[0];
 
   // 装饰层绝不能吃鼠标
-  assert.match(page, /FlightAtlasBackground\s*\{[\s\S]{0,400}?enabled:\s*false/,
-    'FlightAtlasBackground 没有 enabled: false —— 会挡住按钮/列表/拖拽');
+  assert.match(layer, /enabled:\s*false/, 'AtlasDecorLayer 没有 enabled: false —— 会挡住按钮/列表/拖拽');
   // 动效必须挂在一个开关上（页面可见 + 动效档位），否则最小化/减少动态时还在跑
-  assert.match(page, /FlightAtlasBackground\s*\{[\s\S]{0,600}?motionEnabled:/,
-    'FlightAtlasBackground 的 motionEnabled 没接到页面状态');
+  assert.match(layer, /motionEnabled:/, 'AtlasDecorLayer 的 motionEnabled 没接到页面状态');
+  assert.match(layer, /visible:\s*page\.heroStyle === "atlas"/, 'AtlasDecorLayer 没有跟 heroStyle 联动');
   // 鸟的往复动画必须跟着 motionEnabled
   const driftRuns = (bg.match(/running:\s*root\.motionEnabled/g) || []).length;
   assert.ok(driftRuns >= 2, `只有 ${driftRuns} 处动画挂在 motionEnabled 上（鸟的 x/y 各一处才算完整）`);
