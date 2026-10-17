@@ -89,11 +89,11 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | `app_qml/main.cpp` | `a51eb20232235d52858f1689677e985a92d9511b979cac229a9a1254c8f2654e` |
 | `app_qml/backendbridge.h` | `c9b482175c9c53319831ad1b12f3e265af500c21123061186b3808b7a6314ffd` |
 | `app_qml/backendbridge.cpp` | `59c1b379ba09031c7ebf77181ff2985d224f100b07594a85b97ddcd60f6a3bfb` |
-| `app_qml/qml.qrc` | `4071b7920c3d3dfd1626cc25a1334619aa22e484b90d2cdc0dbc64198566d918` |
-| `app_qml/qml/Main.qml` | `b8ba720d1e6dc8a07cf700f2d46d12551942bad57b7160e0aed3a45e7e2e0c72` |
+| `app_qml/qml.qrc` | `5a03969ddf0837eab7d1a7821d4d5b08a70dc4473b9b14c9d02394a2175d795a` |
+| `app_qml/qml/Main.qml` | `fecd2c19a14c2bd3e9705e093dbfa987881baeab3aa599222edf1bf78226cc76` |
 | `app_qml/qml/theme.js` | `731bcb3b9117a8746adf0e67d77a3d79f2355f99ec90534c375a69818ba45b50` |
 | `app_qml/qml/logic.js` | `afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77` |
-| `app_qml/qml/Pages/SessionPage.qml` | `371b4ee813473a3f07225513e5cd74de41477d040f2a0ae82509ea5f0c80ef47` |
+| `app_qml/qml/Pages/SessionPage.qml` | `561934fab249887a1e47862459915ad848deed0ce605cdd5f2e41a0e96ae168e` |
 | `app_qml/qml/Pages/FriendsPage.qml` | `5e11aac9276eb198835073b5c1f0767c18a8a303bce89b7a10e3f469cccde773` |
 | `app_qml/qml/Pages/SettingPage.qml` | `be89ba77c30963e41c4574b64191768faaea347c29c2474bddd720a005b7e886` |
 | `app_qml/qml/Components/HeroPlate.qml` | `e460d86a7e0b00b550e9d7dbf3c942085e54e208c05e149f279220aad2b62f3f` |

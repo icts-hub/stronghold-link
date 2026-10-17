@@ -14,6 +14,8 @@ Item {
     // 页面里的版画与纹样图版据此错峰显现 / 关掉常驻动效。
     property bool revealed: true
     property bool ambient: true
+    // 主视觉风格："atlas" 飞鸟图谱样板（默认，随本次动效样板接入）/"motif" 原纹样图版 E
+    property string heroStyle: "atlas"
 
     // ── 表单状态 ───────────────────────────────────────────────────────
     property string role: "host"
@@ -263,10 +265,32 @@ Item {
                 Layout.preferredHeight: 486
                 Layout.minimumHeight: 380
 
-                // 主纹样系统 = 模板 A（鸟群 + 圣徽 + 留白）：整页由这一套纹样主导，
-                // 左半的刊头正好落在它留出的负空间里。旧的 HeroPlate 构图已被取代。
+                // ── 主视觉背景：两套语言二选一 ──────────────────────────────
+                // "atlas" = 随本提示词提供的飞鸟图谱样板（FlightAtlasBackground：
+                //           灰青纸面 + 钴蓝竖栏 + 点阵 + 圆弧轨道 + 编号飞鸟 + 微型档案标注），
+                //           做成独立非交互背景层，enabled:false 保证不吃鼠标、不挡控件。
+                // "motif" = 项目原来的纹样图版（模板 E，参考图矢量笔画 + 环状花纹）。
+                // 两套都只读 page.* 的动效开关，不碰业务逻辑。
+                FlightAtlasBackground {
+                    id: atlas
+                    anchors.fill: parent
+                    z: 0
+                    enabled: false
+                    visible: page.heroStyle === "atlas"
+                    // 配色按样板原始设定（灰青纸面 / 线稿蓝 / 钴蓝竖栏）：
+                    // 主视觉因此和白色面板形成"图纸 vs 纸面"的对比，这正是样板的意图。
+                    // 注意 T.NAVY 在 theme.js 里并不存在（之前误用导致 Unable to assign [undefined] to QColor）。
+                    paperColor: "#c6d0cd"
+                    inkColor: "#315d9c"
+                    railColor: "#2055b6"
+                    // 动效总闸：页面不可见 / 档位为"最低" / 外壳判定失焦时停止
+                    motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
+                    motionSpeed: page.motionTier > 1 ? 1.0 : 0.55
+                }
+
                 MotifPlate {
                     anchors.fill: parent
+                    visible: page.heroStyle !== "atlas"
                     // E = 深底「羽兽墙」：照用户给的参考图（冷灰底 + 浅色细线的大鸟叠成一片 +
                     // 左缘深蓝块 + 大圆弧点阵）。A 那套"淡纸面鸟潮"仍保留，换一行就回去。
                     template: "E"

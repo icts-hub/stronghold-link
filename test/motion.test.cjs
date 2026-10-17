@@ -152,3 +152,32 @@ test('★ 失焦/最小化必须停止常驻动效（只放行 bookkeeping 与�
   assert.match(main, /id: hudTimer[\s\S]{0,200}running:\s*root\.animating/,
     'hudTimer（视差/呼吸驱动）没有挂在 animating 上');
 });
+test('★ 飞鸟图谱背景：非交互、可暂停、已登记进 qrc', () => {
+  const bg = read('app_qml/qml/Components/FlightAtlasBackground.qml');
+  const bird = read('app_qml/qml/Components/FlightBird.qml');
+  const qrc = read('app_qml/qml.qrc');
+  const page = read('app_qml/qml/Pages/SessionPage.qml');
+
+  // 装饰层绝不能吃鼠标
+  assert.match(page, /FlightAtlasBackground\s*\{[\s\S]{0,400}?enabled:\s*false/,
+    'FlightAtlasBackground 没有 enabled: false —— 会挡住按钮/列表/拖拽');
+  // 动效必须挂在一个开关上（页面可见 + 动效档位），否则最小化/减少动态时还在跑
+  assert.match(page, /FlightAtlasBackground\s*\{[\s\S]{0,600}?motionEnabled:/,
+    'FlightAtlasBackground 的 motionEnabled 没接到页面状态');
+  // 鸟的往复动画必须跟着 motionEnabled
+  const driftRuns = (bg.match(/running:\s*root\.motionEnabled/g) || []).length;
+  assert.ok(driftRuns >= 2, `只有 ${driftRuns} 处动画挂在 motionEnabled 上（鸟的 x/y 各一处才算完整）`);
+  // 固定对象池：鸟用 Repeater + 固定 spec 数组，点阵也是固定数量
+  assert.match(bg, /Repeater\s*\{[\s\S]{0,120}?model:\s*root\.birdSpecs/, '鸟不是用 Repeater + 固定数组画的');
+  assert.match(bg, /model:\s*144/, '点阵不是固定 144 个（每帧新建对象会漏内存）');
+  // ShapePath 没有 opacity 属性（Qt 6.8），透明度要烘进颜色 alpha
+  assert.ok(!/ShapePath[\s\S]{0,300}?opacity:\s*0?\.\d+/.test(bg),
+    'ShapePath 用了 opacity —— Qt 6.8 不支持，必须把 alpha 烘进 strokeColor');
+  assert.match(bg, /Qt\.rgba\(/, '描边透明度没有用 Qt.rgba() 烘进颜色');
+  // 资源登记
+  for (const f of ['qml/Components/FlightAtlasBackground.qml', 'qml/Components/FlightBird.qml']) {
+    assert.ok(qrc.includes(f), `qml.qrc 没登记 ${f}`);
+  }
+  // 设计坐标系要写清楚（180x145）
+  assert.match(bird, /180/, 'FlightBird 的设计坐标系（180x145）没写进代码');
+});
