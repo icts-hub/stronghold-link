@@ -252,7 +252,7 @@
             },
             {
                 "path": "app_qml/qml.qrc",
-                "sha256": "da1d02e2a83b7608852e59863f7a193028daf5b19451c771ebdbaadf30d28d3d"
+                "sha256": "93f01ea50c0b8e4c61f77df7776a74e306f935e576d085018f4da8f2ed19add1"
             },
             {
                 "path": "app_qml/qml/Main.qml",
@@ -268,7 +268,7 @@
             },
             {
                 "path": "app_qml/qml/Pages/SessionPage.qml",
-                "sha256": "561934fab249887a1e47862459915ad848deed0ce605cdd5f2e41a0e96ae168e"
+                "sha256": "0256d6047afa5082a0cf446fdc22f3d0430a12b90cabeb331f2c2804b6cc03cc"
             },
             {
                 "path": "app_qml/qml/Pages/FriendsPage.qml",

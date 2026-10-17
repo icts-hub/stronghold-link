@@ -271,7 +271,7 @@ Item {
                 //           做成独立非交互背景层，enabled:false 保证不吃鼠标、不挡控件。
                 // "motif" = 项目原来的纹样图版（模板 E，参考图矢量笔画 + 环状花纹）。
                 // 两套都只读 page.* 的动效开关，不碰业务逻辑。
-                FlightAtlasBackground {
+                AtlasDecorLayer {
                     id: atlas
                     anchors.fill: parent
                     z: 0
@@ -280,12 +280,8 @@ Item {
                     // 配色按样板原始设定（灰青纸面 / 线稿蓝 / 钴蓝竖栏）：
                     // 主视觉因此和白色面板形成"图纸 vs 纸面"的对比，这正是样板的意图。
                     // 注意 T.NAVY 在 theme.js 里并不存在（之前误用导致 Unable to assign [undefined] to QColor）。
-                    paperColor: "#c6d0cd"
-                    inkColor: "#315d9c"
-                    railColor: "#2055b6"
                     // 动效总闸：页面不可见 / 档位为"最低" / 外壳判定失焦时停止
                     motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
-                    motionSpeed: page.motionTier > 1 ? 1.0 : 0.55
                 }
 
                 MotifPlate {

@@ -42,5 +42,11 @@
         <file>qml/Pages/SessionPage.qml</file>
         <file>qml/Pages/FriendsPage.qml</file>
         <file>qml/Pages/SettingPage.qml</file>
+        <file>qml/assets/bird-atlas-hero.png</file>
+        <file>qml/assets/bird-scene-vector-trace.svg</file>
+        <file>qml/assets/bird-study-sheet.svg</file>
+        <file>qml/Components/AtlasDecorLayer.qml</file>
+        <file>qml/Components/AtlasBackdrop.qml</file>
+        <file>qml/Components/AtlasHero.qml</file>
     </qresource>
 </RCC>
