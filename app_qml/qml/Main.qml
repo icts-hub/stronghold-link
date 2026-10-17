@@ -35,6 +35,10 @@ Window {
     // 动效档位：2 完整 / 1 标准 / 0 最低。只影响界面装饰，不写后端配置，也不影响会话
 property int motionTier: 2
     readonly property bool awake: root.visible && root.visibility !== Window.Minimized
+    // 动效总闸再收一道：窗口失去焦点（用户在别的程序里）时停掉装饰动画与呼吸/视差驱动，
+    // 但**后端状态轮询仍然按 awake 走** —— 数据要新鲜，画面不用在看不见的时候空转。
+    // 恢复焦点时相位不会跳：MotifPlate 的时间基准在 Timer 停止时已清零（dt 首帧为 0）。
+    readonly property bool animating: awake && root.active
     readonly property int pageIndex: currentPage === "friends" ? 1 : (currentPage === "setting" ? 2 : 0)
 
     property string banner: ""
@@ -141,7 +145,7 @@ property string timecode: "00:00:00.0"
 
         interval: 100
         repeat: true
-        running: root.awake && root.motionTier > 0
+        running: root.animating && root.motionTier > 0
 
         onTriggered: {
             root.uptimeMs += 100
@@ -159,7 +163,7 @@ property string timecode: "00:00:00.0"
 
     SequentialAnimation {
         loops: Animation.Infinite
-        running: root.awake && root.motionTier > 0
+        running: root.animating && root.motionTier > 0
 
         NumberAnimation {
             target: root
@@ -348,9 +352,9 @@ for (var a = 0; a < out.length; ++a) {
         interval: T.STAGGER
         repeat: true
         onTriggered: {
-            // 窗口不可见/最小化时挂起"错峰入场"（队列保留），恢复可见后接着把剩下的部件显出来。
+            // 窗口不可见/最小化/失去焦点时挂起"错峰入场"（队列保留），恢复后接着把剩下的部件显出来。
             // 这里不能用 running 绑定：revealPage() 会 start()/stop()，绑定会被命令式调用打断。
-            if (!root.awake)
+            if (!root.animating)
                 return
             if (root.revealIndex >= root.revealQueue.length) {
                 stop()
@@ -1087,7 +1091,7 @@ Item {
 
                 SequentialAnimation on y {
                     loops: Animation.Infinite
-                    running: root.awake && root.motionTier > 0
+                    running: root.animating && root.motionTier > 0
 
                     NumberAnimation {
                         from: -height
@@ -1312,7 +1316,7 @@ readonly property real eased: 1 - Math.pow(1 - p, 5)
 
             SequentialAnimation on y {
                 loops: Animation.Infinite
-                running: root.awake && root.motionTier > 0
+                running: root.animating && root.motionTier > 0
 
                 NumberAnimation {
                     from: root.height + 10

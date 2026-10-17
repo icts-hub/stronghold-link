@@ -134,15 +134,21 @@ test('★ 失焦/最小化必须停止常驻动效（只放行 bookkeeping 与�
   }
   assert.ok(blocks.length >= 5, `只解析到 ${blocks.length} 个 Timer，解析可能失效`);
 
-  // 允许不挂 awake 的：--cycle 验收定时器（只在命令行开关下跑）、--perf 心跳
+  // 允许不挂 awake/animating 的：--cycle 验收定时器（只在命令行开关下跑）、--perf 心跳
   const bad = [];
   for (const b of blocks) {
     if (!/repeat:\s*true/.test(b)) continue;                    // 一次性定时器不用管
     if (/id:\s*cycleTimer/.test(b)) continue;
     if (/perfOn/.test(b)) continue;
-    if (/awake/.test(b)) continue;
+    if (/awake|animating/.test(b)) continue;
     const idm = /id:\s*(\w+)/.exec(b);
     bad.push(idm ? idm[1] : b.split('\n')[0].trim());
   }
-  assert.deepEqual(bad, [], `这些常驻 Timer 没挂 awake（最小化后还在跑）：${bad.join(', ')}`);
+  assert.deepEqual(bad, [], `这些常驻 Timer 没挂 awake/animating（最小化/失焦后还在跑）：${bad.join(', ')}`);
+
+  // 动效总闸必须是"可见 && 非最小化 && 有焦点"：装饰动画在别的程序抢焦点时停，但状态轮询仍按 awake 走
+  assert.match(main, /readonly property bool animating:\s*awake\s*&&\s*root\.active/,
+    'Main.qml 没有 animating（awake && active）这道动效总闸');
+  assert.match(main, /id: hudTimer[\s\S]{0,200}running:\s*root\.animating/,
+    'hudTimer（视差/呼吸驱动）没有挂在 animating 上');
 });
