@@ -86,7 +86,11 @@ Item {
             property real baseX: modelData.x * root.width - width / 2
             property real baseY: modelData.y * root.height - height / 2
             x: baseX; y: baseY
-            width: Math.max(36, modelData.s * root.width)
+            // 用户口径："把鸟的轮廓描清晰一点，但不要太粗"。
+            // 描摹 SVG 是**填充轮廓**（一条 path、没有 stroke-width），所以清晰度靠两件事：
+            //   ① SVG 填充色 #426a9b → #26476f（线更实，粗细没变）；
+            //   ② 渲染尺寸只放大 6% —— 够让笔画在 1x 屏上更连续，又不会变成"加粗描边"。
+            width: Math.max(38, modelData.s * root.width * 1.06)
             height: width * root.birdRatios[index % root.birdRatios.length]
             z: 2
             serial: (index * 7 + 11) % 43 + 1
