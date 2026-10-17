@@ -14,6 +14,8 @@ Item {
     // 切页入场：外壳（Main.qml 的 revealPage）会把这两个属性一起写下去。
     property bool revealed: true
     property bool ambient: true
+    // 描摹鸟群默认关闭：它会和刊头文字抢地方（用户已否决一次）。要看再打开。
+    property bool showTracedFlock: false
 
     signal notice(string text, bool bad)
 
@@ -249,16 +251,26 @@ Item {
                 // 两侧羽片由短到长、留空隙；刊头与实时读数分列左右，互不遮挡。
                 // 描摹鸟群：用户要求"把这张图的鸟群放到 friends 里"——
                 // 用 bird-01..06.svg（参考截图的矢量化资源）按三股阵型铺开，几何由宿主决定，不进 Layout。
+                // 描摹鸟群：必须与图版**同一个方框**，否则会压到左边的刊头文字（用户已反馈过）。
+                // 几何完全复制 friendPlate：居中正方形、宽 Math.min(h, w-440)，绝不铺满整行。
                 TracedFlock {
-                    anchors.fill: parent
+                    // 只占图版右半的负空间：左边是刊头文字（Friends Roster + 说明 + 按钮），
+                    // 鸟群一旦铺过去就会把文字压成"一坨"（用户已明确否决）。
+                    // 所以这里不 anchors.fill，而是贴着图版右半区摆放，且再压一档透明度。
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: parent.width * 0.46
+                    width: parent.width * 0.30
+                    height: Math.min(parent.height * 0.78, width * 1.6)
                     z: 0
                     enabled: false
                     motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
                     reducedMotion: page.motionTier <= 0
-                    flockOpacity: 0.55
+                    count: 12
+                    flockOpacity: 0.34
                 }
                 MotifPlate {
                     id: friendPlate
+                    z: 1
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.min(parent.height, parent.width - 2 * 220)
