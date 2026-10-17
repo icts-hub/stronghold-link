@@ -239,11 +239,19 @@ test('★ 鸟群要"浩浩荡荡"：鸟够多、铺得开、而且是多股不�
   assert.ok(c.length >= 45, `模板 C 的鸟太少（${c.length} 只）`);
   assert.ok(draw(api.templateB, 980, 520, { seed: 97, t: 1, phase: 0 }).length >= 14, '模板 B 的穿拱鸟群太少');
 
-  // 模板 E（深底「羽兽墙」，照用户给的参考图）：鸟少而大，但要铺满整幅宽幅
-  const e = draw(api.templateE, 1026, 430, { seed: 71, t: 1, phase: 0 });
-  assert.ok(e.length >= 25, `模板 E 的鸟太少（${e.length} 只），叠不成"一片"`);
-  const eSpanX = (Math.max(...e.map((b) => b.x)) - Math.min(...e.map((b) => b.x))) / 1026;
-  assert.ok(eSpanX >= 0.8, `模板 E 的鸟只铺开 ${(eSpanX * 100).toFixed(0)}%，没有横贯整幅`);
+  // 模板 E 不再用 flock：它直接铺参考图矢量化出来的笔画（E_ART），所以这里换一套判据 ——
+  // 笔画多边形够多、并且 templateE 里确实调用了 tracedArt（白底 + 参考图形态 + 环状花纹）。
+  const artMatch = /var E_ART = \[([\s\S]*?)\n\];/.exec(src);
+  assert.ok(artMatch, 'motifs.js 里找不到参考图笔画数据 E_ART');
+  const polyCount = (artMatch[1].match(/\[/g) || []).length;
+  assert.ok(polyCount >= 60, `参考图笔画只矢量化出 ${polyCount} 个多边形，太少（应 ≥60）`);
+  const eStart = src.indexOf('function templateE(');
+  assert.ok(eStart > 0, 'motifs.js 里找不到 templateE');
+  const eRest = src.slice(eStart + 10);
+  const eBody = src.slice(eStart, eStart + 10 + (eRest.indexOf('\nfunction ') >= 0 ? eRest.indexOf('\nfunction ') : eRest.length));
+  assert.match(eBody, /tracedArt\(/, '模板 E 没有铺参考图笔画（没调用 tracedArt）');
+  assert.match(eBody, /halo\(/, '模板 E 缺环状花纹（halo）');
+  assert.ok(eBody.includes('#ffffff'), '模板 E 的底色必须是白色（用户要求）');
 
   // "不要只有一列"：同一条水平航线、同样的总鸟数，多股编队的法向（y）铺开必须明显更大
   const spreadY = (streams) => {

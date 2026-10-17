@@ -58,10 +58,14 @@ Item {
     // 滑翔相位：0..1 循环，只影响鸟的位置与展翼幅度
     property real phase: 0
 
+    // 这张版有没有"常驻动效"。模板 E（白底 + 参考图笔画 + 环状花纹）画完之后是完全静止的，
+    // 它单次重绘又特别贵（72 组多边形），所以不给它常驻心跳 —— 只在显现/尺寸变化时画一次。
+    readonly property bool hasMotion: root.template !== "E"
+
     Timer {
         interval: Math.max(40, Math.round(1000 / Math.max(1, root.ambientFps)))
         running: root.active && root.ambient && root.visible && root.revealed
-                 && root.opacity > 0.01
+                 && root.opacity > 0.01 && root.hasMotion
         repeat: true
         onTriggered: {
             root.phase = (root.phase + 0.0016) % 1
