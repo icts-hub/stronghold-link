@@ -2027,13 +2027,16 @@ function tracedArt(ctx, x, y, w, h, opt) {
             ctx.lineTo(x + poly[i] * w, y + poly[i + 1] * h);
         ctx.closePath();
     }
-    ctx.fill();
+    if (o.fill !== false)
+        ctx.fill();
     // 缩小显示时笔画会被摊薄（1024 宽的笔画放到 700 宽只剩约 1.4px），
     // 所以同一条 path 再描一遍，用线宽把笔画补回来（lw() 里已经含屏幕补偿 PX）。
+    // fill:false 时只描边 —— "把鸟的轮廓描清晰"就是靠这一路叠出来的。
     if (o.stroke !== false) {
         ctx.strokeStyle = color;
         ctx.lineWidth = lw(o.lineWidth === undefined ? 0.7 : o.lineWidth);
         ctx.lineJoin = "round";
+        ctx.lineCap = "round";
         ctx.stroke();
     }
     ctx.restore();
@@ -2129,12 +2132,24 @@ function templateE(ctx, w, h, opt) {
     // ⑤ 参考图笔画：直接铺那张图矢量化出来的鸟（72 个多边形，一次 fill）。
     //    参考图是 2.32:1 的横幅，这里按铺满宽度、纵向居中放，超出的部分由画布裁掉 ——
     //    形态与参考图逐笔画一致，不是重画的相似款。
-    //    白底要"够明显"：取比参考图实测色（#6b7c8d）更深一档的 #3f5570，并把线宽补到 1.0。
-    //    只画**一次**：这套笔画是静态的（模板 E 没有动效），叠加第二层"透光"会让单次重绘翻倍，
-    //    而 MotifPlate 那边已经把 E 的常驻重绘关掉了（hasMotion=false），一次就够。
+    //
+    //    用户要求"把鸟的轮廓描清晰"，做法是给同一批多边形叠三道由粗到细的描边：
+    //      ① 最外一道粗而极淡（宽度 4.2、α0.16）—— 相当于"外扩的软边"，把笔画从白底上托起来；
+    //      ② 中间一道中等（2.0、α0.55）—— 主体轮廓的重量；
+    //      ③ 最内一道细而实（1.05、α1.0、深色 #26374f）—— 真正的"清晰轮廓"。
+    //    三道都只画线（不填充），所以笔画形状一点没变，只是变厚变实了。
+    //    E 是静态模板（MotifPlate.hasMotion=false），多这一道只在显现时付一次代价。
     var artH = w / 2.32;
-    tracedArt(ctx, -w * 0.01, (h - artH) * 0.5, w * 1.02, artH * 1.02,
-              { t: 1, color: "#3f5570", alpha: 0.95, lineWidth: 1.0 });
+    var artX = -w * 0.01;
+    var artY = (h - artH) * 0.5;
+    var artW = w * 1.02;
+    var artHH = artH * 1.02;
+    tracedArt(ctx, artX, artY, artW, artHH,
+              { t: 1, color: "#5b708c", alpha: 0.16, lineWidth: 4.2, fill: false });
+    tracedArt(ctx, artX, artY, artW, artHH,
+              { t: 1, color: "#3d516e", alpha: 0.55, lineWidth: 2.0, fill: false });
+    tracedArt(ctx, artX, artY, artW, artHH,
+              { t: 1, color: "#26374f", alpha: 1.0, lineWidth: 1.05 });
 
     // ⑥ 角落小注（真实文字，不是乱码）：右下两行极小的等宽标注
     ctx.save();
