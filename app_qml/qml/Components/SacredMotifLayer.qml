@@ -19,6 +19,15 @@ Item {
     focus: false
     clip: true
 
+    // 纸面淡染：套件的语境是灰青纸面 + 钴蓝细线；直接铺在近白页面上会单薄，
+    // 所以先压一层极淡的灰青（0.22），再叠线条。纯装饰，enabled:false 继承自父项。
+    Rectangle {
+        anchors.fill: parent
+        color: "#c6d0cd"
+        opacity: 0.22
+    }
+
+
     // Primary flock line art is a transparent pixel extraction of the supplied reference,
     // so the bird silhouettes are not replaced by generic icons.
     // Halo is optional and defaults off: activate only where the existing layout has clear negative space.

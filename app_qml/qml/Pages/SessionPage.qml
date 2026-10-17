@@ -284,7 +284,8 @@ Item {
                     motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
                     reducedMotion: page.motionTier <= 0
                     pageVisible: page.active !== false
-                    sceneOpacity: 0.42
+                    showHalo: true
+                    sceneOpacity: 0.75
                 }
 
                 MotifPlate {
