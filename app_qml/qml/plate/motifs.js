@@ -768,6 +768,22 @@ function bird(ctx, cx, cy, s, poseKey, ang, r, opt) {
             }
         }
     }
+    // ③.5 翼面平行细纹（参考图里那种"羽面刻线"）：沿翼面 4 道，从后缘往前缘画，
+    //      只在 hatch 打开时画 —— 深底大鸟才看得出来，小尺寸只是噪点。
+    if (opt.hatch) {
+        alpha(ctx, a * 0.38);
+        ctx.lineWidth = lw(w * 0.55);
+        for (k = 0; k < wings.length; k++) {
+            for (var hh = 1; hh <= 4; hh++) {
+                var fh = 0.22 + 0.19 * hh;
+                var hi = Math.round(fh * N);
+                ctx.beginPath();
+                ctx.moveTo(wings[k].lead[hi].x, wings[k].lead[hi].y);
+                ctx.lineTo(wings[k].trail[hi].x, wings[k].trail[hi].y);
+                ctx.stroke();
+            }
+        }
+    }
     ctx.restore();
 }
 
@@ -899,6 +915,25 @@ function flockBand(ctx, s, r, placed) {
         if (s.wander) {
             x += wob(r, s.wander);
             y += wob(r, s.wander);
+        }
+
+        // 留在画面里：超出画布的鸟只会被裁掉，却照样吃一次重绘。
+        // 用"镜像折回"而不是硬夹 —— 硬夹会在边框上排出一道鸟墙，折回仍是一团乱中有序的鸟潮。
+        // overhang 允许少量溢出（对应规范里"大剪影被画框裁切"的读法），默认 5%。
+        if (s.w && s.h) {
+            var ov = s.overhang === undefined ? 0.05 : s.overhang;
+            var lx = -s.w * ov;
+            var rx = s.w * (1 + ov);
+            var ty = -s.h * ov;
+            var by = s.h * (1 + ov);
+            if (x < lx)
+                x = lx + (lx - x) * 0.7;
+            else if (x > rx)
+                x = rx - (x - rx) * 0.7;
+            if (y < ty)
+                y = ty + (ty - y) * 0.7;
+            else if (y > by)
+                y = by - (y - by) * 0.7;
         }
 
         var scale = size * lerp(s.sizeMin === undefined ? 0.62 : s.sizeMin, 1, 1 - depth) * (1 + wob(r, 0.09));
@@ -1695,17 +1730,17 @@ function templateA(ctx, w, h, opt) {
     //   ② 贴着圣徽外环的两股：绕环飞行，起"环绕"作用；
     //   ③ 远景一片：极小、极淡、允许重叠（minGap 调小），当作鸟潮的"雾"，密度靠它撑起来。
     // 尺寸按"整只鸟的翼展"给：主角群 0.170×min(w,h)，环上 0.125，远景 0.072，靠 depth 再缩放。
-    flock(ctx, { path: "line", x0: w * 0.28, y0: h * 0.99, x1: w * 1.08, y1: h * 0.02, bow: -h * 0.09,
+    flock(ctx, { path: "line", w: w, h: h, x0: w * 0.28, y0: h * 0.99, x1: w * 1.08, y1: h * 0.02, bow: -h * 0.09,
                  streams: 3, count: 14, lateral: Math.min(w, h) * 0.30, depthFall: 0.46, wander: 10,
                  size: Math.min(w, h) * 0.170, sizeMin: 0.44, seed: (o.seed || 21) + 3,
                  alpha: 0.82, poses: ["A", "B", "C", "D", "E"], phase: o.phase || 0, flap: o.flap || 0 });
-    flock(ctx, { path: "arc", cx: cx, cy: cy, rad: rad * 1.62, streams: 2, count: 9,
+    flock(ctx, { path: "arc", w: w, h: h, cx: cx, cy: cy, rad: rad * 1.62, streams: 2, count: 9,
                  lateral: Math.min(w, h) * 0.16, depthFall: 0.38, wander: 7,
                  size: Math.min(w, h) * 0.125,
                  a0: Math.PI * 0.88, a1: Math.PI * 1.88, seed: (o.seed || 21) + 9, alpha: 0.68,
                  sizeMin: 0.48, poses: ["B", "D", "E"], phase: (o.phase || 0) + 0.3 });
     // 远景鸟潮：贴右上角那一片，密度上来了，但靠 alpha 与尺寸退到后面
-    flock(ctx, { path: "line", x0: w * 0.48, y0: h * 0.38, x1: w * 1.04, y1: -h * 0.02, bow: h * 0.05,
+    flock(ctx, { path: "line", w: w, h: h, x0: w * 0.48, y0: h * 0.38, x1: w * 1.04, y1: -h * 0.02, bow: h * 0.05,
                  streams: 3, count: 11, lateral: Math.min(w, h) * 0.13, depthFall: 0.34, wander: 5,
                  minGap: 0.22, size: Math.min(w, h) * 0.072, sizeMin: 0.58, seed: (o.seed || 21) + 17,
                  alpha: 0.46, poses: ["F", "F", "B"], farPose: true, phase: (o.phase || 0) + 0.6 });
@@ -1759,7 +1794,7 @@ function templateB(ctx, w, h, opt) {
     wing(ctx, wingX, wingY, span, 1, r, { t: t, count: 16, a0: -0.54, a1: 0.46,
                                           len0: 0.26, fillAlpha: 0.26, lineAlpha: 0.42 });
     // 辅助：两股远景鸟从拱洞里穿过（"鸟群可以穿越拱形空间"），只留剪影，不抢双翼
-    flock(ctx, { path: "line", x0: cx - aw * 0.40, y0: baseY - ah * 0.44, x1: cx + aw * 0.36, y1: baseY - ah * 0.76,
+    flock(ctx, { path: "line", w: w, h: h, x0: cx - aw * 0.40, y0: baseY - ah * 0.44, x1: cx + aw * 0.36, y1: baseY - ah * 0.76,
                  bow: -ah * 0.07, streams: 2, count: 14, lateral: Math.min(w, h) * 0.075, depthFall: 0.32,
                  wander: 5, minGap: 0.24, size: Math.min(w, h) * 0.068, sizeMin: 0.62,
                  seed: (o.seed || 33) + 21, alpha: 0.42, poses: ["B", "D", "F"], farPose: true });
@@ -1827,11 +1862,11 @@ function templateC(ctx, w, h, opt) {
     ctx.restore();
     // 三股并行沿轨迹飞行（同一口径：多股 + 外侧更小更淡 + 股内上下浮动），
     // 后面再压一层远景小鸟潮把密度撑起来
-    flock(ctx, { path: "line", x0: x0, y0: yBot, x1: x1, y1: yTop, bow: -h * 0.16,
+    flock(ctx, { path: "line", w: w, h: h, x0: x0, y0: yBot, x1: x1, y1: yTop, bow: -h * 0.16,
                  streams: 3, count: 15, lateral: Math.min(w, h) * 0.17, depthFall: 0.42, wander: 8,
                  size: Math.min(w, h) * 0.115, sizeMin: 0.46, seed: (o.seed || 47) + 5, alpha: 0.70,
                  poses: ["A", "C", "D", "E"], phase: o.phase || 0, flap: o.flap || 0 });
-    flock(ctx, { path: "line", x0: x0 + w * 0.08, y0: yBot - h * 0.10, x1: x1, y1: yTop + h * 0.06,
+    flock(ctx, { path: "line", w: w, h: h, x0: x0 + w * 0.08, y0: yBot - h * 0.10, x1: x1, y1: yTop + h * 0.06,
                  bow: -h * 0.20, streams: 2, count: 16, lateral: Math.min(w, h) * 0.10, depthFall: 0.30,
                  wander: 4, minGap: 0.22, size: Math.min(w, h) * 0.062, sizeMin: 0.56,
                  seed: (o.seed || 47) + 23, alpha: 0.42, poses: ["F", "F", "B"], farPose: true,
@@ -1893,4 +1928,115 @@ function template(ctx, name, w, h, opt) {
         templateC(ctx, w, h, opt);
     else if (name === "D")
         templateD(ctx, w, h, opt);
+    else if (name === "E")
+        templateE(ctx, w, h, opt);
+}
+
+// ══ 模板 E：深底「羽兽墙」（照用户给的参考图）══════════════════════════
+//
+// 参考图读数（用 PIL 量的，不是猜的）：2560×1106（2.31:1 宽幅）、背景是冷灰（亮度均值 158，
+// 主色集中在 #a0a0a0 / #90a0a0），鸟是**浅色细线**（亮线均值 RGB 195,200,204 ≈ #c3c8cc），
+// 左缘压着一块饱和深蓝 #1040a0（占画面 4.5%），背后有大圆弧、点阵与角落小字。
+// 与 A–D 的"淡纸面"是两种明暗调，所以 E 自己铺底，不依赖外层纸色。
+//
+// 构图：三排大鸟（翼展 0.34–0.46×h，互相重叠成一片"墙"）从左下往右上压过去，
+// 前排最亮最实，后排变小变淡；再压一层极淡的远景小鸟潮，把密度撑满整幅。
+function templateE(ctx, w, h, opt) {
+    var o = opt || {};
+    var r = rng(o.seed || 71);
+    var t = o.t === undefined ? 1 : clamp(o.t, 0, 1);
+    var mn = Math.min(w, h);
+    var r0 = w * 0.62;
+    var STROKE = "#c9cfd1";
+    var BODY = "#dde2e3";
+
+    // ① 冷灰底（自上而下微微变暗）
+    ctx.save();
+    var g = ctx.createLinearGradient(0, 0, w * 0.4, h);
+    g.addColorStop(0, "#a9b2b4");
+    g.addColorStop(0.55, "#9aa5a8");
+    g.addColorStop(1, "#8d999c");
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+
+    // ② 背后的点阵（参考图里那层细点网格）—— 别按"每个像素级点都画一遍"来，
+    //    1400 个 arc+fill 单这一项就能吃掉一次重绘的一半时间；按整幅宽给 24 列就够读了。
+    ctx.save();
+    ctx.fillStyle = "#b7bfc1";
+    alpha(ctx, 0.32);
+    var step = Math.max(20, w / 24);
+    for (var gy = step * 0.5; gy < h; gy += step) {
+        for (var gx = step * 0.5; gx < w; gx += step) {
+            ctx.beginPath();
+            ctx.arc(gx, gy, Math.max(0.7, mn * 0.0024), 0, TAU);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+
+    // ③ 大圆弧 + 放射细线（构图骨架，压在鸟后面）
+    ctx.save();
+    ctx.strokeStyle = "#b9c1c4";
+    ctx.lineWidth = lw(1.1);
+    alpha(ctx, 0.5);
+    strokeArc(ctx, w * 0.62, h * 0.52, r0, Math.PI * 0.86, Math.PI * 1.92, r, mn * 0.003);
+    strokeArc(ctx, w * 0.62, h * 0.52, r0 * 0.72, Math.PI * 1.02, Math.PI * 1.94, r, mn * 0.003);
+    alpha(ctx, 0.34);
+    ctx.lineWidth = lw(0.8);
+    for (var k = 0; k < 9; k++) {
+        var a0 = -Math.PI * 0.44 + k * 0.10;
+        var p0 = pol(w * 0.86, h * 0.30, mn * 0.10, a0);
+        var p1 = pol(w * 0.86, h * 0.30, mn * 0.62, a0);
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // ④ 左缘深蓝块：宽幅画面里它负责"压住左边"，让右半的鸟群有地方飞出去
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#1040a0";
+    ctx.fillRect(0, 0, w * 0.085, h);
+    ctx.fillStyle = "#0d3585";
+    ctx.fillRect(0, h * 0.30, w * 0.085, h * 0.05);
+    ctx.fillRect(0, h * 0.70, w * 0.085, h * 0.04);
+    ctx.restore();
+
+    // ⑤ 三排大鸟：前排亮实、后排小淡，允许重叠（minGap 很小）—— 要的就是"一片"而不是"几只"。
+    //    代价要点：这个模板的鸟比 A 大一倍多，单只面积是 A 的 6 倍上下，所以**只只**要省着给：
+    //    实测 45 只 × 0.44h 时每次重绘 55ms（18fps），压到 26 只、前排 0.40h 才回到可用区间。
+    flock(ctx, { path: "line", w: w, h: h, x0: -w * 0.02, y0: h * 1.02, x1: w * 1.02, y1: h * 0.50,
+                 bow: -h * 0.24, streams: 1, count: 6, depthFall: 0.2, wander: h * 0.02,
+                 minGap: 0.12, size: mn * 0.40, sizeMin: 0.7, seed: (o.seed || 71) + 1, alpha: 0.92,
+                 poses: ["A", "A", "B", "C"], line: STROKE, fill: BODY, hatch: true,
+                 phase: o.phase || 0, flap: o.flap || 0 });
+    flock(ctx, { path: "line", w: w, h: h, x0: w * 0.02, y0: h * 1.14, x1: w * 1.02, y1: h * 0.68,
+                 bow: -h * 0.20, streams: 1, count: 7, depthFall: 0.24, wander: h * 0.02,
+                 minGap: 0.11, size: mn * 0.30, sizeMin: 0.62, seed: (o.seed || 71) + 7, alpha: 0.74,
+                 poses: ["A", "B", "C", "D"], line: STROKE, fill: BODY, hatch: true,
+                 phase: (o.phase || 0) + 0.3 });
+    flock(ctx, { path: "line", w: w, h: h, x0: w * 0.06, y0: h * 0.64, x1: w * 1.02, y1: h * 0.04,
+                 bow: -h * 0.12, streams: 1, count: 8, depthFall: 0.28, wander: h * 0.015,
+                 minGap: 0.10, size: mn * 0.20, sizeMin: 0.58, seed: (o.seed || 71) + 13, alpha: 0.56,
+                 poses: ["B", "C", "D", "E"], line: STROKE, fill: BODY, phase: (o.phase || 0) + 0.6 });
+    // 远景小鸟潮：极淡、允许互叠，把密度铺满（这一层是廉价档，单价很低）
+    flock(ctx, { path: "line", w: w, h: h, x0: w * 0.10, y0: h * 0.86, x1: w * 1.04, y1: h * 0.18,
+                 bow: -h * 0.10, streams: 2, count: 6, lateral: h * 0.10, depthFall: 0.28, wander: h * 0.02,
+                 minGap: 0.10, size: mn * 0.115, sizeMin: 0.5, seed: (o.seed || 71) + 23, alpha: 0.34,
+                 poses: ["F", "F", "B"], farPose: true, line: STROKE, phase: (o.phase || 0) + 0.9 });
+
+    // ⑥ 角落小注（真实文字，不是乱码）：右下两行极小的等宽标注
+    ctx.save();
+    ctx.fillStyle = "#c2c9cb";
+    ctx.font = "600 " + Math.max(7, Math.round(mn * 0.020)) + "px \"" + "Consolas" + "\", monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.globalAlpha = 0.62 * t;
+    ctx.fillText("AVIARY  /  FLIGHT VECTOR", w * 0.60, h * 0.80);
+    ctx.fillText((o.label || "MIGRATION") + "  ·  " + (o.mark || "S"), w * 0.60, h * 0.80 + mn * 0.035);
+    ctx.restore();
 }

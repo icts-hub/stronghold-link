@@ -267,7 +267,9 @@ Item {
                 // 左半的刊头正好落在它留出的负空间里。旧的 HeroPlate 构图已被取代。
                 MotifPlate {
                     anchors.fill: parent
-                    template: "A"
+                    // E = 深底「羽兽墙」：照用户给的参考图（冷灰底 + 浅色细线的大鸟叠成一片 +
+                    // 左缘深蓝块 + 大圆弧点阵）。A 那套"淡纸面鸟潮"仍保留，换一行就回去。
+                    template: "E"
                     seed: 61
                     cxRatio: 0.635
                     mark: "S"

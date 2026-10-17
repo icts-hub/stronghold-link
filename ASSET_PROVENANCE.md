@@ -93,7 +93,7 @@ GPL-3.0 要求随二进制分发时提供完整许可证文本，因此分发目
 | `app_qml/qml/Main.qml` | `b8ba720d1e6dc8a07cf700f2d46d12551942bad57b7160e0aed3a45e7e2e0c72` |
 | `app_qml/qml/theme.js` | `731bcb3b9117a8746adf0e67d77a3d79f2355f99ec90534c375a69818ba45b50` |
 | `app_qml/qml/logic.js` | `afae0d3ada031b9a083fece0eba4c00c1f75ca7e9e37a3d093583e7d8c9c0a77` |
-| `app_qml/qml/Pages/SessionPage.qml` | `3cba4cdd6f3ed6f84ebf84ac874887f5e702b99ace08e29d8d97dcdb03717772` |
+| `app_qml/qml/Pages/SessionPage.qml` | `371b4ee813473a3f07225513e5cd74de41477d040f2a0ae82509ea5f0c80ef47` |
 | `app_qml/qml/Pages/FriendsPage.qml` | `5e11aac9276eb198835073b5c1f0767c18a8a303bce89b7a10e3f469cccde773` |
 | `app_qml/qml/Pages/SettingPage.qml` | `be89ba77c30963e41c4574b64191768faaea347c29c2474bddd720a005b7e886` |
 | `app_qml/qml/Components/HeroPlate.qml` | `e460d86a7e0b00b550e9d7dbf3c942085e54e208c05e149f279220aad2b62f3f` |

@@ -210,7 +210,7 @@ test('★ 鸟群要"浩浩荡荡"：鸟够多、铺得开、而且是多股不�
 
   const sandbox = { Math, console };
   vm.createContext(sandbox);
-  vm.runInContext(src + '\n;globalThis.__api = { templateA: templateA, templateB: templateB, templateC: templateC, flock: flock };',
+  vm.runInContext(src + '\n;globalThis.__api = { templateA: templateA, templateB: templateB, templateC: templateC, templateE: templateE, flock: flock };',
     sandbox);
   const api = sandbox.__api;
 
@@ -228,10 +228,22 @@ test('★ 鸟群要"浩浩荡荡"：鸟够多、铺得开、而且是多股不�
   const aSpanY = (Math.max(...a.map((b) => b.y)) - Math.min(...a.map((b) => b.y))) / 520;
   assert.ok(aSpanX >= 0.6, `模板 A 的鸟横向只铺开 ${(aSpanX * 100).toFixed(0)}%，不够"浩荡"`);
   assert.ok(aSpanY >= 0.6, `模板 A 的鸟纵向只铺开 ${(aSpanY * 100).toFixed(0)}%，不够"浩荡"`);
+  // 鸟必须基本都落在画面里：画布外的鸟会被裁掉却照样吃一次重绘，是白烧的帧时间。
+  // flock 传入 w/h 后会把越界的位置镜像折回（允许 5% 溢出），这里要求 90% 以上落在画布内。
+  const inside = a.filter((b) => b.x >= -980 * 0.05 && b.x <= 980 * 1.05
+                                 && b.y >= -520 * 0.05 && b.y <= 520 * 1.05).length;
+  assert.ok(inside / a.length >= 0.9,
+    `只有 ${(100 * inside / a.length).toFixed(0)}% 的鸟落在画面内，其余都被裁掉了（白烧重绘）`);
 
   const c = draw(api.templateC, 980, 520, { seed: 131, t: 1, phase: 0 });
   assert.ok(c.length >= 45, `模板 C 的鸟太少（${c.length} 只）`);
   assert.ok(draw(api.templateB, 980, 520, { seed: 97, t: 1, phase: 0 }).length >= 14, '模板 B 的穿拱鸟群太少');
+
+  // 模板 E（深底「羽兽墙」，照用户给的参考图）：鸟少而大，但要铺满整幅宽幅
+  const e = draw(api.templateE, 1026, 430, { seed: 71, t: 1, phase: 0 });
+  assert.ok(e.length >= 25, `模板 E 的鸟太少（${e.length} 只），叠不成"一片"`);
+  const eSpanX = (Math.max(...e.map((b) => b.x)) - Math.min(...e.map((b) => b.x))) / 1026;
+  assert.ok(eSpanX >= 0.8, `模板 E 的鸟只铺开 ${(eSpanX * 100).toFixed(0)}%，没有横贯整幅`);
 
   // "不要只有一列"：同一条水平航线、同样的总鸟数，多股编队的法向（y）铺开必须明显更大
   const spreadY = (streams) => {
