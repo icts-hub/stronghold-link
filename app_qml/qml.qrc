@@ -57,5 +57,6 @@
         <file>qml/Motion/MotionProfiler.qml</file>
         <file>qml/Motion/MotionFlockLayer.qml</file>
         <file>qml/Motion/MotionMath.js</file>
+        <file>qml/Components/TracedFlock.qml</file>
     </qresource>
 </RCC>

@@ -29,6 +29,9 @@ Item {
     property real radScale: -1
     // 模板 B 的拱宽缩放（0 表示用模板缺省 1）；页面版心不是正方形时用它把拱收窄或放宽
     property real archScale: -1
+    // 鸟由外部描摹鸟群（TracedFlock）提供时，图版只保留结构（拱框/圣徽/羽弧），不再画程序化鸟
+    property bool birdless: false
+
     property string sealText: ""
     property string mark: "S"
     property string caption: ""
@@ -122,6 +125,7 @@ Item {
                 opt.radScale = root.radScale
             if (root.archScale > 0)
                 opt.archScale = root.archScale
+            opt.birdless = root.birdless
             MO.template(ctx, root.template, width, height, opt)
         }
     }

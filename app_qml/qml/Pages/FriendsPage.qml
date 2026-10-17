@@ -247,6 +247,16 @@ Item {
                 // 宽高比锁正方形，所以 Canvas 的宽高比与作图空间一致 —— 圆盘不会被拉成椭圆。
                 // 主纹样系统 = 模板 B（羽翼 + 圣堂拱框）：对称的拱形结构居中，
                 // 两侧羽片由短到长、留空隙；刊头与实时读数分列左右，互不遮挡。
+                // 描摹鸟群：用户要求"把这张图的鸟群放到 friends 里"——
+                // 用 bird-01..06.svg（参考截图的矢量化资源）按三股阵型铺开，几何由宿主决定，不进 Layout。
+                TracedFlock {
+                    anchors.fill: parent
+                    z: 0
+                    enabled: false
+                    motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
+                    reducedMotion: page.motionTier <= 0
+                    flockOpacity: 0.55
+                }
                 MotifPlate {
                     id: friendPlate
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -254,6 +264,7 @@ Item {
                     width: Math.min(parent.height, parent.width - 2 * 220)
                     height: width
                     template: "B"
+                    birdless: true
                     active: page.active !== false
                     revealed: page.revealed !== false
                     ambient: page.ambient !== false

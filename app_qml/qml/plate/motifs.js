@@ -812,7 +812,12 @@ function cls(k) {
 //   size / sizeMin 单只尺寸与最小比例 · alpha 透明度 · depthFall 外侧股变小的程度
 //   minGap 防重叠系数（默认 0.38，远景层可以给更小值让它叠起来当"雾"）
 // 返回真正画出来的鸟数（防重叠失败的不算）。
+// birdless：鸟型由外部描摹鸟群提供时，schematic 鸟一律不画（模板结构照旧）
+var BIRDLESS = false;
+
 function flock(ctx, spec) {
+    if (BIRDLESS)
+        return;
     var s = spec || {};
     var streams = Math.max(1, Math.round(s.streams || 1));
     var placed = [];
@@ -1758,6 +1763,7 @@ function templateA(ctx, w, h, opt) {
 // B：羽翼 + 圣堂拱框（角色 / 核心内容）
 function templateB(ctx, w, h, opt) {
     var o = opt || {};
+    var o = opt || {};
     var r = rng(o.seed || 33);
     var t = o.t === undefined ? 1 : clamp(o.t, 0, 1);
     var cx = w * (o.cxRatio === undefined ? 0.5 : o.cxRatio);
@@ -1919,6 +1925,7 @@ function templateD(ctx, w, h, opt) {
 // opt.scale = 版面画布在屏幕上的实际缩放比（MotifPlate 传进来），用来做屏幕补偿
 function template(ctx, name, w, h, opt) {
     var o = opt || {};
+    BIRDLESS = !!o.birdless;
     PX = clamp(1 / (o.scale > 0 ? o.scale : 1), 1, 2.4);
     if (name === "A")
         templateA(ctx, w, h, opt);
