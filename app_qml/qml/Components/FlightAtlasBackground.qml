@@ -13,6 +13,17 @@ Item {
     property bool showBirdNumbers: true
     property real motionSpeed: 1.0
     property int birdCount: birdSpecs.length
+    // Exact silhouette traces extracted from the supplied reference crop.
+    property var birdSources: [
+        Qt.resolvedUrl("../assets/birds/bird-01.svg"),
+        Qt.resolvedUrl("../assets/birds/bird-02.svg"),
+        Qt.resolvedUrl("../assets/birds/bird-03.svg"),
+        Qt.resolvedUrl("../assets/birds/bird-04.svg"),
+        Qt.resolvedUrl("../assets/birds/bird-05.svg"),
+        Qt.resolvedUrl("../assets/birds/bird-06.svg")
+    ]
+    // Height-to-width ratios come from the six traced source rectangles.
+    property var birdRatios: [95/87, 95/75, 95/103, 95/75, 95/79, 95/104]
 
     // Normalized positions and scale factors preserve composition across window sizes.
     property var birdSpecs: [
@@ -76,12 +87,12 @@ Item {
             property real baseY: modelData.y * root.height - height / 2
             x: baseX; y: baseY
             width: Math.max(36, modelData.s * root.width)
-            height: width * 145 / 180
+            height: width * root.birdRatios[index % root.birdRatios.length]
             z: 2
             serial: (index * 7 + 11) % 43 + 1
-            paperColor: root.paperColor
-            lineColor: root.inkColor
+            source: root.birdSources[index % root.birdSources.length]
             showSerial: root.showBirdNumbers
+            motionEnabled: root.motionEnabled
             rotation: modelData.a
             transformOrigin: Item.Center
 

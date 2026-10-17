@@ -31,6 +31,12 @@
         <file>qml/Components/Constellation.qml</file>
         <file>qml/Components/PersonPlate.qml</file>
         <file>qml/Components/Meter.qml</file>
+        <file>qml/assets/birds/bird-01.svg</file>
+        <file>qml/assets/birds/bird-02.svg</file>
+        <file>qml/assets/birds/bird-03.svg</file>
+        <file>qml/assets/birds/bird-04.svg</file>
+        <file>qml/assets/birds/bird-05.svg</file>
+        <file>qml/assets/birds/bird-06.svg</file>
         <file>qml/Components/FlightAtlasBackground.qml</file>
         <file>qml/Components/FlightBird.qml</file>
         <file>qml/Pages/SessionPage.qml</file>
