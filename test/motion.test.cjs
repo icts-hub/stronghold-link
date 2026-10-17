@@ -169,7 +169,12 @@ test('★ 飞鸟图谱背景：非交互、可暂停、已登记进 qrc', () => 
   assert.ok(driftRuns >= 2, `只有 ${driftRuns} 处动画挂在 motionEnabled 上（鸟的 x/y 各一处才算完整）`);
   // 固定对象池：鸟用 Repeater + 固定 spec 数组，点阵也是固定数量
   assert.match(bg, /Repeater\s*\{[\s\S]{0,120}?model:\s*root\.birdSpecs/, '鸟不是用 Repeater + 固定数组画的');
-  assert.match(bg, /model:\s*144/, '点阵不是固定 144 个（每帧新建对象会漏内存）');
+  assert.match(bg, /model:\s*\d+/, '点阵不是固定数量（每帧新建对象会漏内存）');
+  // v3：鸟型来自截图描摹的 SVG，必须走资源系统（qrc）而不是文件系统绝对路径
+  assert.match(bg, /Qt\.resolvedUrl\("\.\.\/assets\/birds\/bird-0\d\.svg"\)/,
+    '鸟型 SVG 没有用相对资源路径（../assets/birds/bird-0N.svg）');
+  assert.ok(qrc.includes('qml/assets/birds/bird-01.svg') && qrc.includes('qml/assets/birds/bird-06.svg'),
+    '六只鸟的 SVG 没有登记进 qml.qrc（打包后按 qrc 路径加载）');
   // ShapePath 没有 opacity 属性（Qt 6.8），透明度要烘进颜色 alpha
   assert.ok(!/ShapePath[\s\S]{0,300}?opacity:\s*0?\.\d+/.test(bg),
     'ShapePath 用了 opacity —— Qt 6.8 不支持，必须把 alpha 烘进 strokeColor');
