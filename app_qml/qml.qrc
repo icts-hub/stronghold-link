@@ -48,5 +48,8 @@
         <file>qml/Components/AtlasDecorLayer.qml</file>
         <file>qml/Components/AtlasBackdrop.qml</file>
         <file>qml/Components/AtlasHero.qml</file>
+        <file>qml/assets/reference/bird-scene-transparent-overlay.png</file>
+        <file>qml/assets/halos/halo-system.svg</file>
+        <file>qml/Components/SacredMotifLayer.qml</file>
     </qresource>
 </RCC>

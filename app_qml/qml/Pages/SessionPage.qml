@@ -271,7 +271,7 @@ Item {
                 //           做成独立非交互背景层，enabled:false 保证不吃鼠标、不挡控件。
                 // "motif" = 项目原来的纹样图版（模板 E，参考图矢量笔画 + 环状花纹）。
                 // 两套都只读 page.* 的动效开关，不碰业务逻辑。
-                AtlasDecorLayer {
+                SacredMotifLayer {
                     id: atlas
                     anchors.fill: parent
                     z: 0
@@ -282,6 +282,9 @@ Item {
                     // 注意 T.NAVY 在 theme.js 里并不存在（之前误用导致 Unable to assign [undefined] to QColor）。
                     // 动效总闸：页面不可见 / 档位为"最低" / 外壳判定失焦时停止
                     motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
+                    reducedMotion: page.motionTier <= 0
+                    pageVisible: page.active !== false
+                    sceneOpacity: 0.42
                 }
 
                 MotifPlate {

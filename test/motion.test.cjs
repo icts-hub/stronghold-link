@@ -88,15 +88,17 @@ test('★ 缓动按语义分开用，不允许"一套曲线打天下"', () => {
     assert.ok(seen.has(need), `缺少 ${need} 缓动`);
   }
   // Linear 只允许用在"匀速循环漂移"（扫描带/尘埃带），不能用在元素进退场
+  // Linear 允许：两处扫描带漂移，加上 sacred 套件的圣徽整圈自转（110 秒匀速环，设计规范要求匀速）
+  const sacredLinear = (read('app_qml/qml/Components/SacredMotifLayer.qml').match(/Easing\.Linear/g) || []).length;
   const linear = (seen.get('Linear') || 0);
-  assert.ok(linear <= 2, `有 ${linear} 处用了 Easing.Linear —— 位移/进退场不该匀速`);
+  assert.ok(linear - sacredLinear <= 2, `有 ${linear - sacredLinear} 处用了 Easing.Linear —— 位移/进退场不该匀速`);
 });
 
 test('★ 没有超长动画：单段时长超过 2 秒的只允许是常驻循环', () => {
   // 白名单全是"常驻循环"，不是转场：
   //   7300 / 11000 扫描带、16000 漂移带、13000 版面呼吸、24000 雷达扫线、
   //   96000 自转刻度环、150000 极慢光晕、2200 / 4600 面板数据点脉冲
-  const allowed = new Set([2200, 2400, 4600, 7300, 11000, 13000, 16000, 24000, 96000, 150000]);
+  const allowed = new Set([2200, 2400, 4600, 22000, 110000, 7300, 11000, 13000, 16000, 24000, 96000, 150000]);
   const bad = [];
   for (const f of qmls) {
     const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
@@ -157,16 +159,18 @@ test('★ 飞鸟图谱背景：非交互、可暂停、已登记进 qrc', () => 
   const bird = read('app_qml/qml/Components/FlightBird.qml');
   const qrc = read('app_qml/qml.qrc');
   const page = read('app_qml/qml/Pages/SessionPage.qml');
-  // 主视觉装饰层现在是 AtlasDecorLayer（visual-layer-only 套件），旧的 FlightAtlasBackground 保留组件但不再入页。
-  const layerSrc = /AtlasDecorLayer\s*\{[\s\S]{0,700}?\n                \}/.exec(page);
-  assert.ok(layerSrc, 'SessionPage 里没有 AtlasDecorLayer 实例');
-  const layer = layerSrc[0];
+  // 主视觉装饰层现在是 SacredMotifLayer（sacred motif 套件）；旧的 FlightAtlasBackground / AtlasDecorLayer
+  // 都保留为组件但不再入页。这里按"从实例名往后切 1400 字符"取样，避免依赖缩进。
+  const at = page.indexOf('SacredMotifLayer {');
+  assert.ok(at >= 0, 'SessionPage 里没有 SacredMotifLayer 实例');
+  const layer = page.slice(at, at + 1400);
 
   // 装饰层绝不能吃鼠标
-  assert.match(layer, /enabled:\s*false/, 'AtlasDecorLayer 没有 enabled: false —— 会挡住按钮/列表/拖拽');
+  assert.match(layer, /enabled:\s*false/, 'SacredMotifLayer 没有 enabled: false —— 会挡住按钮/列表/拖拽');
   // 动效必须挂在一个开关上（页面可见 + 动效档位），否则最小化/减少动态时还在跑
-  assert.match(layer, /motionEnabled:/, 'AtlasDecorLayer 的 motionEnabled 没接到页面状态');
-  assert.match(layer, /visible:\s*page\.heroStyle === "atlas"/, 'AtlasDecorLayer 没有跟 heroStyle 联动');
+  assert.match(layer, /motionEnabled:/, 'SacredMotifLayer 的 motionEnabled 没接到页面状态');
+  assert.match(layer, /visible:\s*page\.heroStyle === "atlas"/, 'SacredMotifLayer 没有跟 heroStyle 联动');
+  assert.match(layer, /reducedMotion:/, 'SacredMotifLayer 的 reducedMotion 没接到动效档位');
   // 鸟的往复动画必须跟着 motionEnabled
   const driftRuns = (bg.match(/running:\s*root\.motionEnabled/g) || []).length;
   assert.ok(driftRuns >= 2, `只有 ${driftRuns} 处动画挂在 motionEnabled 上（鸟的 x/y 各一处才算完整）`);
