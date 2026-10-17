@@ -243,8 +243,10 @@ test('★ 鸟群要"浩浩荡荡"：鸟够多、铺得开、而且是多股不�
   // 笔画多边形够多、并且 templateE 里确实调用了 tracedArt（白底 + 参考图形态 + 环状花纹）。
   const artMatch = /var E_ART = \[([\s\S]*?)\n\];/.exec(src);
   assert.ok(artMatch, 'motifs.js 里找不到参考图笔画数据 E_ART');
+  // 点数是成本：这条 path 的段数直接决定 Qt 侧的光栅缓存，所以做过一次"减半"重建
+  // （eps 0.9→1.8、最小面积 45→70：72 多边形/2516 点 → 54/1271）。门槛按当前量级留余量。
   const polyCount = (artMatch[1].match(/\[/g) || []).length;
-  assert.ok(polyCount >= 60, `参考图笔画只矢量化出 ${polyCount} 个多边形，太少（应 ≥60）`);
+  assert.ok(polyCount >= 45, `参考图笔画只矢量化出 ${polyCount} 个多边形，太少（应 ≥45）`);
   const eStart = src.indexOf('function templateE(');
   assert.ok(eStart > 0, 'motifs.js 里找不到 templateE');
   const eRest = src.slice(eStart + 10);
