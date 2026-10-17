@@ -15,7 +15,7 @@ Item {
     property bool revealed: true
     property bool ambient: true
     // 描摹鸟群默认关闭：它会和刊头文字抢地方（用户已否决一次）。要看再打开。
-    property bool showTracedFlock: false
+    property bool showTracedFlock: true
 
     signal notice(string text, bool bad)
 
@@ -219,6 +219,21 @@ Item {
         }
     }
 
+    // ── 方案 C：描摹鸟群 = 整页最底层暗纹（z 最低、透明度 ≤0.2、纯装饰）───────
+    //    为什么放这里而不是主视觉框里：主视觉框左边就是刊头文字，鸟群铺进去会把
+    //    「Friends Roster」和说明压成一坨（用户已否决）。放到页面最底层当纸面暗纹，
+    //    只影响"纸的质地"，不参与阅读，也不改任何 Layout 的几何。
+    //    enabled:false —— 不吃鼠标/焦点；绘制顺序在最前 —— 被所有面板与文字覆盖。
+    TracedFlock {
+        anchors.fill: parent
+        z: 0
+        enabled: false
+        visible: page.showTracedFlock === true
+        motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
+        reducedMotion: page.motionTier <= 0
+        count: 22
+        flockOpacity: 0.16
+    }
     RowLayout {
         anchors.fill: parent
         spacing: 16
@@ -253,21 +268,6 @@ Item {
                 // 用 bird-01..06.svg（参考截图的矢量化资源）按三股阵型铺开，几何由宿主决定，不进 Layout。
                 // 描摹鸟群：必须与图版**同一个方框**，否则会压到左边的刊头文字（用户已反馈过）。
                 // 几何完全复制 friendPlate：居中正方形、宽 Math.min(h, w-440)，绝不铺满整行。
-                TracedFlock {
-                    // 只占图版右半的负空间：左边是刊头文字（Friends Roster + 说明 + 按钮），
-                    // 鸟群一旦铺过去就会把文字压成"一坨"（用户已明确否决）。
-                    // 所以这里不 anchors.fill，而是贴着图版右半区摆放，且再压一档透明度。
-                    anchors.verticalCenter: parent.verticalCenter
-                    x: parent.width * 0.46
-                    width: parent.width * 0.30
-                    height: Math.min(parent.height * 0.78, width * 1.6)
-                    z: 0
-                    enabled: false
-                    motionEnabled: page.active !== false && page.ambient !== false && page.motionTier > 0
-                    reducedMotion: page.motionTier <= 0
-                    count: 12
-                    flockOpacity: 0.34
-                }
                 MotifPlate {
                     id: friendPlate
                     z: 1

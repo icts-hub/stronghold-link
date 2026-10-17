@@ -272,7 +272,7 @@
             },
             {
                 "path": "app_qml/qml/Pages/FriendsPage.qml",
-                "sha256": "b101a1428ea5777568ac21005fc1ada593521565105f5ae678ba91905e53f417"
+                "sha256": "4f575ea8d54d408fc5365ffa52b43fbc84ef0627db7ec3f4659d6fb6802a4f91"
             },
             {
                 "path": "app_qml/qml/Pages/SettingPage.qml",
