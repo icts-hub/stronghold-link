@@ -48,8 +48,14 @@
         <file>qml/Components/AtlasDecorLayer.qml</file>
         <file>qml/Components/AtlasBackdrop.qml</file>
         <file>qml/Components/AtlasHero.qml</file>
-        <file>qml/assets/reference/bird-scene-transparent-overlay.png</file>
         <file>qml/assets/halos/halo-system.svg</file>
         <file>qml/Components/SacredMotifLayer.qml</file>
+        <file>qml/Motion/MotionProfile.qml</file>
+        <file>qml/Motion/MotionPropertyTrack.qml</file>
+        <file>qml/Motion/MotionTrackGroup.qml</file>
+        <file>qml/Motion/MotionClock.qml</file>
+        <file>qml/Motion/MotionProfiler.qml</file>
+        <file>qml/Motion/MotionFlockLayer.qml</file>
+        <file>qml/Motion/MotionMath.js</file>
     </qresource>
 </RCC>

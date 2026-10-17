@@ -196,3 +196,24 @@ test('★ 飞鸟图谱背景：非交互、可暂停、已登记进 qrc', () => 
   assert.match(bird, /asynchronous:\s*true/, 'FlightBird 没有异步加载 SVG（会卡首帧）');
   assert.match(bird, /cache:\s*true/, 'FlightBird 没有开缓存（每帧重新解码 SVG）');
 });
+
+test('★ 运动系统：单一 MotionProfile、组件已登记、参考派生图不进发布物', () => {
+  const main = read('app_qml/qml/Main.qml');
+  const qrc = read('app_qml/qml.qrc');
+  // 唯一策略实例：只允许一个 MotionProfile 实例
+  const instances = (main.match(/MotionProfile\s*\{/g) || []).length;
+  assert.equal(instances, 1, `Main.qml 里有 ${instances} 个 MotionProfile 实例（必须恰好 1 个）`);
+  assert.match(main, /import "Motion"/, 'Main.qml 没有 import "Motion"');
+  // 常驻动画必须挂在 motion.motionAllowed 上（reduced motion / 最低档 / 失焦时停）
+  const gated = (main.match(/running:[^\n]*motion\.motionAllowed/g) || []).length;
+  assert.ok(gated >= 4, `只有 ${gated} 处常驻动画挂在 motion.motionAllowed 上`);
+  // 组件与 JS 都要进 qrc
+  for (const f of ['MotionProfile.qml', 'MotionPropertyTrack.qml', 'MotionTrackGroup.qml',
+    'MotionClock.qml', 'MotionProfiler.qml', 'MotionFlockLayer.qml', 'MotionMath.js']) {
+    assert.ok(qrc.includes('qml/Motion/' + f), `qml.qrc 没登记 qml/Motion/${f}`);
+  }
+  // 研究素材（截图/PV 参考派生位图）不得随发布包再分发
+  for (const bad of ['bird-scene-transparent-overlay.png', 'bird-scene-original.png', 'PV-KEYFRAME-STUDY.jpg']) {
+    assert.ok(!qrc.includes(bad), `qml.qrc 里还有研究素材 ${bad}（会随发布包分发）`);
+  }
+});

@@ -6,7 +6,7 @@ Item {
     id: root
     objectName: "SacredMotifLayer"
 
-    property url birdSceneSource: Qt.resolvedUrl("qrc:/qml/assets/reference/bird-scene-transparent-overlay.png")
+    property url birdSceneSource: ""   // 参考图派生叠层不随发布包分发；此处置空，只用自绘 SVG
     property url haloSource: Qt.resolvedUrl("qrc:/qml/assets/halos/halo-system.svg")
     property real sceneOpacity: 0.22
     property real haloOpacity: 0.10

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import "Components"
+import "Motion"
 import "Pages"
 import "theme.js" as T
 import "quotes.js" as Q
@@ -39,6 +40,20 @@ property int motionTier: 2
     // 但**后端状态轮询仍然按 awake 走** —— 数据要新鲜，画面不用在看不见的时候空转。
     // 恢复焦点时相位不会跳：MotifPlate 的时间基准在 Timer 停止时已清零（dt 首帧为 0）。
     readonly property bool animating: awake && root.active
+
+    // ── 唯一的动画策略实例（MotionProfile）────────────────────────────────
+    // 口径：animationsEnabled 看动效档位；reducedMotion 是"最低档/无障碍减少动态"；
+    // applicationActive/windowActive 让失焦与最小化能停；pageVisible 交给各页自报。
+    // 现有动画继续用 theme.js 的时长令牌，两者不冲突：令牌定值，Profile 定开关与倍率。
+    MotionProfile {
+        id: motion
+
+        animationsEnabled: root.motionTier > 0
+        reducedMotion: root.motionTier <= 0
+        windowActive: root.active
+        pageVisible: root.awake
+        speedMultiplier: root.motionTier > 1 ? 1.0 : 0.6
+    }
     readonly property int pageIndex: currentPage === "friends" ? 1 : (currentPage === "setting" ? 2 : 0)
 
     property string banner: ""
@@ -145,7 +160,7 @@ property string timecode: "00:00:00.0"
 
         interval: 100
         repeat: true
-        running: root.animating && root.motionTier > 0
+        running: root.animating && motion.motionAllowed
 
         onTriggered: {
             root.uptimeMs += 100
@@ -163,7 +178,7 @@ property string timecode: "00:00:00.0"
 
     SequentialAnimation {
         loops: Animation.Infinite
-        running: root.animating && root.motionTier > 0
+        running: root.animating && motion.motionAllowed
 
         NumberAnimation {
             target: root
@@ -1091,7 +1106,7 @@ Item {
 
                 SequentialAnimation on y {
                     loops: Animation.Infinite
-                    running: root.animating && root.motionTier > 0
+                    running: root.animating && motion.motionAllowed
 
                     NumberAnimation {
                         from: -height
@@ -1316,7 +1331,7 @@ readonly property real eased: 1 - Math.pow(1 - p, 5)
 
             SequentialAnimation on y {
                 loops: Animation.Infinite
-                running: root.animating && root.motionTier > 0
+                running: root.animating && motion.motionAllowed
 
                 NumberAnimation {
                     from: root.height + 10

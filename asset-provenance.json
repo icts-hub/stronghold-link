@@ -252,11 +252,11 @@
             },
             {
                 "path": "app_qml/qml.qrc",
-                "sha256": "7345e2bddb3fff906a8f3016a49982bc5339b6c3bf5ae74c764b6f68d1ecfeac"
+                "sha256": "d674fb53b62b682f87783010c19b8acda88c3c374df57ac996ab29e6710caf11"
             },
             {
                 "path": "app_qml/qml/Main.qml",
-                "sha256": "fecd2c19a14c2bd3e9705e093dbfa987881baeab3aa599222edf1bf78226cc76"
+                "sha256": "9f44f9385923f8f7dc630afe268542d4290cc904c0b6b73a3d29de75ffd4a49f"
             },
             {
                 "path": "app_qml/qml/theme.js",
